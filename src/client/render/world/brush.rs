@@ -58,7 +58,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{InnerSpace as _, Matrix3, Matrix4,Vector3};
+use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3};
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;

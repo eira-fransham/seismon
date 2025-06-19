@@ -66,7 +66,7 @@ impl Toggle {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), val.into()))
             }
         }
     }
@@ -81,7 +81,7 @@ impl Toggle {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), val.into()))
             }
         }
     }
@@ -89,7 +89,7 @@ impl Toggle {
     pub fn toggle(&mut self) -> impl FnOnce(Commands) + '_ {
         self.state = !self.state;
 
-        move |mut c| c.add(SetCvar(self.cvar.clone(), self.state.into()))
+        move |mut c| c.queue(SetCvar(self.cvar.clone(), self.state.into()))
     }
 
     pub fn get(&self) -> bool {
@@ -137,7 +137,7 @@ impl Enum {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val))
+                c.queue(SetCvar(self.cvar.clone(), val))
             }
         }
     }
@@ -152,7 +152,7 @@ impl Enum {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val))
+                c.queue(SetCvar(self.cvar.clone(), val))
             }
         }
     }
@@ -221,7 +221,7 @@ impl Slider {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), val.into()))
             }
         }
     }
@@ -238,7 +238,7 @@ impl Slider {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), val.into()))
             }
         }
     }
@@ -332,7 +332,7 @@ impl TextField {
 
         move |mut c| {
             if let Some(val) = val {
-                c.add(SetCvar(cvar.clone(), val.into()))
+                c.queue(SetCvar(cvar.clone(), val.into()))
             }
         }
     }

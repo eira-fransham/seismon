@@ -23,7 +23,8 @@ use bevy::{
     app::{Main, Plugin},
     asset::{AssetServer, Handle},
     audio::{
-        AudioBundle, AudioSinkPlayback as _, AudioSource, PlaybackMode, PlaybackSettings, Volume,
+        AudioBundle, AudioPlayer, AudioSinkPlayback as _, AudioSource, PlaybackMode,
+        PlaybackSettings, Volume,
     },
     ecs::{
         bundle::Bundle,
@@ -131,10 +132,10 @@ where
     Ok(AudioSource { bytes: data.into() })
 }
 
-type ReverbNode = impl fundsp::audionode::AudioNode<Sample = f32> + Send + Sync + 'static;
+type ReverbNode = impl fundsp::audionode::AudioNode + Send + Sync + 'static;
 
 #[define_opaque(ReverbNode)]
-fn create_mixer(sender_l: SnoopBackend<f32>, sender_r: SnoopBackend<f32>) -> ReverbNode {
+fn create_mixer(sender_l: SnoopBackend, sender_r: SnoopBackend) -> ReverbNode {
     use fundsp::hacker32::*;
 
     let sender_l = An(sender_l);
@@ -146,8 +147,9 @@ fn create_mixer(sender_l: SnoopBackend<f32>, sender_r: SnoopBackend<f32>) -> Rev
             >> (moog_hz(1500., 0.) | moog_hz(1500., 0.))),
     );
 
-    ((multipass() & 0.3 * reverb_stereo(20.0, 0.8) & 0.2 * delay)
-        >> limiter_stereo(0.05)
+    ((multipass() & 0.3 * reverb_stereo(20.0, 0.8, 0.5) & 0.2 * delay)
+        >> limiter_stereo(0.7, 0.7)
+        >> limiter_stereo(0.05, 0.05)
         >> (sender_l | sender_r))
         .0
 }
@@ -228,7 +230,7 @@ impl StaticSoundBundle {
                 attenuation: value.attenuation,
             },
             audio: AudioBundle {
-                source: value.src.clone(),
+                source: AudioPlayer(value.src.clone()),
                 settings: PlaybackSettings {
                     mode: PlaybackMode::Loop,
                     // TODO: Use Bevy's built-in spacialiser
@@ -296,7 +298,7 @@ fn make_bundle(
         channel: value.ent_channel,
     };
     let audio = AudioBundle {
-        source: value.src.clone(),
+        source: AudioPlayer(value.src.clone()),
         settings: PlaybackSettings {
             mode: PlaybackMode::Despawn,
             // TODO: Use Bevy's built-in spacialiser
@@ -363,8 +365,8 @@ pub enum MixerEvent {
 
 #[derive(Resource)]
 pub struct GetGlobalAudio {
-    pub left: Snoop<f32>,
-    pub right: Snoop<f32>,
+    pub left: Snoop,
+    pub right: Snoop,
 }
 
 mod systems {

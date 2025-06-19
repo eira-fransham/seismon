@@ -246,14 +246,14 @@ pub trait Pipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "main",
+                entry_point: Some("main"),
                 buffers: &Self::vertex_buffer_layouts(),
                 compilation_options: Default::default(),
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "main",
+                entry_point: Some("main"),
                 targets: &Self::color_target_states_with_args(args),
                 compilation_options: Default::default(),
             }),
@@ -264,6 +264,7 @@ pub trait Pipeline {
             },
             depth_stencil: Self::depth_stencil_state(),
             multiview: Default::default(),
+            cache: None,
         });
 
         (pipeline, bind_group_layouts)
@@ -311,14 +312,14 @@ pub trait Pipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "main",
+                entry_point: Some("main"),
                 buffers: &Self::vertex_buffer_layouts(),
                 compilation_options: Default::default(),
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "main",
+                entry_point: Some("main"),
                 targets: &Self::color_target_states_with_args(args),
                 compilation_options: Default::default(),
             }),
@@ -329,6 +330,7 @@ pub trait Pipeline {
             },
             depth_stencil: Self::depth_stencil_state(),
             multiview: Default::default(),
+            cache: None,
         });
 
         pipeline

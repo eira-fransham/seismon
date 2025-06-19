@@ -31,7 +31,7 @@ use beef::Cow;
 use bevy::{
     ecs::{
         system::{Resource, SystemId},
-        world::{DeferredWorld, Command, World},
+        world::{Command, DeferredWorld, World},
     },
     prelude::*,
     render::render_asset::RenderAssetUsages,
@@ -123,7 +123,7 @@ impl Plugin for SeismonConsolePlugin {
                 Update,
                 (
                     systems::update_console_size
-                        .run_if(resource_changed_or_removed::<ConnectionState>()),
+                        .run_if(resource_changed_or_removed::<ConnectionState>),
                     systems::update_render_console,
                     systems::write_alert,
                     (systems::write_console_out, systems::write_center_print)
@@ -275,9 +275,9 @@ pub fn cvar_error_handler(In(result): In<Result<(), ConsoleError>>) {
 // TODO: Add more-complex scripting language
 #[derive(Clone, Debug)]
 pub enum CmdKind {
-    Builtin(SystemId<Box<[String]>, ExecResult>),
+    Builtin(SystemId<In<Box<[String]>>, ExecResult>),
     Action {
-        system: Option<SystemId<(Trigger, Box<[String]>), ()>>,
+        system: Option<SystemId<In<(Trigger, Box<[String]>)>, ()>>,
         state: Trigger,
         // TODO: Mark when the last state update was, so we know how long a key has been pressed
     },
@@ -285,7 +285,7 @@ pub enum CmdKind {
     Alias(CName),
     Cvar {
         cvar: Cvar,
-        on_set: Option<SystemId<Value>>,
+        on_set: Option<SystemId<In<Value>>>,
     },
 }
 
@@ -435,11 +435,11 @@ pub trait RegisterCmdExt {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<A, ExecResult, M> + 'static;
+        S: IntoSystem<In<A>, ExecResult, M> + 'static;
 
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
-        S: IntoSystem<Value, (), M> + 'static,
+        S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
         I: Into<CName>;
@@ -455,7 +455,7 @@ impl RegisterCmdExt for App {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<A, ExecResult, M> + 'static,
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
     {
         self.world_mut().command::<A, S, M>(run);
 
@@ -464,7 +464,7 @@ impl RegisterCmdExt for App {
 
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
-        S: IntoSystem<Value, (), M> + 'static,
+        S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
         I: Into<CName>,
@@ -499,7 +499,8 @@ where
 {
     fn new<I, A, O, M>(system: I, handle_error: F) -> Self
     where
-        I: IntoSystem<A, O, M, System = S>,
+        A: 'static,
+        I: IntoSystem<In<A>, O, M, System = S>,
     {
         Self {
             inner: I::into_system(system),
@@ -515,8 +516,15 @@ where
     F: FnMut(E) -> S::Out + Send + Sync + 'static,
     E: Send + Sync + 'static,
 {
-    type In = Result<S::In, E>;
+    type In = In<Result<<S::In as SystemInput>::Inner<'static>, E>>;
     type Out = S::Out;
+
+    unsafe fn validate_param_unsafe(
+        &mut self,
+        world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'_>,
+    ) -> bool {
+        unsafe { self.inner.validate_param_unsafe(world) }
+    }
 
     fn name(&self) -> std::borrow::Cow<'static, str> {
         self.inner.name()
@@ -550,7 +558,7 @@ where
 
     unsafe fn run_unsafe(
         &mut self,
-        input: Self::In,
+        input: <Self::In as SystemInput>::Inner<'_>,
         world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell,
     ) -> Self::Out {
         match input {
@@ -603,7 +611,7 @@ impl RegisterCmdExt for World {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<A, ExecResult, M> + 'static,
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
     {
         let mut command = A::command().no_binary_name(true);
         let command_name = Cow::from(command.get_name().to_owned());
@@ -642,7 +650,7 @@ impl RegisterCmdExt for World {
 
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
-        S: IntoSystem<Value, (), M> + 'static,
+        S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
         I: Into<CName>,
@@ -737,7 +745,7 @@ pub struct Registry {
     // We store a history so that we can remove functions and see the previously-defined ones
     // TODO: Implement a compression pass (e.g. after a removal)
     commands: HashMap<CName, (CommandImpl, Vec<CommandImpl>)>,
-    changed_cvars: HashMap<EqHack<SystemId<Value>>, Value>,
+    changed_cvars: HashMap<EqHack<SystemId<In<Value>>>, Value>,
     names: BTreeSet<CName>,
 }
 
@@ -776,7 +784,7 @@ impl Registry {
         })
     }
 
-    fn cvar<S, C, H>(&mut self, name: S, cvar: C, on_set: Option<SystemId<Value>>, help: H)
+    fn cvar<S, C, H>(&mut self, name: S, cvar: C, on_set: Option<SystemId<In<Value>>>, help: H)
     where
         S: Into<CName>,
         C: Into<Cvar>,
@@ -811,7 +819,7 @@ impl Registry {
     /// Registers a new command with the given name.
     ///
     /// Returns an error if a command with the specified name already exists.
-    fn command<N, H>(&mut self, name: N, cmd: SystemId<Box<[String]>, ExecResult>, help: H)
+    fn command<N, H>(&mut self, name: N, cmd: SystemId<In<Box<[String]>>, ExecResult>, help: H)
     where
         N: Into<CName>,
         H: Into<CName>,
@@ -922,7 +930,7 @@ impl Registry {
     fn get_cvar_mut<S: AsRef<str>>(
         &mut self,
         name: S,
-    ) -> Option<(&mut Cvar, Option<SystemId<Value>>)> {
+    ) -> Option<(&mut Cvar, Option<SystemId<In<Value>>>)> {
         self.get_mut(name).and_then(|info| match &mut info.kind {
             CmdKind::Cvar { cvar, on_set } => Some((cvar, on_set.clone())),
             _ => None,
@@ -1983,7 +1991,7 @@ struct ConsoleTextInputUi;
 
 #[derive(Debug, Clone)]
 pub struct Conchars {
-    pub image: UiImage,
+    pub image: ImageNode,
     pub layout: Handle<TextureAtlasLayout>,
     pub glyph_size: (Val, Val),
 }
@@ -2071,7 +2079,7 @@ mod console_text {
     #[derive(Component, Debug)]
     pub struct AtlasText {
         pub text: QString,
-        pub image: UiImage,
+        pub image: ImageNode,
         pub line_padding: UiRect,
         pub layout: Handle<TextureAtlasLayout>,
         pub glyph_size: (Val, Val),
@@ -2086,50 +2094,48 @@ mod console_text {
             text: Query<(Entity, &AtlasText), Changed<AtlasText>>,
         ) {
             for (entity, text) in text.iter() {
-                commands.add(DespawnChildrenRecursive { entity });
+                commands.queue(DespawnChildrenRecursive {
+                    entity,
+                    warn: false,
+                });
 
                 let mut commands = commands.entity(entity);
 
                 commands.with_children(|commands| {
                     for line in text.text.lines() {
                         commands
-                            .spawn(NodeBundle {
-                                style: Style {
-                                    flex_direction: FlexDirection::Row,
-                                    min_height: text.glyph_size.1,
-                                    width: Val::Percent(100.),
-                                    flex_wrap: FlexWrap::Wrap,
-                                    padding: text.line_padding.clone(),
-                                    justify_content: text.justify.clone(),
-                                    ..default()
-                                },
+                            .spawn(Node {
+                                flex_direction: FlexDirection::Row,
+                                min_height: text.glyph_size.1,
+                                width: Val::Percent(100.),
+                                flex_wrap: FlexWrap::Wrap,
+                                padding: text.line_padding.clone(),
+                                justify_content: text.justify.clone(),
                                 ..default()
                             })
                             .with_children(|commands| {
                                 for chr in &*line.raw {
                                     if chr.is_ascii_whitespace() {
-                                        commands.spawn(NodeBundle {
-                                            style: Style {
-                                                width: text.glyph_size.0,
-                                                height: text.glyph_size.1,
-                                                ..default()
-                                            },
+                                        commands.spawn(Node {
+                                            width: text.glyph_size.0,
+                                            height: text.glyph_size.1,
                                             ..default()
                                         });
                                     } else {
-                                        commands.spawn(AtlasImageBundle {
-                                            image: text.image.clone(),
-                                            texture_atlas: TextureAtlas {
-                                                layout: text.layout.clone(),
-                                                index: *chr as usize,
+                                        commands.spawn((
+                                            ImageNode {
+                                                texture_atlas: Some(TextureAtlas {
+                                                    layout: text.layout.clone(),
+                                                    index: *chr as usize,
+                                                }),
+                                                ..text.image.clone()
                                             },
-                                            style: Style {
+                                            Node {
                                                 width: text.glyph_size.0,
                                                 height: text.glyph_size.1,
                                                 ..default()
                                             },
-                                            ..default()
-                                        });
+                                        ));
                                     }
                                 }
                             });
@@ -2163,18 +2169,15 @@ mod systems {
                 glyph_size,
             } = gfx.conchars.clone();
             commands.spawn((
-                NodeBundle {
-                    style: Style {
-                        position_type: PositionType::Absolute,
-                        width: Val::Percent(100.),
-                        top: Val::Percent(30.),
-                        justify_content: JustifyContent::Center,
-                        flex_direction: FlexDirection::Column,
-                        ..default()
-                    },
-                    z_index: ZIndex::Global(1),
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.),
+                    top: Val::Percent(30.),
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
                     ..default()
                 },
+                GlobalZIndex(1),
                 AtlasText {
                     text: "".into(),
                     image: image.clone(),
@@ -2189,13 +2192,10 @@ mod systems {
                 ConsoleTextCenterPrintUi,
             ));
             commands.spawn((
-                NodeBundle {
-                    style: Style {
-                        left: glyph_size.0 / 2.,
-                        top: glyph_size.1 / 2.,
-                        flex_direction: FlexDirection::Column,
-                        ..default()
-                    },
+                Node {
+                    left: glyph_size.0 / 2.,
+                    top: glyph_size.1 / 2.,
+                    flex_direction: FlexDirection::Column,
                     ..default()
                 },
                 AtlasText {
@@ -2248,51 +2248,42 @@ mod systems {
 
             commands
                 .spawn((
-                    NodeBundle {
-                        style: Style {
-                            position_type: PositionType::Absolute,
-                            width: Val::Percent(100.),
-                            height: Val::Percent(30.),
-                            overflow: Overflow::clip(),
-                            flex_direction: FlexDirection::Column,
-                            justify_content: JustifyContent::End,
-                            ..default()
-                        },
-                        visibility: Visibility::Hidden,
-                        z_index: ZIndex::Global(2),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Percent(100.),
+                        height: Val::Percent(30.),
+                        overflow: Overflow::clip(),
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::End,
                         ..default()
                     },
+                    Visibility::Hidden,
+                    GlobalZIndex(2),
                     ConsoleUi,
                 ))
                 .with_children(|commands| {
-                    commands.spawn(ImageBundle {
+                    commands.spawn((ImageBundle {
                         image,
-                        style: Style {
+                        z_index: ZIndex(-1),
+                        node: Node {
                             position_type: PositionType::Absolute,
                             width: Val::Vw(100.),
                             height: Val::Vh(100.),
                             ..default()
                         },
-                        z_index: ZIndex::Local(-1),
                         ..default()
-                    });
+                    },));
                     commands
-                        .spawn(NodeBundle {
-                            style: Style {
-                                flex_direction: FlexDirection::Column,
-                                flex_wrap: FlexWrap::NoWrap,
-                                justify_content: JustifyContent::End,
-                                ..default()
-                            },
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            flex_wrap: FlexWrap::NoWrap,
+                            justify_content: JustifyContent::End,
                             ..default()
                         })
                         .with_children(|commands| {
                             commands.spawn((
-                                NodeBundle {
-                                    style: Style {
-                                        flex_direction: FlexDirection::Column,
-                                        ..default()
-                                    },
+                                Node {
+                                    flex_direction: FlexDirection::Column,
                                     ..default()
                                 },
                                 AtlasText {
@@ -2309,11 +2300,8 @@ mod systems {
                                 ConsoleTextOutputUi,
                             ));
                             commands.spawn((
-                                NodeBundle {
-                                    style: Style {
-                                        flex_direction: FlexDirection::Column,
-                                        ..default()
-                                    },
+                                Node {
+                                    flex_direction: FlexDirection::Column,
                                     ..default()
                                 },
                                 AtlasText {
@@ -2352,7 +2340,7 @@ mod systems {
 
     pub fn update_console_size(
         conn: Option<Res<ConnectionState>>,
-        mut console_ui: Query<&mut Style, With<ConsoleUi>>,
+        mut console_ui: Query<&mut Node, With<ConsoleUi>>,
     ) {
         for mut style in &mut console_ui {
             style.height = if matches!(conn.as_deref(), Some(ConnectionState::Connected(_))) {

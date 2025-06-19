@@ -8,12 +8,11 @@ use crate::{
 use beef::Cow;
 use bevy::{
     asset::AssetLoader,
+    image::ImageSampler,
     prelude::*,
-    render::{
-        render_resource::{AsBindGroup, ShaderRef},
-        texture::ImageSampler,
-    },
+    render::render_resource::{AsBindGroup, ShaderRef},
     sprite::Material2d,
+    utils::ConditionalSendFuture,
 };
 use byteorder::ReadBytesExt;
 use futures::AsyncReadExt;
@@ -27,42 +26,40 @@ impl AssetLoader for PaletteLoader {
     type Settings = ();
     type Error = std::io::Error;
 
-    fn load<'a>(
-        &'a self,
-        reader: &'a mut bevy::asset::io::Reader,
-        _settings: &'a Self::Settings,
-        _load_context: &'a mut bevy::asset::LoadContext,
-    ) -> bevy::utils::BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
-        Box::pin(async move {
-            const PALETTE_SIZE: usize = 3 * 256;
+    async fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut bevy::asset::LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        const PALETTE_SIZE: usize = 3 * 256;
 
-            let mut rgb = [0u8; PALETTE_SIZE];
-            reader.read_exact(&mut rgb).await?;
+        let mut rgb = [0u8; PALETTE_SIZE];
+        reader.read_exact(&mut rgb).await?;
 
-            let rgba = rgb
-                .chunks(3)
-                .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 0xff])
-                .collect();
+        let rgba = rgb
+            .chunks(3)
+            .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 0xff])
+            .collect();
 
-            Ok(Image {
-                data: rgba,
-                texture_descriptor: wgpu::TextureDescriptor {
-                    label: Some("palette"),
-                    size: Extent3d {
-                        width: PALETTE_SIZE as u32,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D1,
-                    format: wgpu::TextureFormat::Rgba8Uint,
-                    usage: TextureUsages::TEXTURE_BINDING,
-                    view_formats: default(),
+        Ok(Image {
+            data: rgba,
+            texture_descriptor: wgpu::TextureDescriptor {
+                label: Some("palette"),
+                size: Extent3d {
+                    width: PALETTE_SIZE as u32,
+                    height: 1,
+                    depth_or_array_layers: 1,
                 },
-                sampler: ImageSampler::Default,
-                ..default()
-            })
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D1,
+                format: wgpu::TextureFormat::Rgba8Uint,
+                usage: TextureUsages::TEXTURE_BINDING,
+                view_formats: default(),
+            },
+            sampler: ImageSampler::Default,
+            ..default()
         })
     }
 

@@ -68,7 +68,7 @@ use cgmath::{Deg, Vector3};
 use bevy::{
     asset::AssetServer,
     ecs::{
-        event::{EventWriter, ManualEventReader},
+        event::{EventCursor, EventWriter},
         system::{Res, ResMut, Resource},
     },
     prelude::*,
@@ -332,7 +332,7 @@ enum ConnectionKind {
     /// A regular Quake server.
     Server {
         /// The socket used to communicate with the server.
-        reader: ManualEventReader<ServerMessage>,
+        reader: EventCursor<ServerMessage>,
 
         /// The client's packet composition buffer.
         compose: Vec<u8>,

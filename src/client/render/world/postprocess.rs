@@ -2,8 +2,8 @@ use std::{mem::size_of, num::NonZeroU64};
 
 use bevy::{
     core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
-    prelude::*,
     ecs::system::SystemState,
+    prelude::*,
     render::{
         extract_resource::ExtractResource,
         render_graph::{RenderLabel, ViewNode},
@@ -108,6 +108,7 @@ impl SpecializedRenderPipeline for PostProcessPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
+            zero_initialize_workgroup_memory: false,
         }
     }
 }
@@ -337,7 +338,8 @@ impl ViewNode for PostProcessPass {
     type ViewQuery = &'static ViewTarget;
 
     fn update(&mut self, world: &mut World) {
-        let (mut pipeline_cache, post_pipeline, postprocess_vars, mut pipelines) = self.system_state.get_mut(world);
+        let (mut pipeline_cache, post_pipeline, postprocess_vars, mut pipelines) =
+            self.system_state.get_mut(world);
         let pipeline_id = pipelines.specialize(&pipeline_cache, &post_pipeline, *postprocess_vars);
 
         self.pipeline = Some(pipeline_id);

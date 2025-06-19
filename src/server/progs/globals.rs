@@ -17,9 +17,7 @@
 
 use std::{error::Error, fmt};
 
-use crate::server::progs::{
-    EntityId, FieldAddr, FunctionId, GlobalDef, StringId, Type,
-};
+use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, StringId, Type};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cgmath::{Deg, Euler, InnerSpace, Matrix3, Vector3};

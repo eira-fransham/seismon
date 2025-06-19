@@ -26,12 +26,12 @@ use std::{
 
 use bevy::{
     asset::{
-        io::{AssetReader, AssetReaderError, PathStream, Reader},
+        io::{AssetReader, AssetReaderError, AssetReaderFuture, PathStream, Reader, SliceReader},
         Asset, AssetLoader, LoadContext,
     },
     prelude::*,
     reflect::TypePath,
-    utils::BoxedFuture,
+    utils::{BoxedFuture, ConditionalSendFuture},
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::AsyncReadExt as _;
@@ -114,19 +114,19 @@ impl AssetLoader for PakLoader {
     type Settings = ();
     type Error = PakError;
 
-    fn load<'a>(
-        &'a self,
-        reader: &'a mut Reader,
-        _settings: &'a (),
-        _load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
-        Box::pin(async move {
+    fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &(),
+        _load_context: &mut LoadContext,
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
+        async move {
             let mut data = Vec::new();
 
             reader.read_to_end(&mut data).await?;
 
             Pak::read(data.into_boxed_slice())
-        })
+        }
     }
 
     fn extensions(&self) -> &[&str] {
@@ -135,65 +135,51 @@ impl AssetLoader for PakLoader {
 }
 
 impl AssetReader for Pak {
-    fn read<'a>(
-        &'a self,
-        path: &'a Path,
-    ) -> BoxedFuture<'a, Result<Box<Reader<'a>>, AssetReaderError>> {
-        Box::pin(async move {
-            match self.entries.get(path) {
-                Some(PakEntry::File(range)) => Ok(Box::new(futures::io::Cursor::new(
-                    &self.memory.as_ref()[range.clone()],
-                )) as _),
-                None | Some(PakEntry::Directory(..)) => {
-                    Err(AssetReaderError::NotFound(path.to_path_buf()))
-                }
+    async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
+        match self.entries.get(path) {
+            Some(PakEntry::File(range)) => {
+                Ok(SliceReader::new(&self.memory.as_ref()[range.clone()]))
             }
-        })
-    }
-
-    fn read_meta<'a>(
-        &'a self,
-        path: &'a Path,
-    ) -> BoxedFuture<'a, Result<Box<Reader<'a>>, AssetReaderError>> {
-        self.read(path)
-    }
-
-    fn read_directory<'a>(
-        &'a self,
-        path: &'a Path,
-    ) -> BoxedFuture<'a, Result<Box<PathStream>, AssetReaderError>> {
-        Box::pin(async move {
-            let entry = self
-                .entries
-                .get(path)
-                .ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
-            let dir_entries = if let PakEntry::Directory(entries) = entry {
-                Some(entries)
-            } else {
-                None
-            };
-            let iter = dir_entries
-                .into_iter()
-                .map(AsRef::as_ref)
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>()
-                .into_iter();
-            Ok(Box::new(futures::stream::iter(iter)) as Box<PathStream>)
-        })
-    }
-
-    fn is_directory<'a>(
-        &'a self,
-        path: &'a Path,
-    ) -> BoxedFuture<'a, Result<bool, AssetReaderError>> {
-        Box::pin(async move {
-            match self.entries.get(path) {
-                Some(PakEntry::Directory(..)) => Ok(true),
-                Some(PakEntry::File(..)) => Ok(false),
-                None => Err(AssetReaderError::NotFound(path.to_path_buf())),
+            None | Some(PakEntry::Directory(..)) => {
+                Err(AssetReaderError::NotFound(path.to_path_buf()))
             }
-        })
+        }
+    }
+
+    async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
+        self.read(path).await
+    }
+
+    async fn read_directory<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> Result<Box<PathStream>, AssetReaderError> {
+        let entry = self
+            .entries
+            .get(path)
+            .ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
+        let dir_entries = if let PakEntry::Directory(entries) = entry {
+            Some(entries)
+        } else {
+            None
+        };
+        let iter = dir_entries
+            .into_iter()
+            .map(AsRef::as_ref)
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter();
+
+        Ok(Box::new(futures::stream::iter(iter)))
+    }
+
+    async fn is_directory<'a>(&'a self, path: &'a Path) -> Result<bool, AssetReaderError> {
+        match self.entries.get(path) {
+            Some(PakEntry::Directory(..)) => Ok(true),
+            Some(PakEntry::File(..)) => Ok(false),
+            None => Err(AssetReaderError::NotFound(path.to_path_buf())),
+        }
     }
 }
 

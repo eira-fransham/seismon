@@ -7,7 +7,11 @@ use std::{
     time::Duration,
 };
 
-use bevy::{prelude::*, render::view::screenshot::ScreenshotManager, window::PrimaryWindow};
+use bevy::{
+    prelude::*,
+    render::view::window::screenshot::{save_to_disk, Screenshot},
+    window::PrimaryWindow,
+};
 use chrono::Utc;
 use image::RgbImage;
 use seismon::common::console::RegisterCmdExt as _;
@@ -43,28 +47,21 @@ impl Plugin for CapturePlugin {
                 systems::recv_frame.run_if(resource_exists::<VideoCtxRecv>),
             ),
         )
-        .command(
-            |In(Screenshot { path }),
-             window: Query<Entity, With<PrimaryWindow>>,
-             mut screenshot_manager: ResMut<ScreenshotManager>| {
-                let Ok(window) = window.get_single() else {
-                    return "Can't find primary window".to_owned().into();
-                };
-
-                let path = match path {
-                    // TODO: make default path configurable
-                    None => {
-                        PathBuf::from(format!("richter-{}.png", Utc::now().format("%FT%H-%M-%S")))
-                    }
-                    Some(path) => path,
-                };
-
-                match screenshot_manager.save_screenshot_to_disk(window, path) {
-                    Ok(()) => default(),
-                    Err(e) => format!("Couldn't take screenshot: {}", e).into(),
-                }
-            },
-        )
+        // .command(|In(Screenshot { path }), windows: Res<Entity, With<PrimaryWindow>>, mut commands: Commands| {
+        //         let Ok(window) = window.get_single() else {
+        //             return "Can't find primary window".to_owned().into();
+        //         };
+        //         let path = match path {
+        //             // TODO: make default path configurable
+        //             None => {
+        //                 PathBuf::from(format!("richter-{}.png", Utc::now().format("%FT%H-%M-%S")))
+        //             }
+        //             Some(path) => path,
+        //         };
+        //         commands.spawn(Screenshot::window(window))
+        //             .observe(save_to_disk(path));
+        //         default()
+        //     })
         .command(
             |In(StartVideo {
                  path,
@@ -193,49 +190,50 @@ mod systems {
 
     pub fn video_frame(
         mut commands: Commands,
-        mut screenshot: ResMut<ScreenshotManager>,
         window: Query<Entity, With<PrimaryWindow>>,
         time: Res<Time>,
-        mut ctx: ResMut<VideoCtx>,
     ) {
-        let Ok(window) = window.get_single() else {
-            commands.remove_resource::<VideoCtx>();
-            return;
-        };
+        /*
+            let Ok(window) = window.get_single() else {
+                commands.remove_resource::<VideoCtx>();
+                return;
+            };
 
-        if ctx.closed.load(Ordering::SeqCst) {
-            commands.remove_resource::<VideoCtx>();
-            return;
-        }
-
-        if ctx
-            .last_time
-            .map(|t| time.elapsed() >= (t + ctx.frame_time))
-            .unwrap_or(true)
-        {
-            let sender = ctx.send_frame.clone();
-            let frame_id = ctx.cur_frame;
-            let size = ctx.size;
-            let closed = ctx.closed.clone();
-
-            ctx.last_time = Some(time.elapsed());
-
-            if let Ok(_) = screenshot.take_screenshot(window, move |image| {
-                let image = image
-                    .try_into_dynamic()
-                    .unwrap()
-                    .resize_to_fill(size.0, size.1, FilterType::Nearest)
-                    .into_rgb8();
-
-                if let Err(_) = sender.send(VideoFrame { image, frame_id }) {
-                    closed.store(true, Ordering::SeqCst);
-                }
-            }) {
-                ctx.cur_frame += 1;
+            if ctx.closed.load(Ordering::SeqCst) {
+                commands.remove_resource::<VideoCtx>();
+                return;
             }
-        }
 
-        // Handle new frames
+            if ctx
+                .last_time
+                .map(|t| time.elapsed() >= (t + ctx.frame_time))
+                .unwrap_or(true)
+            {
+                let sender = ctx.send_frame.clone();
+                let frame_id = ctx.cur_frame;
+                let size = ctx.size;
+                let closed = ctx.closed.clone();
+
+                ctx.last_time = Some(time.elapsed());
+
+                if let Ok(_) = screenshot.take_screenshot(window, move |image| {
+                    let image = image
+                        .try_into_dynamic()
+                        .unwrap()
+                        .resize_to_fill(size.0, size.1, FilterType::Nearest)
+                        .into_rgb8();
+
+                    if let Err(_) = sender.send(VideoFrame { image, frame_id }) {
+                        closed.store(true, Ordering::SeqCst);
+                    }
+                }) {
+                    ctx.cur_frame += 1;
+                }
+            }
+
+            // Handle new frames
+        */
+        todo!()
     }
 
     pub fn recv_frame(mut ctx: ResMut<VideoCtxRecv>, mut commands: Commands) {

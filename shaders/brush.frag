@@ -87,7 +87,6 @@ void main() {
                 f_diffuse.xy
             ).r;
 
-
             float light = fullbright == 0. ? dot(calc_light(), vec4(1.)) : 0.25;
 
             diffuse_attachment = vec4(texture(

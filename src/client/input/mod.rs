@@ -61,7 +61,7 @@ pub enum InputFocus {
 
 pub mod systems {
     use bevy::{
-        ecs::event::ManualEventReader,
+        ecs::event::EventCursor,
         input::{keyboard::KeyboardInput, ButtonState},
         prelude::*,
         window::PrimaryWindow,
@@ -88,7 +88,7 @@ pub mod systems {
 
     #[derive(Resource)]
     pub struct InputEventReader<E: Event> {
-        reader: ManualEventReader<E>,
+        reader: EventCursor<E>,
     }
 
     impl<E: Event> Default for InputEventReader<E> {

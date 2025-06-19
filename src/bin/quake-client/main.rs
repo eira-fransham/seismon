@@ -34,7 +34,10 @@ use bevy::{
     },
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
-    render::{camera::Exposure, view::{ColorGrading, ColorGradingGlobal}},
+    render::{
+        camera::Exposure,
+        view::{ColorGrading, ColorGradingGlobal},
+    },
     window::{PresentMode, PrimaryWindow},
 };
 #[cfg(feature = "auto-exposure")]
@@ -194,6 +197,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
         // main game camera
         commands.spawn((
             Camera3dBundle {
+                msaa: Msaa::Off,
                 transform: Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                     .looking_at(Vec3::default(), Vec3::Y),
                 camera: Camera {
@@ -279,52 +283,51 @@ fn main() -> ExitCode {
         .disable::<AudioPlugin>()
         .add(bevy_mod_dynamicaudio::AudioPlugin::default());
 
-    app.add_plugins(default_plugins).insert_resource(Msaa::Off);
-
     app
-    .add_plugins(SeismonClientPlugin{
-        base_dir: opt.base_dir.clone(),
-        game: opt.game.clone(),
-        main_menu: menu::build_main_menu,
-    })
-    .add_plugins(SeismonServerPlugin)
-    .add_plugins(CapturePlugin)
-    .cvar_on_set(
-        "cl_title",
-        "Quake",
-        cmd_gametitle,
-        "Set the title of the window",
-    )
-    .cvar_on_set(
-        "r_exposure",
-        "indoor",
-        cmd_exposure,
-        "Set the physically-based exposure of the screen: indoor, sunlight, overcast, blender, or a specific ev100 value",
-    )
-    .cvar_on_set(
-        "gamma",
-        "1",
-        cmd_gamma,
-        "Adjust the gamma of the screen",
-    )
-    .cvar_on_set(
-        "r_saturation",
-        "1",
-        cmd_saturation,
-        "Adjust the color saturation of the screen",
-    )
-    .cvar_on_set(
-        "r_postsaturation",
-        "1",
-        cmd_postsaturation,
-        "Adjust the color saturation of the screen (applied after tonemapping)",
-    )
-    .cvar_on_set(
-        "r_tonemapping",
-        "blender",
-        cmd_tonemapping,
-        "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
-    ).insert_resource(DefaultOpaqueRendererMethod::deferred())
+        .add_plugins(default_plugins)
+        .add_plugins(SeismonClientPlugin{
+            base_dir: opt.base_dir.clone(),
+            game: opt.game.clone(),
+            main_menu: menu::build_main_menu,
+        })
+        .add_plugins(SeismonServerPlugin)
+        .add_plugins(CapturePlugin)
+        .cvar_on_set(
+            "cl_title",
+            "Quake",
+            cmd_gametitle,
+            "Set the title of the window",
+        )
+        .cvar_on_set(
+            "r_exposure",
+            "indoor",
+            cmd_exposure,
+            "Set the physically-based exposure of the screen: indoor, sunlight, overcast, blender, or a specific ev100 value",
+        )
+        .cvar_on_set(
+            "gamma",
+            "1",
+            cmd_gamma,
+            "Adjust the gamma of the screen",
+        )
+        .cvar_on_set(
+            "r_saturation",
+            "1",
+            cmd_saturation,
+            "Adjust the color saturation of the screen",
+        )
+        .cvar_on_set(
+            "r_postsaturation",
+            "1",
+            cmd_postsaturation,
+            "Adjust the color saturation of the screen (applied after tonemapping)",
+        )
+        .cvar_on_set(
+            "r_tonemapping",
+            "blender",
+            cmd_tonemapping,
+            "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
+        ).insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 
     #[cfg(feature = "auto-exposure")]

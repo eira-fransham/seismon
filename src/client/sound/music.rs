@@ -9,6 +9,7 @@ use bevy::{
         entity::Entity,
         system::{Commands, Query, Resource},
     },
+    prelude::*,
 };
 
 use bevy_mod_dynamicaudio::audio::{AudioSink, AudioTarget};
@@ -74,7 +75,7 @@ impl MusicPlayer {
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
-        let source = asset_server.add(AudioSource { bytes: data.into() });
+        let source = AudioPlayer::new(asset_server.add(AudioSource { bytes: data.into() }));
 
         self.stop(commands);
 

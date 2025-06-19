@@ -41,7 +41,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{Euler, InnerSpace, Matrix4, Matrix3, SquareMatrix as _, Vector3, Vector4};
+use cgmath::{Euler, InnerSpace, Matrix3, Matrix4, SquareMatrix as _, Vector3, Vector4};
 use chrono::Duration;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
