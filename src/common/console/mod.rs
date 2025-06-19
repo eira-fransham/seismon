@@ -30,8 +30,8 @@ use std::{
 use beef::Cow;
 use bevy::{
     ecs::{
-        system::{Command, Resource, SystemId},
-        world::World,
+        system::{Resource, SystemId},
+        world::{DeferredWorld, Command, World},
     },
     prelude::*,
     render::render_asset::RenderAssetUsages,
@@ -65,7 +65,7 @@ pub struct SeismonConsolePlugin;
 
 impl Plugin for SeismonConsolePlugin {
     fn build(&self, app: &mut App) {
-        let vfs = app.world.resource::<Vfs>();
+        let vfs = app.world().resource::<Vfs>();
 
         let mut history = liner::History::default();
 
@@ -457,7 +457,7 @@ impl RegisterCmdExt for App {
         A: Parser + 'static,
         S: IntoSystem<A, ExecResult, M> + 'static,
     {
-        self.world.command::<A, S, M>(run);
+        self.world_mut().command::<A, S, M>(run);
 
         self
     }
@@ -469,17 +469,18 @@ impl RegisterCmdExt for App {
         C: Into<Cvar>,
         I: Into<CName>,
     {
-        self.world.cvar_on_set(name, value, on_set, usage);
+        self.world_mut().cvar_on_set(name, value, on_set, usage);
 
         self
     }
+
     fn cvar<N, I, C>(&mut self, name: N, value: C, usage: I) -> &mut Self
     where
         N: Into<CName>,
         C: Into<Cvar>,
         I: Into<CName>,
     {
-        self.world.cvar(name, value, usage);
+        self.world_mut().cvar(name, value, usage);
 
         self
     }
@@ -541,6 +542,10 @@ where
 
     fn has_deferred(&self) -> bool {
         self.inner.has_deferred()
+    }
+
+    fn queue_deferred(&mut self, world: DeferredWorld<'_>) {
+        self.inner.queue_deferred(world)
     }
 
     unsafe fn run_unsafe(
@@ -2016,9 +2021,9 @@ impl FromWorld for Gfx {
             .collect::<Vec<_>>();
 
         let layout = assets.add(TextureAtlasLayout::from_grid(
-            Vec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
-            GLYPH_COLS,
-            GLYPH_ROWS,
+            UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
+            GLYPH_COLS as _,
+            GLYPH_ROWS as _,
             None,
             None,
         ));

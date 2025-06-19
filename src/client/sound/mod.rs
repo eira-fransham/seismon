@@ -167,7 +167,7 @@ impl Plugin for SeismonSoundPlugin {
 
         app.add_audio_mixer::<ReverbNode>();
         let mixer_id = app
-            .world
+            .world_mut()
             .spawn(Mixer {
                 processor: Some(mixer),
             })

@@ -3,6 +3,7 @@ use std::{mem::size_of, num::NonZeroU64};
 use bevy::{
     core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     prelude::*,
+    ecs::system::SystemState,
     render::{
         extract_resource::ExtractResource,
         render_graph::{RenderLabel, ViewNode},
@@ -313,21 +314,30 @@ impl ExtractResource for PostProcessVars {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct PostProcessPassLabel;
 
-#[derive(Default)]
 pub struct PostProcessPass {
     pipeline: Option<CachedRenderPipelineId>,
+    system_state: SystemState<(
+        ResMut<'static, PipelineCache>,
+        Res<'static, PostProcessPipeline>,
+        Res<'static, PostProcessVars>,
+        ResMut<'static, SpecializedRenderPipelines<PostProcessPipeline>>,
+    )>,
+}
+
+impl FromWorld for PostProcessPass {
+    fn from_world(world: &mut World) -> Self {
+        Self {
+            pipeline: None,
+            system_state: SystemState::new(world),
+        }
+    }
 }
 
 impl ViewNode for PostProcessPass {
     type ViewQuery = &'static ViewTarget;
 
     fn update(&mut self, world: &mut World) {
-        let world = world.cell();
-        let mut pipeline_cache = world.resource_mut::<PipelineCache>();
-        let post_pipeline = world.resource::<PostProcessPipeline>();
-        let postprocess_vars = world.resource::<PostProcessVars>();
-
-        let mut pipelines = world.resource_mut::<SpecializedRenderPipelines<PostProcessPipeline>>();
+        let (mut pipeline_cache, post_pipeline, postprocess_vars, mut pipelines) = self.system_state.get_mut(world);
         let pipeline_id = pipelines.specialize(&pipeline_cache, &post_pipeline, *postprocess_vars);
 
         self.pipeline = Some(pipeline_id);
@@ -354,6 +364,7 @@ impl ViewNode for PostProcessPass {
 
         let PostProcessPass {
             pipeline: Some(pipeline_id),
+            ..
         } = self
         else {
             return Ok(());

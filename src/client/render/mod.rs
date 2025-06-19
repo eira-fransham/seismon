@@ -137,8 +137,8 @@ use super::{state::ClientState, Connection, ConnectionKind, ConnectionState};
 pub struct SeismonRenderPlugin;
 
 fn extract_now<U: Resource, V: ExtractResource<Source = U>>(app: &mut App) {
-    let res = V::extract_resource(app.world.resource::<U>());
-    let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
+    let res = V::extract_resource(app.world().resource::<U>());
+    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render_app.insert_resource(res);
@@ -171,7 +171,7 @@ impl Plugin for SeismonRenderPlugin {
     fn finish(&self, app: &mut bevy::prelude::App) {
         extract_now::<RenderResolution, RenderResolution>(app);
 
-        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
 

@@ -40,7 +40,7 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
         .add_submenu("Options", build_menu_options)?
         .add_action("Help/Ordering", || ())
         .add_action("Quit", |mut quit: ResMut<Events<AppExit>>| {
-            quit.send(AppExit);
+            quit.send(AppExit::Success);
         })
         .build(MenuView {
             draw_plaque: true,

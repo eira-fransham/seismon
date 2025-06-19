@@ -34,7 +34,7 @@ use bevy::{
     },
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
-    render::{camera::Exposure, view::ColorGrading},
+    render::{camera::Exposure, view::{ColorGrading, ColorGradingGlobal}},
     window::{PresentMode, PrimaryWindow},
 };
 #[cfg(feature = "auto-exposure")]
@@ -89,7 +89,9 @@ fn cmd_saturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorGradi
     };
 
     for mut grading in &mut gradings {
-        grading.pre_saturation = saturation;
+        grading.highlights.saturation = saturation;
+        grading.midtones.saturation = saturation;
+        grading.shadows.saturation = saturation;
     }
 }
 
@@ -103,7 +105,7 @@ fn cmd_postsaturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorG
     };
 
     for mut grading in &mut gradings {
-        grading.post_saturation = saturation;
+        grading.global.post_saturation = saturation;
     }
 }
 
@@ -117,7 +119,9 @@ fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
     };
 
     for mut grading in &mut gradings {
-        grading.gamma = 1. / gamma;
+        grading.highlights.gamma = 1. / gamma;
+        grading.midtones.gamma = 1. / gamma;
+        grading.shadows.gamma = 1. / gamma;
     }
 }
 
@@ -200,7 +204,10 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
                 // In addition to the in-camera exposure, we add a post exposure grading
                 // in order to adjust the brightness on the UI elements.
                 color_grading: ColorGrading {
-                    exposure: 2.,
+                    global: ColorGradingGlobal {
+                        exposure: 2.,
+                        ..default()
+                    },
                     ..default()
                 },
                 ..default()

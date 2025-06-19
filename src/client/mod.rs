@@ -141,7 +141,7 @@ where
     F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy::prelude::App) {
-        if let Ok(menu) = (self.main_menu)(MenuBuilder::new(&mut app.world)) {
+        if let Ok(menu) = (self.main_menu)(MenuBuilder::new(app.world_mut())) {
             app.insert_resource(menu);
         }
 

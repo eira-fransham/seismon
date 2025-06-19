@@ -248,12 +248,14 @@ pub trait Pipeline {
                 module: &vertex_shader,
                 entry_point: "main",
                 buffers: &Self::vertex_buffer_layouts(),
+                compilation_options: Default::default(),
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
                 entry_point: "main",
                 targets: &Self::color_target_states_with_args(args),
+                compilation_options: Default::default(),
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
@@ -311,12 +313,14 @@ pub trait Pipeline {
                 module: &vertex_shader,
                 entry_point: "main",
                 buffers: &Self::vertex_buffer_layouts(),
+                compilation_options: Default::default(),
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
                 entry_point: "main",
                 targets: &Self::color_target_states_with_args(args),
+                compilation_options: Default::default(),
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
