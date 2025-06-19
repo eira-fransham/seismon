@@ -1,6 +1,5 @@
-use std::{collections::VecDeque, io::Read as _};
+use std::io::Read as _;
 
-use beef::Cow;
 use bevy::prelude::*;
 use clap::Parser;
 

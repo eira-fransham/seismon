@@ -17,7 +17,7 @@ use bevy::{
     },
 };
 use serde::Deserialize;
-use wgpu::{BindGroupLayoutEntry, BlendState, ColorTargetState, ColorWrites, PrimitiveState};
+use wgpu::{BindGroupLayoutEntry, BlendState, ColorTargetState, ColorWrites};
 
 use crate::{
     client::render::{pipeline::Pipeline, ui::quad::QuadPipeline, GraphicsState, RenderState},

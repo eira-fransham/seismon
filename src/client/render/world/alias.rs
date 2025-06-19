@@ -22,7 +22,7 @@ use bevy::{
         texture::CachedTexture,
     },
 };
-use cgmath::{InnerSpace as _, Matrix4, Vector3, Zero as _};
+use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3, Zero as _};
 use chrono::Duration;
 use failure::Error;
 use lazy_static::lazy_static;
@@ -89,7 +89,7 @@ impl AliasPipeline {
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: Matrix4<f32>,
-    pub model_view: Matrix4<f32>,
+    pub model_view: Matrix3<f32>,
 }
 
 lazy_static! {

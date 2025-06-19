@@ -58,7 +58,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{InnerSpace as _, Matrix4, Vector3};
+use cgmath::{InnerSpace as _, Matrix3, Matrix4,Vector3};
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
@@ -133,7 +133,7 @@ impl BrushPipeline {
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: Matrix4<f32>,
-    pub model_view: Matrix4<f32>,
+    pub model_view: Matrix3<f32>,
 }
 
 #[repr(C)]

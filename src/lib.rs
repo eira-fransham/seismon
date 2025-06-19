@@ -17,8 +17,6 @@
 
 #![deny(unused_must_use)]
 #![feature(
-    extract_if,
-    iter_repeat_n,
     type_alias_impl_trait,
     buf_read_has_data_left,
     error_generic_member_access

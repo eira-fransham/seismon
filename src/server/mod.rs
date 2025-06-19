@@ -2620,7 +2620,7 @@ pub mod systems {
                                         server
                                             .clientcmd_name(
                                                 client_id,
-                                                args.into_iter().next().unwrap().to_owned().into(),
+                                                args.iter().next().unwrap().to_owned().into(),
                                             )
                                             .unwrap();
                                     }

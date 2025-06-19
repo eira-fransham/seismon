@@ -11,7 +11,7 @@ beef = "0.5"
 bevy = { version = "0.13", features = ["vorbis", "wav", "flac", "shader_format_glsl"] }
 # TODO: Need to use git checkout for bevy 0.13 compatibility
 bevy_mod_auto_exposure = { git = "https://github.com/Kurble/bevy_mod_auto_exposure.git", optional = true }
-bevy-mod-dynamicaudio = { git = "https://github.com/eira-fransham/bevy-mod-dynamicaudio.git" }
+bevy-mod-dynamicaudio = { git = "https://github.com/eira-fransham/bevy-mod-dynamicaudio.git", rev = "c71f1124fb3a9a080a294586b64e96eaacf61d59" }
 bitflags = "2.4"
 bimap = "0.6"
 bumpalo = "3.4"

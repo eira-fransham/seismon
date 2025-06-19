@@ -133,6 +133,7 @@ where
 
 type ReverbNode = impl fundsp::audionode::AudioNode<Sample = f32> + Send + Sync + 'static;
 
+#[define_opaque(ReverbNode)]
 fn create_mixer(sender_l: SnoopBackend<f32>, sender_r: SnoopBackend<f32>) -> ReverbNode {
     use fundsp::hacker32::*;
 

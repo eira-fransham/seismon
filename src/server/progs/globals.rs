@@ -15,13 +15,12 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{error::Error, fmt, rc::Rc};
+use std::{error::Error, fmt};
 
 use crate::server::progs::{
-    EntityId, FieldAddr, FunctionId, GlobalDef, StringId, StringTable, Type,
+    EntityId, FieldAddr, FunctionId, GlobalDef, StringId, Type,
 };
 
-use bevy::log::error;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cgmath::{Deg, Euler, InnerSpace, Matrix3, Vector3};
 use num_derive::FromPrimitive;

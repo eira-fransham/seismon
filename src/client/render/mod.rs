@@ -226,7 +226,7 @@ pub fn texture_descriptor<'a>(
     width: u32,
     height: u32,
     format: wgpu::TextureFormat,
-) -> wgpu::TextureDescriptor {
+) -> wgpu::TextureDescriptor<'a> {
     wgpu::TextureDescriptor {
         label,
         size: wgpu::Extent3d {

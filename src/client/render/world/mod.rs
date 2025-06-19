@@ -41,7 +41,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{Euler, InnerSpace, Matrix4, SquareMatrix as _, Vector3, Vector4};
+use cgmath::{Euler, InnerSpace, Matrix4, Matrix3, SquareMatrix as _, Vector3, Vector4};
 use chrono::Duration;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
@@ -345,6 +345,14 @@ pub fn extract_world_renderer(
     }
 }
 
+fn to_mat3(mat4: Matrix4<f32>) -> Matrix3<f32> {
+    Matrix3 {
+        x: mat4.x.truncate(),
+        y: mat4.y.truncate(),
+        z: mat4.z.truncate(),
+    }
+}
+
 impl WorldRenderer {
     pub fn new<'a, M: Iterator<Item = &'a Model>>(
         state: &'a mut GraphicsState,
@@ -505,7 +513,7 @@ impl WorldRenderer {
             pass,
             Update(bump.alloc(brush::VertexPushConstants {
                 transform: camera.view_projection(),
-                model_view: camera.view(),
+                model_view: to_mat3(camera.view()),
             })),
             Clear,
             Clear,
@@ -542,7 +550,7 @@ impl WorldRenderer {
                             pass,
                             Update(bump.alloc(brush::VertexPushConstants {
                                 transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: self.calculate_mv_transform(camera, ent),
+                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
                             })),
                             Clear,
                             Clear,
@@ -555,7 +563,7 @@ impl WorldRenderer {
                             pass,
                             Update(bump.alloc(alias::VertexPushConstants {
                                 transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: self.calculate_mv_transform(camera, ent),
+                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
                             })),
                             Clear,
                             Clear,
@@ -588,7 +596,7 @@ impl WorldRenderer {
                     pass,
                     Update(bump.alloc(alias::VertexPushConstants {
                         transform: camera.view_projection() * viewmodel_mat,
-                        model_view: camera.view() * viewmodel_mat,
+                        model_view: to_mat3(camera.view() * viewmodel_mat),
                     })),
                     Clear,
                     Clear,

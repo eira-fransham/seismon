@@ -7,7 +7,7 @@ layout(location = 3) in vec2 a_diffuse;
 
 layout(push_constant) uniform PushConstants {
   mat4 transform;
-  mat4 model_view;
+  mat3 model_view;
 } push_constants;
 
 layout(location = 0) out vec3 f_normal;
@@ -49,7 +49,7 @@ vec3 convert(vec3 from) {
 }
 
 void main() {
-  f_normal = transpose(inv(mat3(push_constants.model_view))) * convert(a_normal);
+  f_normal = transpose(inv(push_constants.model_view)) * convert(a_normal);
   f_diffuse = a_diffuse;
   gl_Position = push_constants.transform * vec4(convert(a_position1), 1.0);
 }

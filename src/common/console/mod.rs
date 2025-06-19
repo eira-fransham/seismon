@@ -381,7 +381,7 @@ impl<'a> RunCmd<'a> {
         }
     }
 
-    pub fn parse_many(s: &'a str) -> Result<Vec<Self>, nom::Err<nom::error::Error<&str>>> {
+    pub fn parse_many(s: &'a str) -> Result<Vec<Self>, nom::Err<nom::error::Error<&'a str>>> {
         parse::commands(s).map(|(_, cmds)| cmds)
     }
 
@@ -589,7 +589,7 @@ where
     A: FromArgMatches,
 {
     move |In(args)| {
-        let matches = command.try_get_matches_from_mut(args.into_iter());
+        let matches = command.try_get_matches_from_mut(args.iter());
         matches.and_then(|mut m| A::from_arg_matches_mut(&mut m))
     }
 }
@@ -2140,7 +2140,7 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::client::{Connection, ConnectionState};
+    use crate::client::ConnectionState;
 
     use self::console_text::AtlasText;
 
