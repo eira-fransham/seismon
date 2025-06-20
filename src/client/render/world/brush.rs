@@ -432,7 +432,7 @@ impl BrushRendererBuilder {
         };
 
         let mut lightmap_ids = [default_lightmap_id; 4];
-        for (_, lightmap_id) in (0..lightmaps.len()).zip(&mut lightmap_ids) {
+        for lightmap_id in &mut lightmap_ids[..lightmaps.len()] {
             *lightmap_id = AssetId::<Image>::from(Uuid::new_v4());
         }
         let lightmaps = lightmaps.into_iter().map(|lightmap| {

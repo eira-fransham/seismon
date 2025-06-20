@@ -40,6 +40,7 @@ use bevy::{
     },
     window::{PresentMode, PrimaryWindow},
 };
+#[cfg(feature = "screenrecord")]
 use capture::CapturePlugin;
 use clap::Parser;
 use seismon::{
@@ -292,7 +293,6 @@ fn main() -> ExitCode {
             main_menu: menu::build_main_menu,
         })
         .add_plugins(SeismonServerPlugin)
-        .add_plugins(CapturePlugin)
         .cvar_on_set(
             "cl_title",
             "Quake",
@@ -330,6 +330,14 @@ fn main() -> ExitCode {
             "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
         ).insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
+
+    #[cfg(feature = "screenrecord")]
+    app
+        .add_plugins(CapturePlugin);
+
+    #[cfg(feature = "renderdoc")]
+    app
+        .add_plugins(bevy_renderdoc::RenderDocPlugin);
 
     #[cfg(feature = "auto-exposure")]
     app.add_plugins(AutoExposurePlugin).cvar_on_set(

@@ -405,10 +405,11 @@ mod systems {
                     ent_channel,
                 }) => {
                     for (e, chan, e_chan) in channels.iter() {
-                        if chan.channel == ent_channel && e_chan.map(|e| e.id) == ent_id {
-                            if let Some(mut e) = commands.get_entity(e) {
-                                e.despawn();
-                            }
+                        if chan.channel == ent_channel
+                            && e_chan.map(|e| e.id) == ent_id
+                            && let Some(mut e) = commands.get_entity(e)
+                        {
+                            e.despawn();
                         }
                     }
                 }

@@ -9,6 +9,7 @@ resolver = "2"
 arrayvec = "0.7"
 beef = "0.5"
 bevy = { version = "0.15", features = ["vorbis", "wav", "flac", "shader_format_glsl"] }
+bevy_renderdoc = { git = "https://github.com/eira-fransham/bevy_renderdoc.git", rev = "f00a7874a76528b5479f86a21ded498d8e378273", optional = true }
 # TODO: Need to use git checkout for bevy 0.13 compatibility
 bevy-mod-dynamicaudio = { git = "https://github.com/eira-fransham/bevy-mod-dynamicaudio.git", rev = "8037db924f866551f1be62c02cd0a9a8a04a6ad5" }
 bitflags = "2.4"
@@ -62,6 +63,7 @@ video-rs = { version = "0.6", features = ["ndarray"], optional = true }
 [features]
 default = ["screenrecord", "fast-compile"]
 screenrecord = ["video-rs"]
+renderdoc = ["bevy_renderdoc"]
 fast-compile = ["bevy/dynamic_linking"]
 auto-exposure = []
 

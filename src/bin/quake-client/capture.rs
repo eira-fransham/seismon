@@ -1,3 +1,5 @@
+#![cfg(feature = "screenrecord")]
+
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender};
 use std::{

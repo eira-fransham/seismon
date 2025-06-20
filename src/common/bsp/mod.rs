@@ -766,7 +766,7 @@ impl BspData {
                     .take_while(|style| **style != 255)
                     .enumerate()
                     .map(|(i, _)| {
-                        let start = lightmap_id + lightmap_size * i as usize;
+                        let start = lightmap_id + lightmap_size * i;
                         let end = start + lightmap_size;
                         BspLightmap {
                             width: lightmap_w,
