@@ -18,8 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-mod music;
 mod limiter;
+mod music;
 
 use bevy::{
     app::{Main, Plugin},
@@ -138,8 +138,8 @@ type ReverbNode = impl fundsp::audionode::AudioNode + Send + Sync + 'static;
 
 #[define_opaque(ReverbNode)]
 fn create_mixer(sender_l: SnoopBackend, sender_r: SnoopBackend) -> ReverbNode {
-    use fundsp::hacker32::*;
     use self::limiter::limiter_stereo;
+    use fundsp::hacker32::*;
 
     let sender_l = An(sender_l);
     let sender_r = An(sender_r);

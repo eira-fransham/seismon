@@ -28,10 +28,12 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
+        auto_exposure::{AutoExposure, AutoExposureCompensationCurve, AutoExposurePlugin},
         bloom::BloomSettings,
         prepass::{DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
+    math::{cubic_splines::LinearSpline, vec2},
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
     render::{
@@ -40,8 +42,6 @@ use bevy::{
     },
     window::{PresentMode, PrimaryWindow},
 };
-#[cfg(feature = "auto-exposure")]
-use bevy_mod_auto_exposure::{AutoExposure, AutoExposurePlugin};
 use capture::CapturePlugin;
 use clap::Parser;
 use seismon::{
@@ -150,18 +150,23 @@ fn cmd_autoexposure(
     for (e, autoexposure) in &mut cameras {
         match (autoexposure, enabled) {
             (Some(mut autoexposure), false) => {
-                autoexposure.min = 0.;
-                autoexposure.max = 0.;
+                autoexposure.range = 0f32..=0f32;
             }
             (None, true) => {
                 commands.entity(e).insert(AutoExposure {
                     metering_mask: assets.load("autoexposure-mask.png"),
+                    compensation_curve: assets.add(
+                        AutoExposureCompensationCurve::from_curve(LinearSpline::new([
+                            vec2(-8.0, -8.0),
+                            vec2(8.0, -8.0),
+                        ]))
+                        .unwrap(),
+                    ),
                     ..default()
                 });
             }
             (Some(mut autoexposure), true) => {
-                autoexposure.min = -8.;
-                autoexposure.max = 8.;
+                autoexposure.range = -8f32..=8f32;
             }
             _ => {}
         }
@@ -196,26 +201,24 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
     move |mut commands, mut input: ResMut<ConsoleInput>, mut console_cmds| {
         // main game camera
         commands.spawn((
-            Camera3dBundle {
-                msaa: Msaa::Off,
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
-                    .looking_at(Vec3::default(), Vec3::Y),
-                camera: Camera {
-                    hdr: true,
-                    ..default()
-                },
-                exposure: Exposure::INDOOR,
-                // In addition to the in-camera exposure, we add a post exposure grading
-                // in order to adjust the brightness on the UI elements.
-                color_grading: ColorGrading {
-                    global: ColorGradingGlobal {
-                        exposure: 2.,
-                        ..default()
-                    },
+            Camera3d::default(),
+            Camera {
+                hdr: true,
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
+                .looking_at(Vec3::default(), Vec3::Y),
+            Exposure::INDOOR,
+            // In addition to the in-camera exposure, we add a post exposure grading
+            // in order to adjust the brightness on the UI elements.
+            ColorGrading {
+                global: ColorGradingGlobal {
+                    exposure: 2.,
                     ..default()
                 },
                 ..default()
             },
+            Msaa::Off,
             BloomSettings::default(),
             DepthPrepass,
             NormalPrepass,

@@ -378,7 +378,7 @@ impl BrushRendererBuilder {
                 Some(
                     bsp_model
                         .iter_leaves()
-                        .map(|leaf| BrushLeaf::from(leaf))
+                        .map(BrushLeaf::from)
                         .collect(),
                 )
             } else {
@@ -505,7 +505,12 @@ impl BrushRendererBuilder {
             );
 
             let id = self.lightmaps.len();
-            info!("Creating lightmap {} {}x{}", id, lightmap.width(), lightmap.height());
+            info!(
+                "Creating lightmap {} {}x{}",
+                id,
+                lightmap.width(),
+                lightmap.height()
+            );
             self.lightmaps.push(texture);
             //self.lightmap_views
             //.push(self.lightmaps[id].create_view(&Default::default()));
@@ -516,7 +521,7 @@ impl BrushRendererBuilder {
             vertices: face_vert_id as u32..self.vertices.len() as u32,
             _min: min,
             _max: min,
-            texture_id: texinfo.tex_id as usize,
+            texture_id: texinfo.tex_id,
             lightmap_ids,
             _light_styles: face.light_styles,
             draw_flag: true.into(),

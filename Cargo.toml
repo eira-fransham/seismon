@@ -10,7 +10,6 @@ arrayvec = "0.7"
 beef = "0.5"
 bevy = { version = "0.15", features = ["vorbis", "wav", "flac", "shader_format_glsl"] }
 # TODO: Need to use git checkout for bevy 0.13 compatibility
-bevy_mod_auto_exposure = { git = "https://github.com/Kurble/bevy_mod_auto_exposure.git", optional = true }
 bevy-mod-dynamicaudio = { git = "https://github.com/eira-fransham/bevy-mod-dynamicaudio.git", rev = "8037db924f866551f1be62c02cd0a9a8a04a6ad5" }
 bitflags = "2.4"
 bimap = "0.6"
@@ -63,7 +62,7 @@ video-rs = { version = "0.6", features = ["ndarray"], optional = true }
 default = ["screenrecord"]
 screenrecord = ["video-rs"]
 fast-compile = ["bevy/dynamic_linking"]
-auto-exposure = ["bevy_mod_auto_exposure"]
+auto-exposure = []
 
 [profile.release]
 lto = "thin"
