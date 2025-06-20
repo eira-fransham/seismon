@@ -21,8 +21,8 @@ use cgmath::{Deg, Matrix4, SquareMatrix as _, Vector3};
 use crate::client::{
     entity::MAX_LIGHTS,
     render::{
-        pipeline::Pipeline, ui::quad::QuadPipeline, GraphicsState, RenderConnectionKind,
-        RenderResolution, RenderState, RenderVars,
+        GraphicsState, RenderConnectionKind, RenderResolution, RenderState, RenderVars,
+        pipeline::Pipeline, ui::quad::QuadPipeline,
     },
 };
 

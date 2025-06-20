@@ -26,7 +26,7 @@ use crate::{
 };
 
 use bevy::ecs::system::{Commands, SystemId};
-use failure::{ensure, Error};
+use failure::{Error, ensure};
 use serde_lexpr::Value;
 
 #[derive(Debug, Clone)]

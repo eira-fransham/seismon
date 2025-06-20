@@ -91,9 +91,9 @@ impl Vfs {
         if let Some(game_dir) = &game_dir {
             if !game_dir.is_dir() {
                 error!(
-                        "`{0}/` directory does not exist! Use the `--base-dir` option with the name of the directory which contains `{0}/`.",
-                        game.unwrap()
-                    );
+                    "`{0}/` directory does not exist! Use the `--base-dir` option with the name of the directory which contains `{0}/`.",
+                    game.unwrap()
+                );
 
                 std::process::exit(1);
             }

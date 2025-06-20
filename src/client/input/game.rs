@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{fmt::Display, hash::Hash, ops::Not, str::FromStr};
+use std::{fmt::Display, hash::Hash, ops::Not, str::FromStr, sync::LazyLock};
 
 use crate::common::{console::RunCmd, parse};
 
@@ -23,9 +23,8 @@ use bevy::{
     input::{keyboard::Key, prelude::*},
     prelude::*,
 };
-use failure::{bail, format_err, Error};
+use failure::{Error, bail, format_err};
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use smol_str::SmolStr;
 use strum_macros::EnumIter;
 use winit::event::MouseButton;
@@ -76,18 +75,20 @@ impl PartialEq for UppercaseStr<'_> {
     }
 }
 
-lazy_static! {
-    static ref KEYMAP: HashMap<UppercaseStr<'static>, AnyInput> = KEYBOARD_NAMES
+static KEYMAP: LazyLock<HashMap<UppercaseStr<'static>, AnyInput>> = LazyLock::new(|| {
+    KEYBOARD_NAMES
         .into_iter()
         .chain(MOUSE_NAMES)
         .map(|(n, i)| (UppercaseStr(n), i.clone()))
-        .collect();
-    static ref INVERSE_KEYMAP: HashMap<AnyInput, UppercaseStr<'static>> = KEYBOARD_NAMES
+        .collect()
+});
+static INVERSE_KEYMAP: LazyLock<HashMap<AnyInput, UppercaseStr<'static>>> = LazyLock::new(|| {
+    KEYBOARD_NAMES
         .into_iter()
         .chain(MOUSE_NAMES)
         .map(|(n, i)| (i.clone(), UppercaseStr(n)))
-        .collect();
-}
+        .collect()
+});
 
 macro_rules! buttons {
     (@inner ($name:literal, $val:literal) ($any:path, $tname:ident, $sname:path)) => {

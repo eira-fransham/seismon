@@ -12,7 +12,6 @@ use bevy::{
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderRef},
     sprite::Material2d,
-    utils::ConditionalSendFuture,
 };
 use byteorder::ReadBytesExt;
 use futures::AsyncReadExt;

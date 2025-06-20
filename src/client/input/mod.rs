@@ -62,7 +62,7 @@ pub enum InputFocus {
 pub mod systems {
     use bevy::{
         ecs::event::EventCursor,
-        input::{keyboard::KeyboardInput, ButtonState},
+        input::{ButtonState, keyboard::KeyboardInput},
         prelude::*,
         window::PrimaryWindow,
     };
@@ -70,7 +70,7 @@ pub mod systems {
 
     use crate::{
         client::menu::Menu,
-        common::console::{to_terminal_key, ConsoleInput, ConsoleOutput, Registry, RunCmd},
+        common::console::{ConsoleInput, ConsoleOutput, Registry, RunCmd, to_terminal_key},
     };
 
     use super::game::{AnyInput, Binding, BindingValidState, GameInput, Trigger};

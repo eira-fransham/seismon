@@ -2,8 +2,8 @@ use std::mem::size_of;
 
 use crate::{
     client::render::{
-        world::{BindGroupLayoutId, WorldPipelineBase},
         GraphicsState, Pipeline, TextureData,
+        world::{BindGroupLayoutId, WorldPipelineBase},
     },
     common::{
         sprite::{SpriteFrame, SpriteKind, SpriteModel, SpriteSubframe},
@@ -23,7 +23,6 @@ use bevy::{
     },
 };
 use chrono::Duration;
-use lazy_static::lazy_static;
 
 pub struct SpritePipeline {
     pipeline: RenderPipeline,
@@ -95,17 +94,14 @@ impl SpritePipeline {
     }
 }
 
-lazy_static! {
-    static ref VERTEX_BUFFER_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![
-            // position
-            0 => Float32x3,
-            // normal
-            1 => Float32x3,
-            // texcoord
-            2 => Float32x2,
-        ];
-}
+static VERTEX_BUFFER_ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+    // position
+    0 => Float32x3,
+    // normal
+    1 => Float32x3,
+    // texcoord
+    2 => Float32x2,
+];
 
 impl Pipeline for SpritePipeline {
     type VertexPushConstants = ();

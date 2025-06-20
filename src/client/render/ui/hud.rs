@@ -1,14 +1,14 @@
 use crate::{
     client::{
+        IntermissionKind,
         render::{
+            GraphicsState,
             ui::{
                 glyph::GlyphRendererCommand,
                 layout::{Anchor, Layout, ScreenPosition, Size},
                 quad::{QuadRendererCommand, QuadTexture},
             },
-            GraphicsState,
         },
-        IntermissionKind,
     },
     common::{
         console::Registry,

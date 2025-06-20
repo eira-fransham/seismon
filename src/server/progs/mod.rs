@@ -113,10 +113,10 @@ use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
-use snafu::{prelude::*, Backtrace};
+use snafu::{Backtrace, prelude::*};
 
 use self::{
-    functions::{BuiltinFunctionId, FunctionDef, FunctionKind, Statement, MAX_ARGS},
+    functions::{BuiltinFunctionId, FunctionDef, FunctionKind, MAX_ARGS, Statement},
     globals::{GLOBAL_ADDR_ARG_0, GLOBAL_STATIC_COUNT},
 };
 pub use self::{
@@ -380,7 +380,7 @@ where
                     return Err(ProgsError::with_msg(format!(
                         "Invalid built-in function ID {}",
                         -x
-                    )))
+                    )));
                 }
             },
             x => FunctionKind::QuakeC(x as usize),

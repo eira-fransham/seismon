@@ -2,12 +2,12 @@ use crate::{
     client::{
         menu::{Item, Menu, MenuBodyView, MenuState, NamedMenuItem},
         render::{
+            GraphicsState,
             ui::{
-                glyph::{GlyphRendererCommand, GLYPH_HEIGHT, GLYPH_WIDTH},
+                glyph::{GLYPH_HEIGHT, GLYPH_WIDTH, GlyphRendererCommand},
                 layout::{Anchor, Layout, ScreenPosition, Size},
                 quad::{QuadRendererCommand, QuadTexture},
             },
-            GraphicsState,
         },
     },
     common::{vfs::Vfs, wad::QPic},
@@ -73,12 +73,12 @@ impl MenuRenderer {
         while let Some(m) = menus.pop() {
             tex_names.insert(m.view().title_path().to_string());
 
-            if let MenuBodyView::Predefined { ref path, .. } = m.view().body() {
+            if let MenuBodyView::Predefined { path, .. } = m.view().body() {
                 tex_names.insert(path.to_string());
             }
 
             for item in m.items() {
-                if let Item::Submenu(ref sub) = item.item() {
+                if let Item::Submenu(sub) = item.item() {
                     menus.push(sub);
                 }
             }
@@ -322,8 +322,8 @@ impl MenuRenderer {
             _ => unreachable!(),
         };
 
-        match *view.body() {
-            MenuBodyView::Predefined { ref path } => {
+        match view.body() {
+            MenuBodyView::Predefined { path } => {
                 self.cmd_draw_body_predef(path, cursor_pos, time, scale, quad_cmds);
             }
             MenuBodyView::Dynamic => {

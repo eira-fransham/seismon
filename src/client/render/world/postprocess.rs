@@ -21,7 +21,7 @@ use serde::Deserialize;
 use wgpu::{BindGroupLayoutEntry, BlendState, ColorTargetState, ColorWrites};
 
 use crate::{
-    client::render::{pipeline::Pipeline, ui::quad::QuadPipeline, GraphicsState, RenderState},
+    client::render::{GraphicsState, RenderState, pipeline::Pipeline, ui::quad::QuadPipeline},
     common::{console::Registry, net::ColorShift, util::any_as_bytes},
 };
 
@@ -49,9 +49,10 @@ impl PostProcessPipeline {
             .into_iter()
             .map(|desc| device.create_bind_group_layout(Some(Self::name().into()), &*desc))
             .collect();
+        let uniforms = PostProcessUniforms::default();
         let uniform_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_as_bytes(&PostProcessUniforms::default()) },
+            contents: unsafe { any_as_bytes(&uniforms) },
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -233,9 +234,9 @@ impl PostProcessBindGroup {
         post_pipeline: &PostProcessPipeline,
         color_shift: [[f32; 4]; 4],
     ) {
-        // update color shift
+        let uniforms = PostProcessUniforms { color_shift }; // update color shift
         queue.write_buffer(&post_pipeline.uniform_buffer, 0, unsafe {
-            any_as_bytes(&PostProcessUniforms { color_shift })
+            any_as_bytes(&uniforms)
         });
     }
 

@@ -18,7 +18,7 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-use crate::server::progs::{ops::Opcode, ProgsError, StringId, StringTable};
+use crate::server::progs::{ProgsError, StringId, StringTable, ops::Opcode};
 
 pub const MAX_ARGS: usize = 8;
 

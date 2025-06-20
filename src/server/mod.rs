@@ -35,7 +35,7 @@ use crate::{
         vfs::Vfs,
     },
     server::{
-        progs::{functions::FunctionKind, GlobalAddrFunction},
+        progs::{GlobalAddrFunction, functions::FunctionKind},
         world::{FieldAddrEntityId, FieldAddrVector, MoveKind},
     },
 };
@@ -43,16 +43,16 @@ use crate::{
 use self::{
     precache::Precache,
     progs::{
-        globals::{
-            GlobalAddr as _, GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2,
-            GLOBAL_ADDR_ARG_3, GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN,
-        },
         EntityFieldAddr, EntityId, ExecutionContext, FunctionId, GlobalAddrEntity, GlobalAddrFloat,
         GlobalAddrVector, Globals, LoadProgs, Opcode, ProgsError, StringId, StringTable,
+        globals::{
+            GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2, GLOBAL_ADDR_ARG_3,
+            GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN, GlobalAddr as _,
+        },
     },
     world::{
-        phys::{self, CollideKind, CollisionFlags, Trace, TraceEndKind},
         EntityFlags, EntitySolid, FieldAddrFloat, FieldAddrFunctionId, FieldAddrStringId, World,
+        phys::{self, CollideKind, CollisionFlags, Trace, TraceEndKind},
     },
 };
 
@@ -2596,7 +2596,9 @@ pub mod systems {
                             };
                             for RunCmd(CmdName { name, trigger }, args) in cmds {
                                 if trigger.is_some() {
-                                    error!("TODO: Action in `ClientCmd` - currently we only handle network-related cmds");
+                                    error!(
+                                        "TODO: Action in `ClientCmd` - currently we only handle network-related cmds"
+                                    );
                                     continue;
                                 }
 

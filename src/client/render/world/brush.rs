@@ -23,17 +23,17 @@ use std::{
     num::NonZeroU32,
     ops::Range,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use crate::{
     client::render::{
+        Camera, GraphicsState, LightmapData, Pipeline, TextureData,
         pipeline::PushConstantUpdate,
         warp,
         world::{BindGroupLayoutId, WorldPipelineBase},
-        Camera, GraphicsState, LightmapData, Pipeline, TextureData,
     },
     common::{
         bsp::{
@@ -62,7 +62,6 @@ use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3};
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use num::Zero;
 
 pub struct BrushPipeline {
@@ -182,21 +181,18 @@ const BIND_GROUP_LAYOUT_ENTRIES: &[&[BindGroupLayoutEntry]] = &[
     ],
 ];
 
-lazy_static! {
-    static ref VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 5] =
-        wgpu::vertex_attr_array![
-            // position
-            0 => Float32x3,
-            // normal
-            1 => Float32x3,
-            // diffuse texcoord
-            2 => Float32x2,
-            // lightmap texcoord
-            3 => Float32x2,
-            // lightmap animation ids
-            4 => Uint8x4,
-        ];
-}
+static VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    // position
+    0 => Float32x3,
+    // normal
+    1 => Float32x3,
+    // diffuse texcoord
+    2 => Float32x2,
+    // lightmap texcoord
+    3 => Float32x2,
+    // lightmap animation ids
+    4 => Uint8x4,
+];
 
 impl Pipeline for BrushPipeline {
     type VertexPushConstants = VertexPushConstants;
@@ -315,8 +311,8 @@ pub enum BrushTexture {
 impl BrushTexture {
     fn kind(&self) -> TextureKind {
         match self {
-            BrushTexture::Static(ref frame) => frame.kind,
-            BrushTexture::Animated { ref primary, .. } => primary[0].kind,
+            BrushTexture::Static(frame) => frame.kind,
+            BrushTexture::Animated { primary, .. } => primary[0].kind,
         }
     }
 }
@@ -824,7 +820,7 @@ impl BrushRenderer {
             );
 
             let bind_group_id = match &self.textures[*tex_id] {
-                BrushTexture::Static(ref frame) => frame.bind_group_id,
+                BrushTexture::Static(frame) => frame.bind_group_id,
                 BrushTexture::Animated { primary, alternate } => {
                     // if frame is not zero and this texture has an alternate
                     // animation, use it

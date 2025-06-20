@@ -30,7 +30,7 @@ use bevy::{
 };
 use wgpu::BindGroupLayoutEntry;
 
-use crate::common::util::{any_as_bytes, Pod};
+use crate::common::util::{Pod, any_as_bytes};
 
 /// The `Pipeline` trait, which allows render pipelines to be defined more-or-less declaratively.
 
@@ -366,8 +366,7 @@ pub trait Pipeline {
             if let Some(d) = data {
                 trace!(
                     "Update vertex push constants at offset {} with data {:?}",
-                    vpc_offset,
-                    data
+                    vpc_offset, data
                 );
 
                 pass.set_push_constants(wgpu::ShaderStages::VERTEX, vpc_offset, d);
@@ -384,8 +383,7 @@ pub trait Pipeline {
             if let Some(d) = data {
                 trace!(
                     "Update shared push constants at offset {} with data {:?}",
-                    spc_offset,
-                    data
+                    spc_offset, data
                 );
 
                 pass.set_push_constants(
@@ -406,8 +404,7 @@ pub trait Pipeline {
             if let Some(d) = data {
                 trace!(
                     "Update fragment push constants at offset {} with data {:?}",
-                    fpc_offset,
-                    data
+                    fpc_offset, data
                 );
 
                 pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, fpc_offset, d);

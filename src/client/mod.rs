@@ -54,10 +54,9 @@ use crate::{
         engine,
         model::{Model, ModelError},
         net::{
-            self,
-            connect::{ConnectSocket, Request, Response, CONNECT_PROTOCOL_VERSION},
-            BlockingMode, ClientCmd, ClientMessage, ClientStat, EntityEffects, EntityState,
+            self, BlockingMode, ClientCmd, ClientMessage, ClientStat, EntityEffects, EntityState,
             GameType, NetError, PlayerColor, QSocket, ServerCmd, ServerMessage, SignOnStage,
+            connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         util::QString,
         vfs::{Vfs, VfsError},
@@ -773,9 +772,7 @@ impl Connection {
                 } => {
                     trace!(
                         "starting sound with id {} on entity {} channel {}",
-                        sound_id,
-                        entity_id,
-                        channel
+                        sound_id, entity_id, channel
                     );
 
                     if entity_id as usize >= self.state.entities.len() {
@@ -788,7 +785,6 @@ impl Connection {
 
                     let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
                     let attenuation = attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                    // TODO: apply volume, attenuation, spatialization
                     mixer_events.send(MixerEvent::StartSound(StartSound {
                         src: self.state.sounds[sound_id as usize].clone(),
                         ent_id: Some(entity_id as usize),
@@ -904,10 +900,7 @@ impl Connection {
                         Some(ref mut info) => {
                             trace!(
                                 "Player {} (ID {}) colors: {:?} -> {:?}",
-                                info.name,
-                                player_id,
-                                info.colors,
-                                new_colors,
+                                info.name, player_id, info.colors, new_colors,
                             );
                             info.colors = new_colors;
                         }
@@ -932,10 +925,7 @@ impl Connection {
                         Some(ref mut info) => {
                             trace!(
                                 "Player {} (ID {}) frags: {} -> {}",
-                                &info.name,
-                                player_id,
-                                info.frags,
-                                new_frags
+                                &info.name, player_id, info.frags, new_frags
                             );
                             info.frags = new_frags as i32;
                         }
@@ -1243,7 +1233,7 @@ mod systems {
 
         match conn.as_deref_mut() {
             Some(Connection {
-                ref mut state,
+                state,
                 kind: ConnectionKind::Server { .. },
                 ..
             }) => {

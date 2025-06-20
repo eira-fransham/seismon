@@ -38,20 +38,20 @@ use bevy::{
 };
 use chrono::Duration;
 use clap::{FromArgMatches, Parser};
-use hashbrown::{hash_map::Entry, HashMap};
+use hashbrown::{HashMap, hash_map::Entry};
 use liner::{Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty};
 use serde::{
-    de::{value::StrDeserializer, Error, Expected, MapAccess, Unexpected},
     Deserializer,
+    de::{Error, Expected, MapAccess, Unexpected, value::StrDeserializer},
 };
 use serde_lexpr::Value;
-use snafu::{prelude::*, Backtrace};
+use snafu::{Backtrace, prelude::*};
 use wgpu::{Extent3d, TextureDimension};
 
 use crate::client::{
-    input::{game::Trigger, InputFocus},
-    render::{Palette, TextureData},
     ConnectionState,
+    input::{InputFocus, game::Trigger},
+    render::{Palette, TextureData},
 };
 
 use super::{
@@ -2529,7 +2529,9 @@ mod systems {
 
                                 match world.run_system_with_input(cmd, args) {
                                     Err(_) => {
-                                        error!("Command handler was registered in console but not in world");
+                                        error!(
+                                            "Command handler was registered in console but not in world"
+                                        );
                                         break;
                                     }
 
@@ -2570,7 +2572,9 @@ mod systems {
 
                                 match world.run_system_with_input(cmd, (trigger, args)) {
                                     Err(_) => {
-                                        error!("Command handler was registered in console but not in world");
+                                        error!(
+                                            "Command handler was registered in console but not in world"
+                                        );
                                         break;
                                     }
 

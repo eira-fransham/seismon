@@ -6,12 +6,12 @@ use std::{
 
 use crate::{
     client::render::{
+        Extent2d, GraphicsState, Pipeline, TextureData,
         ui::{
             layout::{Layout, Size},
             screen_space_vertex_transform,
         },
         uniform::{self, DynamicUniformBuffer, DynamicUniformBufferBlock},
-        Extent2d, GraphicsState, Pipeline, TextureData,
     },
     common::{util::any_slice_as_bytes, wad::QPic},
 };
@@ -25,7 +25,6 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 use cgmath::Matrix4;
-use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
 pub const VERTICES: [QuadVertex; 6] = [
@@ -66,22 +65,20 @@ pub struct QuadVertex {
     texcoord: Texcoord,
 }
 
-lazy_static! {
-    pub static ref VERTEX_BUFFER_ATTRIBUTES: Vec<wgpu::VertexAttribute> = vec![
-        // position
-        wgpu::VertexAttribute {
-            offset: 0,
-            format: wgpu::VertexFormat::Float32x2,
-            shader_location: 0,
-        },
-        // diffuse texcoord
-        wgpu::VertexAttribute {
-            offset: size_of::<Position>() as u64,
-            format: wgpu::VertexFormat::Float32x2,
-            shader_location: 1,
-        },
-    ];
-}
+pub static VERTEX_BUFFER_ATTRIBUTES: [wgpu::VertexAttribute; 2] = [
+    // position
+    wgpu::VertexAttribute {
+        offset: 0,
+        format: wgpu::VertexFormat::Float32x2,
+        shader_location: 0,
+    },
+    // diffuse texcoord
+    wgpu::VertexAttribute {
+        offset: size_of::<Position>() as u64,
+        format: wgpu::VertexFormat::Float32x2,
+        shader_location: 1,
+    },
+];
 
 struct UniformBuffer {
     buffer: DynamicUniformBuffer<QuadUniforms>,

@@ -37,8 +37,8 @@ use bevy::{
 use fundsp::snoop::{Snoop, SnoopBackend};
 
 use bevy_mod_dynamicaudio::{
-    audio::{AudioSink, Mixer},
     AddAudioMixer,
+    audio::{AudioSink, Mixer},
 };
 
 pub use music::MusicPlayer;

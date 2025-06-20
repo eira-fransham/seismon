@@ -25,7 +25,7 @@ use std::{
 };
 
 use crate::common::{
-    net::{NetError, QSocket, MAX_MESSAGE},
+    net::{MAX_MESSAGE, NetError, QSocket},
     util::{self, QString},
 };
 
@@ -582,7 +582,7 @@ impl ConnectListener {
                 return Err(NetError::invalid_data(format!(
                     "request code {}",
                     request_byte
-                )))
+                )));
             }
         };
 
@@ -700,7 +700,7 @@ impl ConnectSocket {
                 return Err(NetError::invalid_data(format!(
                     "response code {}",
                     response_byte
-                )))
+                )));
             }
         };
 

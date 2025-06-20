@@ -1,13 +1,12 @@
-use std::{mem::size_of, num::NonZeroU32};
+use std::{mem::size_of, num::NonZeroU32, sync::LazyLock};
 
 use crate::{
     client::{
         entity::particle::Particle,
         render::{
-            create_texture,
+            Palette, TextureData, create_texture,
             pipeline::{Pipeline, PushConstantUpdate},
             world::{Camera, WorldPipelineBase},
-            Palette, TextureData,
         },
     },
     common::{math::Angles, util::any_slice_as_bytes},
@@ -22,18 +21,16 @@ use bevy::render::{
 };
 use bumpalo::Bump;
 use cgmath::Matrix4;
-use lazy_static::lazy_static;
 
-lazy_static! {
-    static ref VERTEX_BUFFER_ATTRIBUTES: [Vec<wgpu::VertexAttribute>; 1] = [
-        wgpu::vertex_attr_array![
-            // position
-            0 => Float32x3,
-            // texcoord
-            1 => Float32x2,
-        ].to_vec(),
-    ];
-}
+static VERTEX_BUFFER_ATTRIBUTES: LazyLock<[Vec<wgpu::VertexAttribute>; 1]> = LazyLock::new(|| {
+    [wgpu::vertex_attr_array![
+        // position
+        0 => Float32x3,
+        // texcoord
+        1 => Float32x2,
+    ]
+    .to_vec()]
+});
 
 #[rustfmt::skip]
 const PARTICLE_TEXTURE_PIXELS: [u8; 64] = [
@@ -251,22 +248,20 @@ const BIND_GROUP_LAYOUT_ENTRIES: &[wgpu::BindGroupLayoutEntry] = &[
     },
 ];
 
-lazy_static! {
-    static ref VERTEX_ATTRIBUTES: [[wgpu::VertexAttribute; 2]; 2] = [
-        wgpu::vertex_attr_array![
-            // position
-            0 => Float32x3,
-            // texcoord
-            1 => Float32x2,
-        ],
-        wgpu::vertex_attr_array![
-            // instance position
-            2 => Float32x3,
-            // color index
-            3 => Uint32,
-        ]
-    ];
-}
+static VERTEX_ATTRIBUTES: [[wgpu::VertexAttribute; 2]; 2] = [
+    wgpu::vertex_attr_array![
+        // position
+        0 => Float32x3,
+        // texcoord
+        1 => Float32x2,
+    ],
+    wgpu::vertex_attr_array![
+        // instance position
+        2 => Float32x3,
+        // color index
+        3 => Uint32,
+    ],
+];
 
 impl Pipeline for ParticlePipeline {
     type VertexPushConstants = VertexPushConstants;

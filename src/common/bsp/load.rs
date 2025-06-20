@@ -37,7 +37,7 @@ use super::{BspTextureFrame, BspTextureKind};
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::{InnerSpace, Vector3};
-use failure::{bail, ensure, ResultExt as _};
+use failure::{ResultExt as _, bail, ensure};
 use hashbrown::HashMap;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

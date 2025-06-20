@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::{mem, ops::RangeInclusive};
+use std::{mem, ops::RangeInclusive, sync::LazyLock};
 
 use crate::{
     client::ClientEntity,
@@ -30,29 +30,28 @@ use crate::{
 
 use cgmath::{InnerSpace as _, Vector3, Zero as _};
 use chrono::Duration;
-use lazy_static::lazy_static;
 use rand::{
+    SeedableRng,
     distributions::{Distribution as _, Uniform},
     rngs::SmallRng,
-    SeedableRng,
 };
 
-lazy_static! {
-    static ref COLOR_RAMP_EXPLOSION_FAST: ColorRamp = ColorRamp {
-        ramp: vec![0x6F, 0x6D, 0x6B, 0x69, 0x67, 0x65, 0x63, 0x61],
-        fps: 10.0,
-    };
-    static ref COLOR_RAMP_EXPLOSION_SLOW: ColorRamp = ColorRamp {
-        ramp: vec![0x6F, 0x6E, 0x6D, 0x6C, 0x6B, 0x6A, 0x68, 0x66],
-        fps: 5.0,
-    };
-    static ref COLOR_RAMP_FIRE: ColorRamp = ColorRamp {
-        ramp: vec![0x6D, 0x6B, 0x06, 0x05, 0x04, 0x03],
-        fps: 15.0,
-    };
-    static ref EXPLOSION_SCATTER_DISTRIBUTION: Uniform<f32> = Uniform::new(-16.0, 16.0);
-    static ref EXPLOSION_VELOCITY_DISTRIBUTION: Uniform<f32> = Uniform::new(-256.0, 256.0);
-}
+static COLOR_RAMP_EXPLOSION_FAST: LazyLock<ColorRamp> = LazyLock::new(|| ColorRamp {
+    ramp: vec![0x6F, 0x6D, 0x6B, 0x69, 0x67, 0x65, 0x63, 0x61],
+    fps: 10.0,
+});
+static COLOR_RAMP_EXPLOSION_SLOW: LazyLock<ColorRamp> = LazyLock::new(|| ColorRamp {
+    ramp: vec![0x6F, 0x6E, 0x6D, 0x6C, 0x6B, 0x6A, 0x68, 0x66],
+    fps: 5.0,
+});
+static COLOR_RAMP_FIRE: LazyLock<ColorRamp> = LazyLock::new(|| ColorRamp {
+    ramp: vec![0x6D, 0x6B, 0x06, 0x05, 0x04, 0x03],
+    fps: 15.0,
+});
+static EXPLOSION_SCATTER_DISTRIBUTION: LazyLock<Uniform<f32>> =
+    LazyLock::new(|| Uniform::new(-16.0, 16.0));
+static EXPLOSION_VELOCITY_DISTRIBUTION: LazyLock<Uniform<f32>> =
+    LazyLock::new(|| Uniform::new(-256.0, 256.0));
 
 // TODO: make max configurable
 pub const MIN_PARTICLES: usize = 512;
@@ -239,10 +238,9 @@ impl Particles {
     /// This determines the capacity of both the underlying `Slab` and the set of
     /// live particles.
     pub fn new() -> Particles {
-        lazy_static! {
-            // avelocities initialized with (rand() & 255) * 0.01;
-            static ref VELOCITY_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 2.56);
-        }
+        // velocities initialized with (rand() & 255) * 0.01;
+        static VELOCITY_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 2.56));
 
         let rng = SmallRng::from_entropy();
         let angle_velocities = [Vector3::zero(); VERTEX_NORMAL_COUNT];
@@ -394,12 +392,11 @@ impl Particles {
 
     /// Creates a rocket explosion.
     pub fn create_explosion(&mut self, time: Duration, origin: Vector3<f32>) {
-        lazy_static! {
-            static ref FRAME_SKIP_DISTRIBUTION: Uniform<usize> = Uniform::new(0, 4);
-        }
+        static FRAME_SKIP_DISTRIBUTION: LazyLock<Uniform<usize>> =
+            LazyLock::new(|| Uniform::new(0, 4));
 
         // spawn 512 particles each for both color ramps
-        for ramp in [&*COLOR_RAMP_EXPLOSION_FAST, &*COLOR_RAMP_EXPLOSION_SLOW].iter() {
+        for ramp in [&COLOR_RAMP_EXPLOSION_FAST, &COLOR_RAMP_EXPLOSION_SLOW].iter() {
             let frame_skip = FRAME_SKIP_DISTRIBUTION.sample(&mut self.rng);
             self.create_random_cloud(
                 512,
@@ -484,15 +481,14 @@ impl Particles {
         color: u8,
         count: usize,
     ) {
-        lazy_static! {
-            static ref SCATTER_DISTRIBUTION: Uniform<f32> = Uniform::new(-8.0, 8.0);
+        static SCATTER_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(-8.0, 8.0));
 
-            // any color in block of 8 (see below)
-            static ref COLOR_DISTRIBUTION: Uniform<u8> = Uniform::new(0, 8);
+        // any color in block of 8 (see below)
+        static COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> = LazyLock::new(|| Uniform::new(0, 8));
 
-            // ttl between 0.1 and 0.5 seconds
-            static ref TTL_DISTRIBUTION: Uniform<i64> = Uniform::new(100, 500);
-        }
+        // ttl between 0.1 and 0.5 seconds
+        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> = LazyLock::new(|| Uniform::new(100, 500));
 
         for _ in 0..count {
             let scatter = self.random_vector3(&SCATTER_DISTRIBUTION);
@@ -516,17 +512,19 @@ impl Particles {
 
     /// Creates a lava splash effect.
     pub fn create_lava_splash(&mut self, time: Duration, origin: Vector3<f32>) {
-        lazy_static! {
-            // ttl between 2 and 2.64 seconds
-            static ref TTL_DISTRIBUTION: Uniform<i64> = Uniform::new(2000, 2640);
+        // ttl between 2 and 2.64 seconds
+        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
+            LazyLock::new(|| Uniform::new(2000, 2640));
 
-            // any color on row 14
-            static ref COLOR_DISTRIBUTION: Uniform<u8> = Uniform::new(224, 232);
+        // any color on row 14
+        static COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> = LazyLock::new(|| Uniform::new(224, 232));
 
-            static ref DIR_OFFSET_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 8.0);
-            static ref SCATTER_Z_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 64.0);
-            static ref VELOCITY_DISTRIBUTION: Uniform<f32> = Uniform::new(50.0, 114.0);
-        }
+        static DIR_OFFSET_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 8.0));
+        static SCATTER_Z_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 64.0));
+        static VELOCITY_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(50.0, 114.0));
 
         for i in -16..16 {
             for j in -16..16 {
@@ -562,16 +560,16 @@ impl Particles {
 
     /// Creates a teleporter warp effect.
     pub fn create_teleporter_warp(&mut self, time: Duration, origin: Vector3<f32>) {
-        lazy_static! {
-            // ttl between 0.2 and 0.34 seconds
-            static ref TTL_DISTRIBUTION: Uniform<i64> = Uniform::new(200, 340);
+        // ttl between 0.2 and 0.34 seconds
+        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> = LazyLock::new(|| Uniform::new(200, 340));
 
-            // random grey particles
-            static ref COLOR_DISTRIBUTION: Uniform<u8> = Uniform::new(7, 14);
+        // random grey particles
+        static COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> = LazyLock::new(|| Uniform::new(7, 14));
 
-            static ref SCATTER_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 4.0);
-            static ref VELOCITY_DISTRIBUTION: Uniform<f32> = Uniform::new(50.0, 114.0);
-        }
+        static SCATTER_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 4.0));
+        static VELOCITY_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(50.0, 114.0));
 
         for i in (-16..16).step_by(4) {
             for j in (-16..16).step_by(4) {
@@ -611,12 +609,14 @@ impl Particles {
     ) {
         use TrailKind::*;
 
-        lazy_static! {
-            static ref SCATTER_DISTRIBUTION: Uniform<f32> = Uniform::new(-3.0, 3.0);
-            static ref FRAME_SKIP_DISTRIBUTION: Uniform<usize> = Uniform::new(0, 4);
-            static ref BLOOD_COLOR_DISTRIBUTION: Uniform<u8> = Uniform::new(67, 71);
-            static ref VORE_COLOR_DISTRIBUTION: Uniform<u8> = Uniform::new(152, 156);
-        }
+        static SCATTER_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(-3.0, 3.0));
+        static FRAME_SKIP_DISTRIBUTION: LazyLock<Uniform<usize>> =
+            LazyLock::new(|| Uniform::new(0, 4));
+        static BLOOD_COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> =
+            LazyLock::new(|| Uniform::new(67, 71));
+        static VORE_COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> =
+            LazyLock::new(|| Uniform::new(152, 156));
 
         let distance = (end - start).magnitude();
         let direction = (end - start).normalize();

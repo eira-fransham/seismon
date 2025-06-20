@@ -26,8 +26,8 @@ use std::{
 
 use bevy::{
     asset::{
-        io::{AssetReader, AssetReaderError, AssetReaderFuture, PathStream, Reader, SliceReader},
         Asset, AssetLoader, LoadContext,
+        io::{AssetReader, AssetReaderError, AssetReaderFuture, PathStream, Reader, SliceReader},
     },
     prelude::*,
     reflect::TypePath,

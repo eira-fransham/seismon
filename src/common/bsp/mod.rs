@@ -130,7 +130,7 @@ use cgmath::Vector3;
 use chrono::Duration;
 use num_derive::FromPrimitive;
 
-pub use self::load::{load, BspFileError};
+pub use self::load::{BspFileError, load};
 
 // this is 4 in the original source, but the 4th hull is never used.
 const MAX_HULLS: usize = 3;

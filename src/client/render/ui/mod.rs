@@ -9,13 +9,13 @@ use crate::{
         input::InputFocus,
         menu::Menu,
         render::{
+            Extent2d, GraphicsState,
             ui::{
                 glyph::{GlyphRenderer, GlyphRendererCommand},
                 hud::{HudRenderer, HudState},
                 menu::MenuRenderer,
                 quad::{QuadRenderer, QuadRendererCommand},
             },
-            Extent2d, GraphicsState,
         },
     },
     common::vfs::Vfs,

@@ -1,16 +1,16 @@
-use std::{io::Read, iter};
+use std::{io::Read, iter, sync::LazyLock};
 
 use super::{sound::MixerEvent, view::BobVars};
 use crate::{
     client::{
+        ClientError, ColorShiftCode, IntermissionKind, MAX_STATS, MoveVars,
         entity::{
-            particle::{Particle, Particles, TrailKind},
             Beam, ClientEntity, Light, LightDesc, Lights, MAX_BEAMS, MAX_TEMP_ENTITIES,
+            particle::{Particle, Particles, TrailKind},
         },
         render::Camera,
         sound::{Listener, StartSound},
         view::{IdleVars, KickVars, MouseVars, RollVars, View},
-        ClientError, ColorShiftCode, IntermissionKind, MoveVars, MAX_STATS,
     },
     common::{
         bsp,
@@ -31,12 +31,11 @@ use bevy::prelude::*;
 use cgmath::{Angle as _, Deg, InnerSpace as _, Matrix4, Vector3, Zero as _};
 use chrono::Duration;
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use net::{ClientCmd, ClientStat, EntityState, EntityUpdate, PlayerColor};
 use rand::{
+    SeedableRng,
     distributions::{Distribution as _, Uniform},
     rngs::SmallRng,
-    SeedableRng,
 };
 
 const CACHED_SOUND_NAMES: &[&str] = &[
@@ -322,10 +321,10 @@ impl ClientState {
     /// - Spawning particles on entities with particle effects
     /// - Spawning dynamic lights on entities with lighting effects
     pub fn update_entities(&mut self) -> Result<(), ClientError> {
-        lazy_static! {
-            static ref MFLASH_DIMLIGHT_DISTRIBUTION: Uniform<f32> = Uniform::new(200.0, 232.0);
-            static ref BRIGHTLIGHT_DISTRIBUTION: Uniform<f32> = Uniform::new(400.0, 432.0);
-        }
+        static MFLASH_DIMLIGHT_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(200.0, 232.0));
+        static BRIGHTLIGHT_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(400.0, 432.0));
 
         let lerp_factor = self.lerp_factor;
 
@@ -523,9 +522,8 @@ impl ClientState {
     }
 
     pub fn update_temp_entities(&mut self) -> Result<(), ClientError> {
-        lazy_static! {
-            static ref ANGLE_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 360.0);
-        }
+        static ANGLE_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 360.0));
 
         self.temp_entities.clear();
         for id in 0..self.beams.len() {
@@ -832,9 +830,8 @@ impl ClientState {
         events: &mut EventWriter<MixerEvent>,
         temp_entity: &TempEntity,
     ) {
-        lazy_static! {
-            static ref ZERO_ONE_DISTRIBUTION: Uniform<f32> = Uniform::new(0.0, 1.0);
-        }
+        static ZERO_ONE_DISTRIBUTION: LazyLock<Uniform<f32>> =
+            LazyLock::new(|| Uniform::new(0.0, 1.0));
 
         let mut spike_sound = || match ZERO_ONE_DISTRIBUTION.sample(&mut self.rng) {
             x if x < 0.2 => "weapons/tink1.wav",
@@ -1060,7 +1057,7 @@ impl ClientState {
 
     fn view_leaf_contents(&self) -> Result<bsp::BspLeafContents, ClientError> {
         match self.models.get(1).map(|m| m.kind()) {
-            Some(ModelKind::Brush(ref bmodel)) => {
+            Some(ModelKind::Brush(bmodel)) => {
                 let bsp_data = bmodel.bsp_data();
                 if let Some(leaf_id) = self
                     .entities

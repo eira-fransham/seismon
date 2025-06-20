@@ -30,7 +30,7 @@ use crate::common::util;
 
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use failure::{bail, Backtrace, Context, Error, Fail};
+use failure::{Backtrace, Context, Error, Fail, bail};
 use hashbrown::HashMap;
 
 use super::util::QString;

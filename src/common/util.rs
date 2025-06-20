@@ -102,7 +102,7 @@ impl<'a> Deref for QStr<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &*self.raw
+        &self.raw
     }
 }
 
@@ -237,14 +237,14 @@ pub unsafe fn any_as_bytes<T>(t: &T) -> &[u8]
 where
     T: Pod,
 {
-    std::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>())
+    unsafe { std::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>()) }
 }
 
 pub unsafe fn any_slice_as_bytes<T>(t: &[T]) -> &[u8]
 where
     T: Pod,
 {
-    std::slice::from_raw_parts(t.as_ptr() as *const u8, size_of::<T>() * t.len())
+    unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, size_of::<T>() * t.len()) }
 }
 
 pub unsafe fn bytes_as_any<T>(bytes: &[u8]) -> T
@@ -252,7 +252,7 @@ where
     T: Pod,
 {
     assert_eq!(bytes.len(), size_of::<T>());
-    std::ptr::read_unaligned(bytes.as_ptr() as *const T)
+    unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
 }
 
 pub unsafe fn any_as_u32_slice<T>(t: &T) -> &[u32]
@@ -260,8 +260,10 @@ where
     T: Pod,
 {
     assert!(size_of::<T>() % size_of::<u32>() == 0);
-    std::slice::from_raw_parts(
-        (t as *const T) as *const u32,
-        size_of::<T>() / size_of::<u32>(),
-    )
+    unsafe {
+        std::slice::from_raw_parts(
+            (t as *const T) as *const u32,
+            size_of::<T>() / size_of::<u32>(),
+        )
+    }
 }

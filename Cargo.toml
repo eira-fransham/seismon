@@ -2,7 +2,7 @@
 name = "seismon"
 version = "0.2.0"
 authors = ["Eira Fransham <eira.fransham@gmail.com>", "Cormac O'Brien <cormac@c-obrien.org>"]
-edition = "2021"
+edition = "2024"
 resolver = "2"
 
 [dependencies]
@@ -30,7 +30,6 @@ im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
 itertools = "0.12"
-lazy_static = "1.0.0"
 memmap2 = "0.9"
 ndarray = "0.15"
 nom = "7.1"
@@ -66,8 +65,12 @@ screenrecord = ["video-rs"]
 fast-compile = ["bevy/dynamic_linking"]
 auto-exposure = ["bevy_mod_auto_exposure"]
 
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
 [profile.dev]
 opt-level = 1
 
-[profile.dev.package."*"]
+[profile.dev.package.bevy]
 opt-level = 3

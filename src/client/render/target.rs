@@ -34,8 +34,8 @@ use bumpalo::Bump;
 use cgmath::Deg;
 
 use crate::client::render::{
-    world::WorldRenderer, GraphicsState, RenderConnectionKind, RenderResolution, RenderState,
-    RenderVars,
+    GraphicsState, RenderConnectionKind, RenderResolution, RenderState, RenderVars,
+    world::WorldRenderer,
 };
 
 /// Intermediate object that can generate `RenderPassDescriptor`s.
@@ -140,7 +140,7 @@ impl ViewNode for InitPass {
         BUMP.with_borrow(|bump| {
             if let (
                 Some(RenderState {
-                    state: ref cl_state,
+                    state: cl_state,
                     kind,
                 }),
                 Some(world),

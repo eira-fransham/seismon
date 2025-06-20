@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::common::util::{any_as_bytes, Pod};
+use crate::common::util::{Pod, any_as_bytes};
 
 use bevy::{
     prelude::*,
@@ -13,7 +13,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use failure::{bail, Error};
+use failure::{Error, bail};
 
 // minimum limit is 16384:
 // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#limits-maxUniformBufferRange
@@ -35,19 +35,6 @@ impl UniformBool {
         UniformBool {
             value: value as u32,
         }
-    }
-}
-
-// uniform float array elements are aligned as if they were vec4s
-#[repr(C, align(16))]
-#[derive(Clone, Copy, Debug)]
-pub struct UniformArrayFloat {
-    value: f32,
-}
-
-impl UniformArrayFloat {
-    pub fn new(value: f32) -> UniformArrayFloat {
-        UniformArrayFloat { value }
     }
 }
 
@@ -85,8 +72,7 @@ where
             mapped_at_creation: false,
         });
 
-        let mut update_buf = Vec::with_capacity(DYNAMIC_UNIFORM_BUFFER_SIZE as usize);
-        update_buf.resize(DYNAMIC_UNIFORM_BUFFER_SIZE as usize, 0);
+        let mut update_buf = vec![0; DYNAMIC_UNIFORM_BUFFER_SIZE as usize];
 
         DynamicUniformBuffer {
             _rc: Arc::new(()),
@@ -110,15 +96,9 @@ where
     pub fn allocate(&mut self, val: T) -> DynamicUniformBufferBlock<T> {
         let allocated = self.allocated;
         let size = self.block_size().get();
-        trace!(
-            "Allocating dynamic uniform block (allocated: {})",
-            allocated
-        );
+        trace!("Allocating dynamic uniform block (allocated: {allocated})");
         if allocated + size > DYNAMIC_UNIFORM_BUFFER_SIZE {
-            panic!(
-                "Not enough space to allocate {} bytes in dynamic uniform buffer",
-                size
-            );
+            panic!("Not enough space to allocate {size} bytes in dynamic uniform buffer");
         }
 
         let addr = allocated;
@@ -155,7 +135,9 @@ where
             }
             Err(rc) => {
                 let _ = mem::replace(&mut self._rc, rc);
-                bail!("Can't clear uniform buffer: there are outstanding references to allocated blocks.");
+                bail!(
+                    "Can't clear uniform buffer: there are outstanding references to allocated blocks."
+                );
             }
         }
     }

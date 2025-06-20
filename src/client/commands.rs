@@ -13,12 +13,11 @@ use crate::{
 };
 
 use super::{
-    connect,
+    ColorShiftCode, Connection, ConnectionKind, ConnectionState, DemoQueue, connect,
     demo::DemoServer,
     input::InputFocus,
     sound::{MixerEvent, MusicSource},
     state::ClientState,
-    ColorShiftCode, Connection, ConnectionKind, ConnectionState, DemoQueue,
 };
 
 pub fn register_commands(app: &mut App) {
@@ -397,7 +396,7 @@ pub fn register_commands(app: &mut App) {
                 return ExecResult {
                     output: format!("Couldn't exec: {}", e).into(),
                     ..default()
-                }
+                };
             }
         };
 

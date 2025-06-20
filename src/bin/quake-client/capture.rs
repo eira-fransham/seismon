@@ -3,13 +3,13 @@ use crossbeam_channel::{Receiver, Sender};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
 
 use bevy::{
     prelude::*,
-    render::view::window::screenshot::{save_to_disk, Screenshot},
+    render::view::window::screenshot::{Screenshot, save_to_disk},
     window::PrimaryWindow,
 };
 use chrono::Utc;

@@ -39,7 +39,7 @@ use cgmath::{Deg, Vector3, Zero};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
-use snafu::{prelude::*, Backtrace};
+use snafu::{Backtrace, prelude::*};
 
 use super::util::QString;
 
@@ -389,7 +389,7 @@ impl TempEntity {
                 return Err(NetError::invalid_data(format!(
                     "Temp entity code {}",
                     code_byte
-                )))
+                )));
             }
         };
 
@@ -1199,7 +1199,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "value for ClientStat: {}",
                             stat_id,
-                        )))
+                        )));
                     }
                 };
                 let value = reader.read_i32::<LittleEndian>()?;
@@ -1225,7 +1225,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "SoundFlags: {:b}",
                             flags_bits
-                        )))
+                        )));
                     }
                 };
 
@@ -1296,7 +1296,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "Invalid game type ({})",
                             game_type_code
-                        )))
+                        )));
                     }
                 };
 
@@ -1366,7 +1366,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "client update flags: {:b}",
                             flags_bits
-                        )))
+                        )));
                     }
                 };
 
@@ -1417,7 +1417,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "ItemFlags: {:b}",
                             items_bits
-                        )))
+                        )));
                     }
                 };
 
@@ -1594,7 +1594,7 @@ impl ServerCmd {
                         return Err(NetError::invalid_data(format!(
                             "Invalid value for sign-on stage: {}",
                             stage_num
-                        )))
+                        )));
                     }
                 };
 
@@ -2090,7 +2090,7 @@ impl ClientCmd {
                 return Err(NetError::invalid_data(format!(
                     "Invalid client command code: {}",
                     code_val
-                )))
+                )));
             }
         };
 
@@ -2115,7 +2115,7 @@ impl ClientCmd {
                         return Err(NetError::invalid_data(format!(
                             "Invalid value for button flags: {}",
                             button_flags_val
-                        )))
+                        )));
                     }
                 };
                 let impulse = reader.read_u8()?;
@@ -2402,7 +2402,7 @@ impl QSocket {
                     return Err(NetError::invalid_data(format!(
                         "Invalid message kind: {}",
                         msg_kind_code
-                    )))
+                    )));
                 }
             };
 

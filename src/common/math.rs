@@ -18,17 +18,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::{cmp::Ordering, ops::Neg};
+use std::{cmp::Ordering, ops::Neg, sync::LazyLock};
 
 use bevy::prelude::*;
 use cgmath::{Angle, Deg, InnerSpace, Matrix3, Matrix4, Vector2, Vector3, Zero};
-use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
 
 pub const VERTEX_NORMAL_COUNT: usize = 162;
-lazy_static! {
-    /// Precomputed vertex normals used for alias models and particle effects
-    pub static ref VERTEX_NORMALS: [Vector3<f32>; VERTEX_NORMAL_COUNT] = [
+/// Precomputed vertex normals used for alias models and particle effects
+pub static VERTEX_NORMALS: LazyLock<[Vector3<f32>; VERTEX_NORMAL_COUNT]> = LazyLock::new(|| {
+    [
         [-0.525731, 0.000000, 0.850651].into(),
         [-0.442863, 0.238856, 0.864188].into(),
         [-0.295242, 0.000000, 0.955423].into(),
@@ -191,8 +190,8 @@ lazy_static! {
         [-0.425325, -0.688191, -0.587785].into(),
         [-0.587785, -0.425325, -0.688191].into(),
         [-0.688191, -0.587785, -0.425325].into(),
-    ];
-}
+    ]
+});
 
 #[derive(Clone, Copy, Debug)]
 pub struct Angles {

@@ -5,12 +5,14 @@ pub mod particle;
 pub mod postprocess;
 pub mod sprite;
 
-use std::mem::size_of;
+use std::{mem::size_of, sync::LazyLock};
 
 use crate::{
     client::{
+        ClientEntity, ConnectionState,
         entity::particle::Particle,
         render::{
+            GraphicsState,
             pipeline::{Pipeline, PushConstantUpdate},
             uniform::{DynamicUniformBufferBlock, UniformBool},
             world::{
@@ -18,9 +20,7 @@ use crate::{
                 brush::{BrushPipeline, BrushRenderer, BrushRendererBuilder},
                 sprite::{SpritePipeline, SpriteRenderer},
             },
-            GraphicsState,
         },
-        ClientEntity, ConnectionState,
     },
     common::{
         engine,
@@ -43,62 +43,50 @@ use bevy::{
 use bumpalo::Bump;
 use cgmath::{Euler, InnerSpace, Matrix3, Matrix4, SquareMatrix as _, Vector3, Vector4};
 use chrono::Duration;
-use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
 use super::RenderVars;
 
-lazy_static! {
-    static ref BIND_GROUP_LAYOUT_DESCRIPTOR_BINDINGS: [Vec<BindGroupLayoutEntry>; 2] = [
-        vec![
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::all(),
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size:
-                        std::num::NonZeroU64::new(size_of::<FrameUniforms>() as u64)
-                },
-                count: None,
+pub static BIND_GROUP_LAYOUT_DESCRIPTORS: [&[BindGroupLayoutEntry]; 2] = [
+    &[wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::all(),
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: std::num::NonZeroU64::new(size_of::<FrameUniforms>() as u64),
+        },
+        count: None,
+    }],
+    &[
+        // transform matrix
+        // TODO: move this to push constants once they're exposed in wgpu
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: true,
+                min_binding_size: std::num::NonZeroU64::new(size_of::<EntityUniforms>() as u64),
             },
-        ],
-        vec![
-            // transform matrix
-            // TODO: move this to push constants once they're exposed in wgpu
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size:
-                        std::num::NonZeroU64::new(size_of::<EntityUniforms>() as u64)
-                },
-                count: None,
-            },
-            // diffuse and fullbright sampler
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-            // lightmap sampler
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-    ];
-
-    pub static ref BIND_GROUP_LAYOUT_DESCRIPTORS: [&'static [BindGroupLayoutEntry]; 2] = [
-        &BIND_GROUP_LAYOUT_DESCRIPTOR_BINDINGS[0],
-        &BIND_GROUP_LAYOUT_DESCRIPTOR_BINDINGS[1],
-    ];
-}
+            count: None,
+        },
+        // diffuse and fullbright sampler
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        },
+        // lightmap sampler
+        wgpu::BindGroupLayoutEntry {
+            binding: 2,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        },
+    ],
+];
 
 pub struct WorldPipelineBase;
 
@@ -371,8 +359,8 @@ impl WorldRenderer {
 
         for (i, model) in models.enumerate() {
             if i == worldmodel_id {
-                match *model.kind() {
-                    ModelKind::Brush(ref bmodel) => {
+                match model.kind() {
+                    ModelKind::Brush(bmodel) => {
                         worldmodel_renderer = Some(
                             BrushRendererBuilder::new(bmodel, true)
                                 .build(state, device, queue)
@@ -382,12 +370,12 @@ impl WorldRenderer {
                     _ => panic!("Invalid worldmodel"),
                 }
             } else {
-                match *model.kind() {
-                    ModelKind::Alias(ref amodel) => entity_renderers.push(EntityRenderer::Alias(
+                match model.kind() {
+                    ModelKind::Alias(amodel) => entity_renderers.push(EntityRenderer::Alias(
                         AliasRenderer::new(state, device, queue, amodel).unwrap(),
                     )),
 
-                    ModelKind::Brush(ref bmodel) => {
+                    ModelKind::Brush(bmodel) => {
                         entity_renderers.push(EntityRenderer::Brush(
                             BrushRendererBuilder::new(bmodel, false)
                                 .build(state, device, queue)
@@ -395,7 +383,7 @@ impl WorldRenderer {
                         ));
                     }
 
-                    ModelKind::Sprite(ref smodel) => {
+                    ModelKind::Sprite(smodel) => {
                         entity_renderers.push(EntityRenderer::Sprite(SpriteRenderer::new(
                             &state, device, queue, smodel,
                         )));
@@ -431,27 +419,28 @@ impl WorldRenderer {
     {
         trace!("Updating frame uniform buffer");
         let time_secs = engine::duration_to_f32(time);
-        queue.write_buffer(state.frame_uniform_buffer(), 0, unsafe {
-            any_as_bytes(&FrameUniforms {
-                lightmap_anim_frames: {
-                    let mut frames = [Vector4::<f32>::unit_x(); 16];
-                    for i in 0..16 {
-                        for j in 0..4 {
-                            frames[i] = Vector4::<f32>::new(
-                                lightstyle_values[i * j],
-                                lightstyle_values[i * j + 1],
-                                lightstyle_values[i * j + 2],
-                                lightstyle_values[i * j + 3],
-                            );
-                        }
+        let uniforms = FrameUniforms {
+            lightmap_anim_frames: {
+                let mut frames = [Vector4::<f32>::unit_x(); 16];
+                for i in 0..16 {
+                    for j in 0..4 {
+                        frames[i] = Vector4::<f32>::new(
+                            lightstyle_values[i * j],
+                            lightstyle_values[i * j + 1],
+                            lightstyle_values[i * j + 2],
+                            lightstyle_values[i * j + 3],
+                        );
                     }
-                    frames
-                },
-                camera_pos: camera.origin.extend(1.0),
-                time: time_secs,
-                sky_time: time_secs * render_vars.sky_scroll_speed as f32,
-                r_lightmap: UniformBool::new(render_vars.lightmap != 0),
-            })
+                }
+                frames
+            },
+            camera_pos: camera.origin.extend(1.0),
+            time: time_secs,
+            sky_time: time_secs * render_vars.sky_scroll_speed as f32,
+            r_lightmap: UniformBool::new(render_vars.lightmap != 0),
+        };
+        queue.write_buffer(state.frame_uniform_buffer(), 0, unsafe {
+            any_as_bytes(&uniforms)
         });
 
         trace!("Updating entity uniform buffer");
@@ -544,7 +533,7 @@ impl WorldRenderer {
                 );
 
                 match self.renderer_for_entity(&ent) {
-                    EntityRenderer::Brush(ref bmodel) => {
+                    EntityRenderer::Brush(bmodel) => {
                         pass.set_render_pipeline(state.brush_pipeline().pipeline());
                         BrushPipeline::set_push_constants(
                             pass,
@@ -557,7 +546,7 @@ impl WorldRenderer {
                         );
                         bmodel.record_draw(state, pass, &bump, time, camera, ent.frame_id);
                     }
-                    EntityRenderer::Alias(ref alias) => {
+                    EntityRenderer::Alias(alias) => {
                         pass.set_render_pipeline(state.alias_pipeline().pipeline());
                         AliasPipeline::set_push_constants(
                             pass,
@@ -570,7 +559,7 @@ impl WorldRenderer {
                         );
                         alias.record_draw(state, pass, time, ent.frame_id(), ent.skin_id());
                     }
-                    EntityRenderer::Sprite(ref sprite) => {
+                    EntityRenderer::Sprite(sprite) => {
                         pass.set_render_pipeline(state.sprite_pipeline().pipeline());
                         SpritePipeline::set_push_constants(pass, Clear, Clear, Clear);
                         sprite.record_draw(state, pass, ent.frame_id(), time);
@@ -590,7 +579,7 @@ impl WorldRenderer {
             * Matrix4::from_angle_x(-cam_angles.pitch)
             * Matrix4::from_angle_z(cam_angles.roll);
         match viewmodel_id.and_then(|vid| self.entity_renderers.get(vid)) {
-            Some(EntityRenderer::Alias(ref alias)) => {
+            Some(EntityRenderer::Alias(alias)) => {
                 pass.set_render_pipeline(state.alias_pipeline().pipeline());
                 AliasPipeline::set_push_constants(
                     pass,
@@ -642,7 +631,7 @@ impl WorldRenderer {
         let origin = entity.get_origin();
         let angles = entity.get_angles();
         let rotation = match self.renderer_for_entity(entity) {
-            EntityRenderer::Sprite(ref sprite) => match sprite.kind() {
+            EntityRenderer::Sprite(sprite) => match sprite.kind() {
                 // used for decals
                 SpriteKind::Oriented => Matrix4::from(Euler::new(angles.z, -angles.x, angles.y)),
 

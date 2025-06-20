@@ -5,7 +5,7 @@ use clap::Parser;
 use failure::Error;
 
 use crate::{
-    client::{input::InputFocus, Connection, ConnectionState},
+    client::{Connection, ConnectionState, input::InputFocus},
     common::{
         console::{ExecResult, RegisterCmdExt},
         net::{ClientMessage, ServerMessage, SignOnStage},

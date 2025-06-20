@@ -24,13 +24,13 @@ use crate::{
 };
 
 use nom::{
+    Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{line_ending, not_line_ending, one_of, space0},
     combinator::{opt, recognize},
     multi::many0,
     sequence::{delimited, preceded, terminated, tuple},
-    Parser,
 };
 
 /// Match a line comment.

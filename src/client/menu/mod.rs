@@ -27,7 +27,7 @@ use bevy::{
     },
     render::extract_resource::ExtractResource,
 };
-use failure::{bail, Error};
+use failure::{Error, bail};
 
 use crate::common::console::CName;
 

@@ -1,9 +1,9 @@
-use std::{mem::size_of, ops::Range};
+use std::{mem::size_of, ops::Range, sync::LazyLock};
 
 use crate::{
     client::render::{
-        world::{BindGroupLayoutId, WorldPipelineBase},
         GraphicsState, Pipeline, TextureData,
+        world::{BindGroupLayoutId, WorldPipelineBase},
     },
     common::{
         mdl::{self, AliasModel},
@@ -25,7 +25,6 @@ use bevy::{
 use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3, Zero as _};
 use chrono::Duration;
 use failure::Error;
-use lazy_static::lazy_static;
 
 pub struct AliasPipeline {
     pipeline: RenderPipeline,
@@ -92,19 +91,18 @@ pub struct VertexPushConstants {
     pub model_view: Matrix3<f32>,
 }
 
-lazy_static! {
-    static ref VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![
-            // frame 0 position
-            0 => Float32x3,
-            // frame 1 position
-            // 1 => Float32x3,
-            // normal
-            2 => Float32x3,
-            // texcoord
-            3 => Float32x2,
-        ];
-}
+static VERTEX_ATTRIBUTES: LazyLock<[wgpu::VertexAttribute; 3]> = LazyLock::new(|| {
+    wgpu::vertex_attr_array![
+        // frame 0 position
+        0 => Float32x3,
+        // frame 1 position
+        // 1 => Float32x3,
+        // normal
+        2 => Float32x3,
+        // texcoord
+        3 => Float32x2,
+    ]
+});
 
 impl Pipeline for AliasPipeline {
     type VertexPushConstants = VertexPushConstants;
@@ -230,7 +228,7 @@ enum Texture {
 impl Texture {
     fn animate(&self, time: Duration) -> &BindGroup {
         match self {
-            Texture::Static { ref bind_group, .. } => bind_group,
+            Texture::Static { bind_group, .. } => bind_group,
             Texture::Animated {
                 bind_groups,
                 total_duration,

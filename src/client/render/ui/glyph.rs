@@ -1,13 +1,13 @@
-use std::{mem::size_of, num::NonZeroU32};
+use std::{mem::size_of, num::NonZeroU32, sync::LazyLock};
 
 use crate::{
     client::render::{
+        Extent2d, GraphicsState, Pipeline, TextureData,
         ui::{
             layout::{Anchor, ScreenPosition},
             quad::{QuadPipeline, QuadVertex},
             screen_space_vertex_scale, screen_space_vertex_translate,
         },
-        Extent2d, GraphicsState, Pipeline, TextureData,
     },
     common::util::any_slice_as_bytes,
 };
@@ -21,7 +21,6 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 use cgmath::Vector2;
-use lazy_static::lazy_static;
 
 pub const GLYPH_WIDTH: usize = 8;
 pub const GLYPH_HEIGHT: usize = 8;
@@ -33,19 +32,17 @@ const GLYPH_TEXTURE_WIDTH: usize = GLYPH_WIDTH * GLYPH_COLS;
 /// The maximum number of glyphs that can be rendered at once.
 pub const MAX_INSTANCES: usize = 65536;
 
-lazy_static! {
-    static ref VERTEX_BUFFER_ATTRIBUTES: [Vec<wgpu::VertexAttribute>; 2] = [
-        wgpu::vertex_attr_array![
-            0 => Float32x2, // a_position
-            1 => Float32x2 // a_texcoord
-        ].to_vec(),
-        wgpu::vertex_attr_array![
-            2 => Float32x2, // a_instance_position
-            3 => Float32x2, // a_instance_scale
-            4 => Uint32 // a_instance_layer
-        ].to_vec(),
-    ];
-}
+static VERTEX_BUFFER_ATTRIBUTES: [&[wgpu::VertexAttribute]; 2] = [
+    &wgpu::vertex_attr_array![
+        0 => Float32x2, // a_position
+        1 => Float32x2 // a_texcoord
+    ],
+    &wgpu::vertex_attr_array![
+        2 => Float32x2, // a_instance_position
+        3 => Float32x2, // a_instance_scale
+        4 => Uint32 // a_instance_layer
+    ],
+];
 
 pub struct GlyphPipeline {
     pipeline: RenderPipeline,

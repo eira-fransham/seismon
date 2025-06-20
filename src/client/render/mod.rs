@@ -65,6 +65,7 @@ use bevy::{
     },
     prelude::*,
     render::{
+        Render, RenderApp, RenderSet,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_graph::{RenderGraphApp, ViewNodeRunner},
         render_resource::{
@@ -73,7 +74,6 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         view::ViewTarget,
-        Render, RenderApp, RenderSet,
     },
     ui::graph::NodeUi,
     window::PrimaryWindow,
@@ -86,10 +86,10 @@ pub use pipeline::Pipeline;
 pub use postprocess::PostProcessBindGroup;
 use serde::{Deserialize, Serialize};
 pub use target::{PreferredFormat, RenderTarget, RenderTargetResolve};
-pub use ui::{hud::HudState, UiRenderer, UiState};
+pub use ui::{UiRenderer, UiState, hud::HudState};
 pub use world::{
-    deferred::{DeferredRenderer, DeferredUniforms, PointLight},
     Camera,
+    deferred::{DeferredRenderer, DeferredUniforms, PointLight},
 };
 
 use std::{
@@ -107,13 +107,13 @@ use crate::{
             ui::{glyph::GlyphPipeline, hud::HudVars, quad::QuadPipeline},
             uniform::DynamicUniformBuffer,
             world::{
+                EntityUniforms,
                 alias::AliasPipeline,
                 brush::BrushPipeline,
                 deferred::DeferredPipeline,
                 particle::ParticlePipeline,
                 postprocess::{self, PostProcessPipeline, PostProcessVars},
                 sprite::SpritePipeline,
-                EntityUniforms,
             },
         },
     },
@@ -132,7 +132,7 @@ use self::{
 
 use failure::Error;
 
-use super::{state::ClientState, Connection, ConnectionKind, ConnectionState};
+use super::{Connection, ConnectionKind, ConnectionState, state::ClientState};
 
 pub struct SeismonRenderPlugin;
 

@@ -301,7 +301,7 @@ impl Entities {
         matches!(self.slots[entity_id.0], AreaEntitySlot::Occupied(_))
     }
 
-    pub fn list(&self) -> impl Iterator<Item = EntityId> {
+    pub fn list(&self) -> impl Iterator<Item = EntityId> + use<> {
         self.slots
             .iter()
             .enumerate()
@@ -1082,7 +1082,7 @@ impl World {
                     return Err(ProgsError::with_msg(format!(
                         "Trigger in solids list with ID ({})",
                         touch.0
-                    )))
+                    )));
                 }
 
                 // don't collide with monsters if the collide specifies not to do so
