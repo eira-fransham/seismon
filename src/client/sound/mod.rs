@@ -19,6 +19,8 @@
 // SOFTWARE.
 
 mod music;
+mod limiter;
+
 use bevy::{
     app::{Main, Plugin},
     asset::{AssetServer, Handle},
@@ -137,6 +139,7 @@ type ReverbNode = impl fundsp::audionode::AudioNode + Send + Sync + 'static;
 #[define_opaque(ReverbNode)]
 fn create_mixer(sender_l: SnoopBackend, sender_r: SnoopBackend) -> ReverbNode {
     use fundsp::hacker32::*;
+    use self::limiter::limiter_stereo;
 
     let sender_l = An(sender_l);
     let sender_r = An(sender_r);
@@ -147,9 +150,9 @@ fn create_mixer(sender_l: SnoopBackend, sender_r: SnoopBackend) -> ReverbNode {
             >> (moog_hz(1500., 0.) | moog_hz(1500., 0.))),
     );
 
-    ((multipass() & 0.3 * reverb_stereo(20.0, 0.8, 0.5) & 0.2 * delay)
-        >> limiter_stereo(0.7, 0.7)
-        >> limiter_stereo(0.05, 0.05)
+    ((multipass() & (0.3 * reverb_stereo(20.0, 0.8, 0.5)) & (0.2 * delay))
+        >> limiter_stereo(0., 0.7, 0.7)
+        >> limiter_stereo(0., 0.03, 0.05)
         >> (sender_l | sender_r))
         .0
 }

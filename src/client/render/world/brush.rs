@@ -505,6 +505,7 @@ impl BrushRendererBuilder {
             );
 
             let id = self.lightmaps.len();
+            info!("Creating lightmap {} {}x{}", id, lightmap.width(), lightmap.height());
             self.lightmaps.push(texture);
             //self.lightmap_views
             //.push(self.lightmaps[id].create_view(&Default::default()));

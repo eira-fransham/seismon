@@ -595,7 +595,7 @@ where
         },
     ) in anim_file_textures.into_iter()
     {
-        if pri.len() == 0 {
+        if pri.is_empty() {
             Err(BspFileError::EmptyPrimaryAnimation(name.to_owned()))?;
         }
 
@@ -1028,13 +1028,13 @@ where
         let max = Vector3::from(read_f32_3(&mut reader)?) + Vector3::new(1.0, 1.0, 1.0);
         let origin = read_f32_3(&mut reader)?.into();
 
-        debug!("model[{}].min = {:?}", i, min);
-        debug!("model[{}].max = {:?}", i, max);
-        debug!("model[{}].origin = {:?}", i, max);
+        debug!("model[{i}].min = {min:?}");
+        debug!("model[{i}].max = {max:?}");
+        debug!("model[{i}].origin = {origin:?}");
 
         let mut collision_node_ids = [0; MAX_HULLS];
-        for i in 0..collision_node_ids.len() {
-            collision_node_ids[i] = match reader.read_i32::<LittleEndian>()? {
+        for node_id in &mut collision_node_ids {
+            *node_id = match reader.read_i32::<LittleEndian>()? {
                 r if r < 0 => bail!("Invalid collision tree root node"),
                 r => r as usize,
             };
@@ -1092,7 +1092,7 @@ where
     let models = brush_models
         .into_iter()
         .enumerate()
-        .map(|(i, bmodel)| Model::from_brush_model(format!("*{}", i), bmodel))
+        .map(|(i, bmodel)| Model::from_brush_model(format!("*{i}"), bmodel))
         .collect();
 
     Ok((models, ent_string))

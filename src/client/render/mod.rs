@@ -146,9 +146,6 @@ fn extract_now<U: Resource, V: ExtractResource<Source = U>>(app: &mut App) {
 
 impl Plugin for SeismonRenderPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        #[derive(Hash, Debug, PartialEq, Eq, Copy, Clone, ScheduleLabel)]
-        struct RenderSetup;
-
         app.add_plugins((
             ExtractResourcePlugin::<Menu>::default(),
             ExtractResourcePlugin::<RenderState>::default(),
@@ -183,16 +180,14 @@ impl Plugin for SeismonRenderPlugin {
                 (
                     systems::create_graphics_state.run_if(
                         not(resource_exists::<GraphicsState>)
-                            .or_else(resource_changed::<RenderResolution>),
+                            .or(resource_changed::<RenderResolution>),
                     ),
                     systems::create_menu_renderer.run_if(
-                        resource_exists::<GraphicsState>.and_then(
-                            not(resource_exists::<UiRenderer>).or_else(resource_changed::<Menu>),
-                        ),
+                        resource_exists::<GraphicsState>
+                            .and(not(resource_exists::<UiRenderer>).or(resource_changed::<Menu>)),
                     ),
                     extract_world_renderer.run_if(
-                        resource_changed::<ConnectionState>
-                            .and_then(resource_exists::<GraphicsState>),
+                        resource_changed::<ConnectionState>.and(resource_exists::<GraphicsState>),
                     ),
                 )
                     .chain()
@@ -531,7 +526,7 @@ impl GraphicsState {
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &entity_uniform_buffer.buffer(),
+                            buffer: entity_uniform_buffer.buffer(),
                             offset: 0,
                             size: Some(
                                 NonZeroU64::new(size_of::<EntityUniforms>() as u64).unwrap(),
@@ -585,7 +580,7 @@ impl GraphicsState {
             );
             let particle_pipeline = ParticlePipeline::new(
                 device,
-                &queue,
+                queue,
                 compiler,
                 diffuse_format,
                 normal_format,
@@ -615,7 +610,7 @@ impl GraphicsState {
             1,
             1,
             &TextureData::Lightmap(LightmapData {
-                lightmap: (&[0xFF][..]).into(),
+                lightmap: [0xFF][..].into(),
             }),
         );
         let default_lightmap_view = default_lightmap.create_view(&Default::default());
@@ -646,11 +641,11 @@ impl GraphicsState {
         })
     }
 
-    pub fn create_texture<'a>(
+    pub fn create_texture(
         &self,
         device: &RenderDevice,
         queue: &RenderQueue,
-        label: Option<&'a str>,
+        label: Option<&str>,
         width: u32,
         height: u32,
         data: &TextureData,
@@ -785,12 +780,12 @@ mod systems {
         let sample_count = render_vars.msaa_samples;
 
         if let Ok(view_target) = targets.get_single() {
-            match GraphicsState::new(&*device, &*queue, view_target, sample_count, &*vfs) {
+            match GraphicsState::new(&device, &queue, view_target, sample_count, &vfs) {
                 Ok(state) => {
                     commands.insert_resource(state);
                 }
                 Err(e) => {
-                    warn!("Failed to create graphics state: {}", e);
+                    warn!("Failed to create graphics state: {e}");
                 }
             }
         }
@@ -805,7 +800,7 @@ mod systems {
         menu: Res<Menu>,
     ) {
         if let Some(state) = state.as_ref() {
-            commands.insert_resource(UiRenderer::new(&*state, &*vfs, &*device, &*queue, &*menu));
+            commands.insert_resource(UiRenderer::new(&state, &vfs, &device, &queue, &menu));
         }
     }
 }

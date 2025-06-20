@@ -197,7 +197,7 @@ impl ClientState {
                 }
             } else if !mod_name.starts_with("*") {
                 // model names starting with * are loaded from the world BSP
-                debug!("Loading model {}", mod_name);
+                debug!("Loading model {mod_name}");
                 let id = models.len();
                 models.push_back(Model::load(vfs, &mod_name)?);
                 model_names.insert(mod_name, id);
@@ -213,7 +213,7 @@ impl ClientState {
                 debug!("Loading sound {}: {}", i, snd_name);
 
                 let mut data = Vec::new();
-                vfs.open(format!("sound/{}", snd_name))?
+                vfs.open(format!("sound/{snd_name}"))?
                     .read_to_end(&mut data)
                     .unwrap();
 

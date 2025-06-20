@@ -498,8 +498,8 @@ impl BspCollisionHull {
         end: Vector3<f32>,
     ) -> Result<Trace, BspError> {
         debug!("start={:?} end={:?}", start, end);
-        let ref node = self.nodes[node];
-        let ref plane = self.planes[node.plane_id];
+        let node = &self.nodes[node];
+        let plane = &self.planes[node.plane_id];
 
         match plane.line_segment_intersection(start, end) {
             // start -> end falls entirely on one side of the plane
@@ -632,14 +632,14 @@ impl BspCollisionHull {
 
         for child in self.nodes[node_id].children.iter() {
             match child {
-                &BspCollisionNodeChild::Node(n) => {
-                    result += &format!("    n{} -> n{}\n", node_id, n);
-                    result += &self.gen_dot_graph_recursive(rank + 1, rank_lists, leaf_names, n);
+                BspCollisionNodeChild::Node(n) => {
+                    result += &format!("    n{node_id} -> n{n}\n");
+                    result += &self.gen_dot_graph_recursive(rank + 1, rank_lists, leaf_names, *n);
                 }
-                &BspCollisionNodeChild::Contents(_) => {
+                BspCollisionNodeChild::Contents(_) => {
                     let leaf_count = leaf_names.len();
-                    let leaf_name = format!("l{}", leaf_count);
-                    result += &format!("    n{} -> {}\n", node_id, leaf_name);
+                    let leaf_name = format!("l{leaf_count}");
+                    result += &format!("    n{node_id} -> {leaf_name}\n");
                     leaf_names.push(leaf_name);
                 }
             }
@@ -871,9 +871,8 @@ impl BspData {
         dot += "    rankdir=LR\n";
 
         let mut rank_lists = Vec::new();
-        let mut leaf_names = Vec::new();
 
-        dot += &self.gen_dot_graph_recursive(0, &mut rank_lists, &mut leaf_names, 0);
+        dot += &self.gen_dot_graph_recursive(0, &mut rank_lists, 0);
 
         for rank in rank_lists {
             dot += "    {rank=same;";
@@ -887,7 +886,7 @@ impl BspData {
 
         dot += "    {rank=same;";
         for leaf_id in 1..self.leaves().len() {
-            dot += &format!("l{},", leaf_id);
+            dot += &format!("l{leaf_id},");
         }
         // discard trailing comma
         dot.pop().unwrap();
@@ -902,7 +901,6 @@ impl BspData {
         &self,
         rank: usize,
         rank_lists: &mut Vec<HashSet<usize>>,
-        leaf_names: &mut Vec<String>,
         node_id: usize,
     ) -> String {
         let mut result = String::new();
@@ -916,17 +914,16 @@ impl BspData {
         for child in self.render_nodes[node_id].children.iter() {
             match *child {
                 BspRenderNodeChild::Node(n) => {
-                    result += &format!("    n{} -> n{}\n", node_id, n);
-                    result += &self.gen_dot_graph_recursive(rank + 1, rank_lists, leaf_names, n);
+                    result += &format!("    n{node_id} -> n{n}\n");
+                    result += &self.gen_dot_graph_recursive(rank + 1, rank_lists, n);
                 }
                 BspRenderNodeChild::Leaf(leaf_id) => match leaf_id {
                     0 => {
                         result += &format!(
-                            "    l0_{0} [shape=point label=\"\"]\n    n{0} -> l0_{0}\n",
-                            node_id
+                            "    l0_{node_id} [shape=point label=\"\"]\n    n{node_id} -> l0_{node_id}\n",
                         );
                     }
-                    _ => result += &format!("    n{} -> l{}\n", node_id, leaf_id),
+                    _ => result += &format!("    n{node_id} -> l{leaf_id}\n"),
                 },
             }
         }
@@ -991,10 +988,7 @@ impl BspModel {
 
     pub fn hull(&self, index: usize) -> Result<BspCollisionHull, BspError> {
         if index > MAX_HULLS {
-            return Err(BspError::with_msg(format!(
-                "Invalid hull index ({})",
-                index
-            )));
+            return Err(BspError::with_msg(format!("Invalid hull index ({index})")));
         }
 
         let main_hull = &self.bsp_data.hulls[index];
@@ -1007,8 +1001,6 @@ impl BspModel {
         })
     }
 }
-
-impl BspData {}
 
 #[cfg(test)]
 mod test {

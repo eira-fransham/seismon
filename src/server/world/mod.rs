@@ -548,8 +548,7 @@ impl World {
                 .push(Model::from_sprite_model(name.to_str(), sprite_model));
         } else {
             return Err(ProgsError::with_msg(format!(
-                "Unrecognized model type: {}",
-                name
+                "Unrecognized model type: {name}"
             )));
         }
 

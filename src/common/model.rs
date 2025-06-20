@@ -105,7 +105,7 @@ impl Model {
                 sprite::load(vfs.open(name)?),
             ))
         } else {
-            panic!("Unrecognized model type: {}", name);
+            panic!("Unrecognized model type: {name}");
         }
     }
 
