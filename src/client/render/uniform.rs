@@ -72,7 +72,7 @@ where
             mapped_at_creation: false,
         });
 
-        let mut update_buf = vec![0; DYNAMIC_UNIFORM_BUFFER_SIZE as usize];
+        let update_buf = vec![0; DYNAMIC_UNIFORM_BUFFER_SIZE as usize];
 
         DynamicUniformBuffer {
             _rc: Arc::new(()),

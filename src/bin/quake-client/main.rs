@@ -28,12 +28,10 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
-        auto_exposure::{AutoExposure, AutoExposureCompensationCurve, AutoExposurePlugin},
         bloom::BloomSettings,
         prepass::{DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
-    math::{cubic_splines::LinearSpline, vec2},
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
     render::{

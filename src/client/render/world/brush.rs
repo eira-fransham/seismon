@@ -30,8 +30,7 @@ use std::{
 
 use crate::{
     client::render::{
-        Camera, DIFFUSE_TEXTURE_FORMAT, FULLBRIGHT_TEXTURE_FORMAT, GraphicsState,
-        LIGHTMAP_TEXTURE_FORMAT, LightmapData, Pipeline, TextureData,
+        Camera, GraphicsState, LIGHTMAP_TEXTURE_FORMAT, LightmapData, Pipeline, TextureData,
         pipeline::PushConstantUpdate,
         warp,
         world::{BindGroupLayoutId, WorldPipelineBase},
@@ -46,7 +45,6 @@ use crate::{
     },
 };
 
-use beef::Cow;
 use bevy::{
     asset::RenderAssetUsages,
     prelude::*,

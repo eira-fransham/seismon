@@ -561,9 +561,11 @@ where
         input: <Self::In as SystemInput>::Inner<'_>,
         world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell,
     ) -> Self::Out {
-        match input {
-            Ok(input) => self.inner.run_unsafe(input, world),
-            Err(e) => (self.handle_error)(e),
+        unsafe {
+            match input {
+                Ok(input) => self.inner.run_unsafe(input, world),
+                Err(e) => (self.handle_error)(e),
+            }
         }
     }
 

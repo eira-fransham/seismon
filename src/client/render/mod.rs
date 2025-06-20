@@ -59,10 +59,7 @@ use bevy::{
         core_3d::graph::{Core3d, Node3d},
         prepass::NORMAL_PREPASS_FORMAT,
     },
-    ecs::{
-        schedule::ScheduleLabel,
-        system::{Res, Resource},
-    },
+    ecs::system::{Res, Resource},
     prelude::*,
     render::{
         Render, RenderApp, RenderSet,
@@ -70,7 +67,6 @@ use bevy::{
         render_graph::{RenderGraphApp, ViewNodeRunner},
         render_resource::{
             BindGroup, BindGroupLayout, Buffer, Sampler, SpecializedRenderPipelines, Texture,
-            TextureView,
         },
         renderer::{RenderDevice, RenderQueue},
         view::ViewTarget,

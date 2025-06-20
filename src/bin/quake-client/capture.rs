@@ -7,11 +7,7 @@ use std::{
     time::Duration,
 };
 
-use bevy::{
-    prelude::*,
-    render::view::window::screenshot::{Screenshot, save_to_disk},
-    window::PrimaryWindow,
-};
+use bevy::{prelude::*, window::PrimaryWindow};
 use chrono::Utc;
 use image::RgbImage;
 use seismon::common::console::RegisterCmdExt as _;
@@ -182,14 +178,11 @@ struct VideoCtxRecv {
 
 mod systems {
     use crossbeam_channel::TryRecvError;
-    use std::sync::atomic::Ordering;
-
-    use image::imageops::FilterType;
 
     use super::*;
 
     pub fn video_frame(
-        mut commands: Commands,
+        commands: Commands,
         window: Query<Entity, With<PrimaryWindow>>,
         time: Res<Time>,
     ) {

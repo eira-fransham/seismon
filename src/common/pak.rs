@@ -27,11 +27,11 @@ use std::{
 use bevy::{
     asset::{
         Asset, AssetLoader, LoadContext,
-        io::{AssetReader, AssetReaderError, AssetReaderFuture, PathStream, Reader, SliceReader},
+        io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
     },
     prelude::*,
     reflect::TypePath,
-    utils::{BoxedFuture, ConditionalSendFuture},
+    utils::ConditionalSendFuture,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::AsyncReadExt as _;

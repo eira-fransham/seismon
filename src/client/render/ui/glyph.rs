@@ -1,4 +1,4 @@
-use std::{mem::size_of, num::NonZeroU32, sync::LazyLock};
+use std::{mem::size_of, num::NonZeroU32};
 
 use crate::{
     client::render::{
