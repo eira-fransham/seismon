@@ -53,19 +53,23 @@ strum = "0.26"
 strum_macros = "0.26"
 thiserror = "1.0"
 uluru = "3"
+uuid = "1.12"
 wgpu = { version = "23.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
 video-rs = { version = "0.6", features = ["ndarray"], optional = true }
 
 [features]
-default = ["screenrecord"]
+default = ["screenrecord", "fast-compile"]
 screenrecord = ["video-rs"]
 fast-compile = ["bevy/dynamic_linking"]
 auto-exposure = []
 
 [profile.release]
-lto = "thin"
+strip = "symbols"
+
+[profile.release-lto]
+inherits = "release"
 strip = "symbols"
 
 [profile.dev]

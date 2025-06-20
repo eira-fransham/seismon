@@ -174,7 +174,7 @@ pub enum BindGroupLayoutId {
     PerFrame = 0,
     PerEntity = 1,
     PerTexture = 2,
-    PerFace = 3,
+    Lightmap = 3,
 }
 
 pub struct Camera {
@@ -487,7 +487,6 @@ impl WorldRenderer {
         P: Iterator<Item = &'a Particle>,
     {
         use PushConstantUpdate::*;
-        info!("Updating uniform buffers");
 
         pass.set_bind_group(
             BindGroupLayoutId::PerFrame as usize,
@@ -495,8 +494,6 @@ impl WorldRenderer {
             &[],
         );
 
-        // draw world
-        info!("Drawing world");
         pass.set_render_pipeline(state.brush_pipeline().pipeline());
         BrushPipeline::set_push_constants(
             pass,
@@ -516,14 +513,12 @@ impl WorldRenderer {
         self.worldmodel_renderer.record_draw(
             state,
             pass,
-            &bump,
+            bump,
             time,
             camera,
             ((engine::duration_to_f32(time) + (0.05 / 2.)) / 0.05) as usize,
         );
 
-        // draw entities
-        info!("Drawing entities");
         for (ent_pos, ent) in entities.enumerate() {
             if let Some(uniforms) = self.entity_uniform_blocks.read().get(ent_pos) {
                 pass.set_bind_group(

@@ -211,9 +211,9 @@ impl Plugin for SeismonRenderPlugin {
     }
 }
 
-const DIFFUSE_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const FULLBRIGHT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
-const LIGHTMAP_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+pub const DIFFUSE_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub const FULLBRIGHT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+pub const LIGHTMAP_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 
 /// Create a `wgpu::TextureDescriptor` appropriate for the provided texture data.
 pub fn texture_descriptor<'a>(
@@ -427,9 +427,6 @@ pub struct GraphicsState {
     glyph_pipeline: GlyphPipeline,
     quad_pipeline: QuadPipeline,
 
-    default_lightmap: Texture,
-    default_lightmap_view: TextureView,
-
     palette: Palette,
     gfx_wad: Wad,
 }
@@ -603,18 +600,6 @@ impl GraphicsState {
             )
         });
 
-        let default_lightmap = create_texture(
-            device,
-            queue,
-            None,
-            1,
-            1,
-            &TextureData::Lightmap(LightmapData {
-                lightmap: [0xFF][..].into(),
-            }),
-        );
-        let default_lightmap_view = default_lightmap.create_view(&Default::default());
-
         Ok(GraphicsState {
             frame_uniform_buffer,
             entity_uniform_buffer: entity_uniform_buffer.into(),
@@ -634,8 +619,6 @@ impl GraphicsState {
             nearest_sampler,
             lightmap_sampler,
 
-            default_lightmap,
-            default_lightmap_view,
             palette,
             gfx_wad,
         })
@@ -675,14 +658,6 @@ impl GraphicsState {
 
     pub fn nearest_sampler(&self) -> &Sampler {
         &self.nearest_sampler
-    }
-
-    pub fn default_lightmap(&self) -> &Texture {
-        &self.default_lightmap
-    }
-
-    pub fn default_lightmap_view(&self) -> &TextureView {
-        &self.default_lightmap_view
     }
 
     pub fn lightmap_sampler(&self) -> &Sampler {

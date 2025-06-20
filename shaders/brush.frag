@@ -11,8 +11,11 @@ const float WARP_SCALE = 1.0;
 
 layout(location = 0) in vec3 f_normal;
 layout(location = 1) in vec3 f_diffuse; // also used for fullbright, for sky textures this is the position instead
-layout(location = 2) in vec2 f_lightmap;
-flat layout(location = 3) in uvec4 f_lightmap_anim;
+flat layout(location = 2) in uvec4 f_lightmap_anim;
+layout(location = 3) in vec2 f_lightmap_uv_0;
+layout(location = 4) in vec2 f_lightmap_uv_1;
+layout(location = 5) in vec2 f_lightmap_uv_2;
+layout(location = 6) in vec2 f_lightmap_uv_3;
 
 layout(push_constant) uniform PushConstants {
   layout(offset = 128) uint texture_kind;
@@ -38,7 +41,7 @@ layout(set = 2, binding = 2) uniform TextureUniforms {
 } texture_uniforms;
 
 // set 3: per-face
-layout(set = 3, binding = 0) uniform texture2D u_lightmap_texture[4];
+layout(set = 3, binding = 0) uniform texture2D u_lightmap_texture;
 
 layout(location = 0) out vec4 diffuse_attachment;
 layout(location = 1) out vec4 normal_attachment;
@@ -49,9 +52,25 @@ vec4 calc_light() {
         if (f_lightmap_anim[i] == LIGHTMAP_ANIM_END)
             break;
 
+        vec2 lightmap_uv;
+        switch (i) {
+            case 0:
+                lightmap_uv = f_lightmap_uv_0;
+                break;
+            case 1:
+                lightmap_uv = f_lightmap_uv_1;
+                break;
+            case 2:
+                lightmap_uv = f_lightmap_uv_2;
+                break;
+            case 3:
+                lightmap_uv = f_lightmap_uv_3;
+                break;
+        }
+
         float map = texture(
-            sampler2D(u_lightmap_texture[i], u_lightmap_sampler),
-            f_lightmap
+            sampler2D(u_lightmap_texture, u_lightmap_sampler),
+            lightmap_uv
         ).r;
 
         // range [0, 4]
@@ -123,8 +142,6 @@ void main() {
 
             // We calculate the diffuse coords here instead of in the vertex shader to prevent incorrect
             // interpolation when the skybox is not parallel to the sky plane (e.g. for sky-textured walls)
-            // TODO: Is there a more-efficient way to do this?
-            // TODO: We want to make the horizon for the sky be at the bottom of the screen - what is the best way to do this?
             vec3 dir = normalize(f_diffuse - frame_uniforms.camera_pos.xyz / frame_uniforms.camera_pos.w);
 
             vec2 size = vec2(textureSize(sampler2D(u_diffuse_texture, u_diffuse_sampler), 0));

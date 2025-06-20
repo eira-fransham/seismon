@@ -30,7 +30,8 @@ use std::{
 
 use crate::{
     client::render::{
-        Camera, GraphicsState, LightmapData, Pipeline, TextureData,
+        Camera, DIFFUSE_TEXTURE_FORMAT, FULLBRIGHT_TEXTURE_FORMAT, GraphicsState,
+        LIGHTMAP_TEXTURE_FORMAT, LightmapData, Pipeline, TextureData,
         pipeline::PushConstantUpdate,
         warp,
         world::{BindGroupLayoutId, WorldPipelineBase},
@@ -47,6 +48,7 @@ use crate::{
 
 use beef::Cow;
 use bevy::{
+    asset::RenderAssetUsages,
     prelude::*,
     render::{
         render_phase::TrackedRenderPass,
@@ -63,6 +65,8 @@ use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
 use num::Zero;
+use uuid::Uuid;
+use wgpu::Extent3d;
 
 pub struct BrushPipeline {
     pipeline: RenderPipeline,
@@ -181,17 +185,23 @@ const BIND_GROUP_LAYOUT_ENTRIES: &[&[BindGroupLayoutEntry]] = &[
     ],
 ];
 
-static VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+static VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
     // position
     0 => Float32x3,
     // normal
     1 => Float32x3,
     // diffuse texcoord
     2 => Float32x2,
-    // lightmap texcoord
-    3 => Float32x2,
     // lightmap animation ids
-    4 => Uint8x4,
+    3 => Uint8x4,
+    // lightmap texcoord 0
+    4 => Float32x2,
+    // lightmap texcoord 1
+    5 => Float32x2,
+    // lightmap texcoord 2
+    6 => Float32x2,
+    // lightmap texcoord 3
+    7 => Float32x2,
 ];
 
 impl Pipeline for BrushPipeline {
@@ -273,8 +283,8 @@ struct BrushVertex {
     position: Position,
     normal: Normal,
     diffuse_texcoord: DiffuseTexcoord,
-    lightmap_texcoord: LightmapTexcoord,
     lightmap_anim: LightmapAnim,
+    lightmap_texcoords: [LightmapTexcoord; 4],
 }
 
 #[repr(u32)]
@@ -325,7 +335,7 @@ struct BrushFace {
 
     texture_id: usize,
 
-    lightmap_ids: Vec<usize>,
+    lightmap_ids: [AssetId<Image>; 4],
     _light_styles: [u8; 4],
 
     /// Indicates whether the face should be drawn this frame.
@@ -359,59 +369,55 @@ pub struct BrushRendererBuilder {
     leaves: Option<Vec<BrushLeaf>>,
 
     per_texture_bind_groups: Vec<BindGroup>,
-    per_face_bind_groups: Vec<BindGroup>,
 
     vertices: Vec<BrushVertex>,
-    faces: Vec<BrushFace>,
     texture_chains: HashMap<usize, Vec<usize>>,
+    // diffuse_atlas: TextureAtlasBuilder<'a>,
+    // fullbright_atlas: TextureAtlasBuilder<'a>,
     textures: Vec<BrushTexture>,
-    lightmaps: Vec<Texture>,
+    default_lightmap_id: AssetId<Image>,
     //lightmap_views: Vec<TextureView>,
 }
 
 impl BrushRendererBuilder {
-    pub fn new(bsp_model: &BspModel, worldmodel: bool) -> BrushRendererBuilder {
+    pub fn new(bsp_model: &BspModel, worldmodel: bool) -> Self {
+        let default_lightmap_id = AssetId::<Image>::from(Uuid::new_v4());
+
         BrushRendererBuilder {
             bsp_data: bsp_model.bsp_data(),
             face_range: bsp_model.face_id..bsp_model.face_id + bsp_model.face_count,
             leaves: if worldmodel {
-                Some(
-                    bsp_model
-                        .iter_leaves()
-                        .map(BrushLeaf::from)
-                        .collect(),
-                )
+                Some(bsp_model.iter_leaves().map(BrushLeaf::from).collect())
             } else {
                 None
             },
-            per_texture_bind_groups: Default::default(),
-            per_face_bind_groups: Vec::new(),
-            vertices: Vec::new(),
-            faces: Vec::new(),
-            texture_chains: HashMap::default(),
-            textures: Vec::new(),
-            lightmaps: Vec::new(),
-            //lightmap_views: Vec::new(),
+            per_texture_bind_groups: default(),
+            vertices: default(),
+            texture_chains: default(),
+            textures: default(),
+            default_lightmap_id,
         }
     }
 
-    fn create_face(
-        &mut self,
-        state: &GraphicsState,
-        device: &RenderDevice,
-        queue: &RenderQueue,
+    fn create_face<'a>(
+        bsp_data: &'a BspData,
+        vertices: &mut Vec<BrushVertex>,
+        default_lightmap_id: AssetId<Image>,
         face_id: usize,
-    ) -> BrushFace {
-        let face = &self.bsp_data.faces()[face_id];
-        let face_vert_id = self.vertices.len();
-        let texinfo = &self.bsp_data.texinfo()[face.texinfo_id];
-        let tex = &self.bsp_data.textures()[texinfo.tex_id];
+    ) -> (
+        BrushFace,
+        impl Iterator<Item = AssetId<Image>> + Clone + use<>,
+        impl Iterator<Item = Image> + use<'a>,
+    ) {
+        let face = &bsp_data.faces()[face_id];
+        let face_vert_id = vertices.len();
+        let texinfo = &bsp_data.texinfo()[face.texinfo_id];
+        let tex = &bsp_data.textures()[texinfo.tex_id];
 
         let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
         let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
 
-        let no_collinear =
-            math::remove_collinear(self.bsp_data.face_iter_vertices(face_id).collect());
+        let no_collinear = math::remove_collinear(bsp_data.face_iter_vertices(face_id).collect());
 
         for vert in no_collinear.iter() {
             for component in 0..3 {
@@ -419,6 +425,31 @@ impl BrushRendererBuilder {
                 max[component] = max[component].max(vert[component]);
             }
         }
+
+        // build the lightmaps
+        let lightmaps = if !texinfo.special {
+            bsp_data.face_lightmaps(face_id)
+        } else {
+            Vec::new()
+        };
+
+        let mut lightmap_ids = [default_lightmap_id; 4];
+        for (_, lightmap_id) in (0..lightmaps.len()).zip(&mut lightmap_ids) {
+            *lightmap_id = AssetId::<Image>::from(Uuid::new_v4());
+        }
+        let lightmaps = lightmaps.into_iter().map(|lightmap| {
+            Image::new(
+                Extent3d {
+                    width: lightmap.width(),
+                    height: lightmap.height(),
+                    depth_or_array_layers: 1,
+                },
+                wgpu::TextureDimension::D2,
+                lightmap.data().to_vec(),
+                LIGHTMAP_TEXTURE_FORMAT,
+                RenderAssetUsages::RENDER_WORLD,
+            )
+        });
 
         if tex.name().starts_with("*") {
             // tessellate the surface so we can do texcoord warping
@@ -428,14 +459,15 @@ impl BrushRendererBuilder {
                 _ => Vector3::zero(),
             };
             for vert in verts.into_iter() {
-                self.vertices.push(BrushVertex {
+                let lightmap_texcoords = calculate_lightmap_texcoords(vert, face, texinfo);
+                vertices.push(BrushVertex {
                     position: vert.into(),
                     normal: normal.into(),
                     diffuse_texcoord: [
                         ((vert.dot(texinfo.s_vector) + texinfo.s_offset) / tex.width() as f32),
                         ((vert.dot(texinfo.t_vector) + texinfo.t_offset) / tex.height() as f32),
                     ],
-                    lightmap_texcoord: calculate_lightmap_texcoords(vert.into(), face, texinfo),
+                    lightmap_texcoords: [lightmap_texcoords, default(), default(), default()],
                     lightmap_anim: face.light_styles,
                 })
             }
@@ -462,18 +494,16 @@ impl BrushRendererBuilder {
 
                 // skip collinear points
                 for vert in tri.iter() {
-                    self.vertices.push(BrushVertex {
+                    let lightmap_texcoords =
+                        calculate_lightmap_texcoords((*vert).into(), face, texinfo);
+                    vertices.push(BrushVertex {
                         position: (*vert).into(),
                         normal: normal.into(),
                         diffuse_texcoord: [
                             ((vert.dot(texinfo.s_vector) + texinfo.s_offset) / tex.width() as f32),
                             ((vert.dot(texinfo.t_vector) + texinfo.t_offset) / tex.height() as f32),
                         ],
-                        lightmap_texcoord: calculate_lightmap_texcoords(
-                            (*vert).into(),
-                            face,
-                            texinfo,
-                        ),
+                        lightmap_texcoords: [lightmap_texcoords, default(), default(), default()],
                         lightmap_anim: face.light_styles,
                     });
                 }
@@ -482,50 +512,19 @@ impl BrushRendererBuilder {
             }
         }
 
-        // build the lightmaps
-        let lightmaps = if !texinfo.special {
-            self.bsp_data.face_lightmaps(face_id)
-        } else {
-            Vec::new()
-        };
-
-        let mut lightmap_ids = Vec::new();
-        for lightmap in lightmaps {
-            let lightmap_data = TextureData::Lightmap(LightmapData {
-                lightmap: Cow::borrowed(lightmap.data()),
-            });
-
-            let texture = state.create_texture(
-                device,
-                queue,
-                None,
-                lightmap.width(),
-                lightmap.height(),
-                &lightmap_data,
-            );
-
-            let id = self.lightmaps.len();
-            info!(
-                "Creating lightmap {} {}x{}",
-                id,
-                lightmap.width(),
-                lightmap.height()
-            );
-            self.lightmaps.push(texture);
-            //self.lightmap_views
-            //.push(self.lightmaps[id].create_view(&Default::default()));
-            lightmap_ids.push(id);
-        }
-
-        BrushFace {
-            vertices: face_vert_id as u32..self.vertices.len() as u32,
-            _min: min,
-            _max: min,
-            texture_id: texinfo.tex_id,
-            lightmap_ids,
-            _light_styles: face.light_styles,
-            draw_flag: true.into(),
-        }
+        (
+            BrushFace {
+                vertices: face_vert_id as u32..vertices.len() as u32,
+                _min: min,
+                _max: min,
+                texture_id: texinfo.tex_id,
+                lightmap_ids,
+                _light_styles: face.light_styles,
+                draw_flag: true.into(),
+            },
+            lightmap_ids.into_iter(),
+            lightmaps,
+        )
     }
 
     fn create_per_texture_bind_group(
@@ -553,32 +552,23 @@ impl BrushRendererBuilder {
         )
     }
 
-    fn create_per_face_bind_group(
+    fn create_lightmap_bind_group(
         &self,
         state: &GraphicsState,
         device: &RenderDevice,
-        face_id: usize,
+        lightmap_tex: &Texture,
     ) -> BindGroup {
-        let mut lightmap_views: Vec<_> = self.faces[face_id]
-            .lightmap_ids
-            .iter()
-            .map(|id| self.lightmaps[*id].create_view(&Default::default()))
-            .collect();
-        lightmap_views.resize_with(4, || {
-            state.default_lightmap().create_view(&Default::default())
-        });
-
-        let lightmap_view_refs = lightmap_views.iter().map(|t| &**t).collect::<Vec<_>>();
+        let lightmap_view = lightmap_tex.create_view(&Default::default());
 
         let layout = &state
             .brush_pipeline()
-            .bind_group_layout(BindGroupLayoutId::PerFace);
+            .bind_group_layout(BindGroupLayoutId::Lightmap);
         device.create_bind_group(
-            Some("per-face bind group"),
+            Some("lightmap bind group"),
             layout,
             &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureViewArray(&lightmap_view_refs[..]),
+                resource: wgpu::BindingResource::TextureView(&lightmap_view),
             }],
         )
     }
@@ -725,42 +715,118 @@ impl BrushRendererBuilder {
             self.textures.push(tex);
         }
 
+        let default_lightmap = Image::new(
+            Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            wgpu::TextureDimension::D2,
+            vec![0xFF],
+            LIGHTMAP_TEXTURE_FORMAT,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+
+        // Max upper bound of number of lightmaps
+        let mut lightmaps = Vec::with_capacity((self.face_range.end - self.face_range.start) * 4);
+
+        let mut vertices = Vec::new();
+
         // generate faces, vertices and lightmaps
         // bsp_face_id is the id of the face in the bsp data
         // face_id is the new id of the face in the renderer
-        for bsp_face_id in self.face_range.start..self.face_range.end {
-            let face_id = self.faces.len();
-            let face = self.create_face(state, device, queue, bsp_face_id);
-            self.faces.push(face);
+        let faces_with_lightmap_ids = (self.face_range.start..self.face_range.end)
+            .map(|bsp_face_id| {
+                let (face, lightmap_ids, face_lightmaps) = Self::create_face(
+                    &self.bsp_data,
+                    &mut vertices,
+                    self.default_lightmap_id,
+                    bsp_face_id,
+                );
 
-            let face_tex_id = self.faces[face_id].texture_id;
-            // update the corresponding texture chain
-            self.texture_chains
-                .entry(face_tex_id)
-                .or_insert(Vec::new())
-                .push(face_id);
+                lightmaps.extend(lightmap_ids.clone().zip(face_lightmaps));
 
-            // generate face bind group
-            let per_face_bind_group = self.create_per_face_bind_group(state, device, face_id);
-            self.per_face_bind_groups.push(per_face_bind_group);
+                let face_tex_id = face.texture_id;
+                // update the corresponding texture chain
+                self.texture_chains
+                    .entry(face_tex_id)
+                    .or_default()
+                    .push(bsp_face_id);
+
+                (bsp_face_id, face, lightmap_ids)
+            })
+            .collect::<Vec<_>>();
+
+        let mut lightmap_atlas = TextureAtlasBuilder::default();
+        lightmap_atlas.format(LIGHTMAP_TEXTURE_FORMAT);
+        lightmap_atlas.padding(UVec2 { x: 2, y: 2 });
+
+        lightmap_atlas.add_texture(Some(self.default_lightmap_id), &default_lightmap);
+
+        for (id, lightmap) in lightmaps.iter() {
+            lightmap_atlas.add_texture(Some(*id), lightmap);
         }
+
+        let (lightmap_layout, lightmap_id_map, lightmap_image) = lightmap_atlas.build()?;
+
+        let lightmap = state.create_texture(
+            device,
+            queue,
+            Some("lightmap"),
+            lightmap_image.size().x,
+            lightmap_image.size().y,
+            &TextureData::Lightmap(LightmapData {
+                lightmap: lightmap_image.data[..].into(),
+            }),
+        );
+
+        // generate face bind group
+        let lightmap_bind_group = self.create_lightmap_bind_group(state, device, &lightmap);
+
+        let get_lightmap_bounds = |id, coords: Vec2| {
+            let lightmap_size = lightmap_layout.size;
+            let raw_coords = lightmap_layout.textures[lightmap_id_map.texture_ids[&id]];
+            let real_coords = Rect {
+                min: raw_coords.min.as_vec2() / lightmap_size.as_vec2(),
+                max: raw_coords.max.as_vec2() / lightmap_size.as_vec2(),
+            };
+
+            coords * (real_coords.max - real_coords.min) + real_coords.min
+        };
+
+        let faces = faces_with_lightmap_ids
+            .into_iter()
+            .map(|(face_id, brush_face, lightmap_ids)| {
+                for i in brush_face.vertices.clone() {
+                    let i = i as usize;
+                    let mut mapped_texcoords: [[f32; 2]; 4] = default();
+                    for (id, texcoord) in lightmap_ids.clone().zip(&mut mapped_texcoords) {
+                        *texcoord =
+                            get_lightmap_bounds(id, vertices[i].lightmap_texcoords[0].into())
+                                .into();
+                    }
+                    vertices[i].lightmap_texcoords = mapped_texcoords;
+                }
+                (face_id, brush_face)
+            })
+            .collect();
 
         let vertex_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_slice_as_bytes(self.vertices.as_slice()) },
+            contents: unsafe { any_slice_as_bytes(vertices.as_slice()) },
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         Ok(BrushRenderer {
-            bsp_data: self.bsp_data,
+            bsp_data: self.bsp_data.clone(),
             vertex_buffer,
             leaves: self.leaves,
             per_texture_bind_groups: self.per_texture_bind_groups,
-            per_face_bind_groups: self.per_face_bind_groups,
+            lightmap_bind_group,
             texture_chains: self.texture_chains,
-            faces: self.faces,
+            faces,
             textures: self.textures,
-            _lightmaps: self.lightmaps,
+            _lightmap: lightmap,
         })
     }
 }
@@ -773,14 +839,14 @@ pub struct BrushRenderer {
 
     vertex_buffer: Buffer,
     per_texture_bind_groups: Vec<BindGroup>,
-    per_face_bind_groups: Vec<BindGroup>,
+    lightmap_bind_group: BindGroup,
 
     // faces are grouped by texture to reduce the number of texture rebinds
     // texture_chains maps texture ids to face ids
     texture_chains: HashMap<usize, Vec<usize>>,
-    faces: Vec<BrushFace>,
+    faces: HashMap<usize, BrushFace>,
     textures: Vec<BrushTexture>,
-    _lightmaps: Vec<Texture>,
+    _lightmap: Texture,
 }
 
 impl BrushRenderer {
@@ -806,13 +872,19 @@ impl BrushRenderer {
             // only draw faces in pvs
             for leaf_id in pvs {
                 for facelist_id in leaves[leaf_id].facelist_ids.clone() {
-                    let face = &self.faces[self.bsp_data.facelist()[facelist_id]];
+                    let face = &self.faces[&self.bsp_data.facelist()[facelist_id]];
 
                     // TODO: frustum culling
                     face.draw_flag.store(true, Ordering::SeqCst);
                 }
             }
         }
+
+        pass.set_bind_group(
+            BindGroupLayoutId::Lightmap as usize,
+            &self.lightmap_bind_group,
+            &[],
+        );
 
         for (tex_id, face_ids) in self.texture_chains.iter() {
             use PushConstantUpdate::*;
@@ -853,18 +925,12 @@ impl BrushRenderer {
             );
 
             for face_id in face_ids.iter() {
-                let face = &self.faces[*face_id];
+                let face = &self.faces[face_id];
 
                 // only skip the face if we have visibility data but it's not marked
                 if self.leaves.is_some() && !face.draw_flag.swap(false, Ordering::SeqCst) {
                     continue;
                 }
-
-                pass.set_bind_group(
-                    BindGroupLayoutId::PerFace as usize,
-                    &self.per_face_bind_groups[*face_id],
-                    &[],
-                );
 
                 pass.draw(face.vertices.clone(), 0..1);
             }

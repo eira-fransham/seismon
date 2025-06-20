@@ -6,9 +6,12 @@ const uint TEXTURE_KIND_SKY = 2;
 
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec2 a_diffuse;
-layout(location = 3) in vec2 a_lightmap;
-layout(location = 4) in uvec4 a_lightmap_anim;
+layout(location = 2) in vec2 a_diffuse; // also used for fullbright, for sky textures this is the position instead
+layout(location = 3) in uvec4 a_lightmap_anim;
+layout(location = 4) in vec2 a_lightmap_uv_0;
+layout(location = 5) in vec2 a_lightmap_uv_1;
+layout(location = 6) in vec2 a_lightmap_uv_2;
+layout(location = 7) in vec2 a_lightmap_uv_3;
 
 layout(push_constant) uniform PushConstants {
   mat4 transform;
@@ -17,9 +20,12 @@ layout(push_constant) uniform PushConstants {
 } push_constants;
 
 layout(location = 0) out vec3 f_normal;
-layout(location = 1) out vec3 f_diffuse;
-layout(location = 2) out vec2 f_lightmap;
-layout(location = 3) out uvec4 f_lightmap_anim;
+layout(location = 1) out vec3 f_diffuse; // also used for fullbright, for sky textures this is the position instead
+flat layout(location = 2) out uvec4 f_lightmap_anim;
+layout(location = 3) out vec2 f_lightmap_uv_0;
+layout(location = 4) out vec2 f_lightmap_uv_1;
+layout(location = 5) out vec2 f_lightmap_uv_2;
+layout(location = 6) out vec2 f_lightmap_uv_3;
 
 // set 0: per-frame
 layout(set = 0, binding = 0) uniform FrameUniforms {
@@ -72,8 +78,12 @@ void main() {
     }
 
     f_normal = transpose(inv(push_constants.model_view)) * convert(a_normal);
-    f_lightmap = a_lightmap;
     f_lightmap_anim = a_lightmap_anim;
+    f_lightmap_uv_0 = a_lightmap_uv_0;
+    f_lightmap_uv_1 = a_lightmap_uv_1;
+    f_lightmap_uv_2 = a_lightmap_uv_2;
+    f_lightmap_uv_3 = a_lightmap_uv_3;
+
     gl_Position = push_constants.transform * vec4(convert(a_position), 1.0);
 
 }
