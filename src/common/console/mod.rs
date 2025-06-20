@@ -2264,17 +2264,16 @@ mod systems {
                     ConsoleUi,
                 ))
                 .with_children(|commands| {
-                    commands.spawn((ImageBundle {
-                        image,
-                        z_index: ZIndex(-1),
-                        node: Node {
+                    commands.spawn((
+                        ImageNode { image, ..default() },
+                        Node {
                             position_type: PositionType::Absolute,
                             width: Val::Vw(100.),
                             height: Val::Vh(100.),
                             ..default()
                         },
-                        ..default()
-                    },));
+                        ZIndex(-1),
+                    ));
                     commands
                         .spawn(Node {
                             flex_direction: FlexDirection::Column,

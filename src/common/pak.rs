@@ -34,7 +34,6 @@ use bevy::{
     utils::ConditionalSendFuture,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use futures::AsyncReadExt as _;
 use hashbrown::HashMap;
 use memmap2::{Mmap, MmapOptions};
 use thiserror::Error;

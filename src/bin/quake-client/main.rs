@@ -28,7 +28,7 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
-        bloom::BloomSettings,
+        bloom::Bloom,
         prepass::{DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
@@ -217,7 +217,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
                 ..default()
             },
             Msaa::Off,
-            BloomSettings::default(),
+            Bloom::default(),
             DepthPrepass,
             NormalPrepass,
         ));

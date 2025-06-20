@@ -24,7 +24,6 @@ pub mod connect;
 
 use std::{
     collections::VecDeque,
-    error::Error,
     io::{self, BufRead, BufReader, Cursor, Read, Write},
     mem,
     net::{SocketAddr, UdpSocket},

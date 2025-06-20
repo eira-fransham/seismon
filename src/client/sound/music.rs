@@ -4,7 +4,7 @@ use crate::{client::sound::SoundError, common::vfs::Vfs};
 
 use bevy::{
     asset::AssetServer,
-    audio::{AudioBundle, AudioSinkPlayback as _, AudioSource, PlaybackMode, PlaybackSettings},
+    audio::{AudioSinkPlayback as _, AudioSource, PlaybackMode, PlaybackSettings},
     ecs::{
         entity::Entity,
         system::{Commands, Query, Resource},
@@ -81,22 +81,20 @@ impl MusicPlayer {
 
         let entity = match mixer {
             Some(target) => commands.spawn((
-                AudioBundle {
-                    source,
-                    settings: PlaybackSettings {
-                        mode: PlaybackMode::Loop,
-                        ..Default::default()
-                    },
-                },
-                target,
-            )),
-            None => commands.spawn(AudioBundle {
                 source,
-                settings: PlaybackSettings {
+                PlaybackSettings {
                     mode: PlaybackMode::Loop,
                     ..Default::default()
                 },
-            }),
+                target,
+            )),
+            None => commands.spawn((
+                source,
+                PlaybackSettings {
+                    mode: PlaybackMode::Loop,
+                    ..default()
+                },
+            )),
         }
         .id();
         self.playing = Some((name.to_string(), entity));

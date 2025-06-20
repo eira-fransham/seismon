@@ -25,8 +25,7 @@ use bevy::{
     app::{Main, Plugin},
     asset::{AssetServer, Handle},
     audio::{
-        AudioBundle, AudioPlayer, AudioSinkPlayback as _, AudioSource, PlaybackMode,
-        PlaybackSettings, Volume,
+        AudioPlayer, AudioSinkPlayback as _, AudioSource, PlaybackMode, PlaybackSettings, Volume,
     },
     ecs::{
         bundle::Bundle,
@@ -221,7 +220,8 @@ pub struct StartStaticSound {
 #[derive(Bundle)]
 struct StaticSoundBundle {
     static_sound: StaticSound,
-    audio: AudioBundle,
+    audio: AudioPlayer,
+    settings: PlaybackSettings,
 }
 
 impl StaticSoundBundle {
@@ -232,18 +232,16 @@ impl StaticSoundBundle {
                 volume: value.volume,
                 attenuation: value.attenuation,
             },
-            audio: AudioBundle {
-                source: AudioPlayer(value.src.clone()),
-                settings: PlaybackSettings {
-                    mode: PlaybackMode::Loop,
-                    // TODO: Use Bevy's built-in spacialiser
-                    volume: Volume::new(listener.attenuate(
-                        value.origin,
-                        value.volume,
-                        value.attenuation,
-                    )),
-                    ..Default::default()
-                },
+            audio: AudioPlayer(value.src.clone()),
+            settings: PlaybackSettings {
+                mode: PlaybackMode::Loop,
+                // TODO: Use Bevy's built-in spacialiser
+                volume: Volume::new(listener.attenuate(
+                    value.origin,
+                    value.volume,
+                    value.attenuation,
+                )),
+                ..Default::default()
             },
         }
     }
@@ -281,13 +279,15 @@ pub struct EntityChannel {
 struct EntitySoundBundle {
     entity: EntityChannel,
     chan: Channel,
-    audio: AudioBundle,
+    audio: AudioPlayer,
+    settings: PlaybackSettings,
 }
 
 #[derive(Bundle)]
 struct TempEntitySoundBundle {
     chan: Channel,
-    audio: AudioBundle,
+    audio: AudioPlayer,
+    settings: PlaybackSettings,
 }
 
 fn make_bundle(
@@ -300,27 +300,30 @@ fn make_bundle(
         attenuation: value.attenuation,
         channel: value.ent_channel,
     };
-    let audio = AudioBundle {
-        source: AudioPlayer(value.src.clone()),
-        settings: PlaybackSettings {
-            mode: PlaybackMode::Despawn,
-            // TODO: Use Bevy's built-in spacialiser
-            volume: Volume::new(listener.attenuate(
-                value.origin.into(),
-                value.volume,
-                value.attenuation,
-            )),
-            ..Default::default()
-        },
+    let audio = AudioPlayer(value.src.clone());
+    let settings = PlaybackSettings {
+        mode: PlaybackMode::Despawn,
+        // TODO: Use Bevy's built-in spacialiser
+        volume: Volume::new(listener.attenuate(
+            value.origin.into(),
+            value.volume,
+            value.attenuation,
+        )),
+        ..Default::default()
     };
 
     match value.ent_id {
         Some(id) => Ok(EntitySoundBundle {
             chan,
             audio,
+            settings,
             entity: EntityChannel { id },
         }),
-        None => Err(TempEntitySoundBundle { chan, audio }),
+        None => Err(TempEntitySoundBundle {
+            chan,
+            audio,
+            settings,
+        }),
     }
 }
 
