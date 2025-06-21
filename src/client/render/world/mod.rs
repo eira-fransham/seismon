@@ -85,6 +85,39 @@ pub static BIND_GROUP_LAYOUT_DESCRIPTORS: [&[BindGroupLayoutEntry]; 2] = [
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
+        // diffuse texture atlas
+        wgpu::BindGroupLayoutEntry {
+            binding: 3,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                view_dimension: wgpu::TextureViewDimension::D2,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                multisampled: false,
+            },
+            count: None,
+        },
+        // fullbright texture atlas
+        wgpu::BindGroupLayoutEntry {
+            binding: 4,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                view_dimension: wgpu::TextureViewDimension::D2,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                multisampled: false,
+            },
+            count: None,
+        },
+        // lightmap texture atlas
+        wgpu::BindGroupLayoutEntry {
+            binding: 5,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                view_dimension: wgpu::TextureViewDimension::D2,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                multisampled: false,
+            },
+            count: None,
+        },
     ],
 ];
 
@@ -174,7 +207,6 @@ pub enum BindGroupLayoutId {
     PerFrame = 0,
     PerEntity = 1,
     PerTexture = 2,
-    Lightmap = 3,
 }
 
 pub struct Camera {
@@ -341,6 +373,18 @@ fn to_mat3(mat4: Matrix4<f32>) -> Matrix3<f32> {
     }
 }
 
+fn to_mat3_f16(mat4: Matrix4<f32>) -> Matrix3<f16> {
+    let x: [f32; 3] =mat4.x.truncate().into();
+    let y: [f32; 3] =mat4.y.truncate().into();
+    let z: [f32; 3] =mat4.z.truncate().into();
+
+    Matrix3 {
+        x: x.map(|v| v as f16).into(),
+        y: y.map(|v| v as f16).into(),
+        z: z.map(|v| v as f16).into(),
+    }
+}
+
 impl WorldRenderer {
     pub fn new<'a, M: Iterator<Item = &'a Model>>(
         state: &'a mut GraphicsState,
@@ -362,8 +406,8 @@ impl WorldRenderer {
                 match model.kind() {
                     ModelKind::Brush(bmodel) => {
                         worldmodel_renderer = Some(
-                            BrushRendererBuilder::new(bmodel, true)
-                                .build(state, device, queue)
+                            BrushRendererBuilder::new(bmodel, state, true)
+                                .build()
                                 .unwrap(),
                         );
                     }
@@ -377,15 +421,15 @@ impl WorldRenderer {
 
                     ModelKind::Brush(bmodel) => {
                         entity_renderers.push(EntityRenderer::Brush(
-                            BrushRendererBuilder::new(bmodel, false)
-                                .build(state, device, queue)
+                            BrushRendererBuilder::new(bmodel, state, false)
+                                .build()
                                 .unwrap(),
                         ));
                     }
 
                     ModelKind::Sprite(smodel) => {
                         entity_renderers.push(EntityRenderer::Sprite(SpriteRenderer::new(
-                            &state, device, queue, smodel,
+                            state, device, queue, smodel,
                         )));
                     }
 
@@ -397,6 +441,47 @@ impl WorldRenderer {
             }
         }
 
+        match state.rebuild_atlases(device, queue) {
+            Ok(atlases) => {
+                let _ = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+                    atlases.diffuse.image.width(),
+                    atlases.diffuse.image.height(),
+                    &atlases.diffuse.image.data[..],
+                )
+                .unwrap()
+                .save("diffuse-atlas.png");
+                let _ = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(
+                    atlases.fullbright.image.width(),
+                    atlases.fullbright.image.height(),
+                    &atlases.fullbright.image.data[..],
+                )
+                .unwrap()
+                .save("fullbright-atlas.png");
+                let _ = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(
+                    atlases.lightmap.image.width(),
+                    atlases.lightmap.image.height(),
+                    &atlases.lightmap.image.data[..],
+                )
+                .unwrap()
+                .save("lightmap-atlas.png");
+
+                if let Some(world) = worldmodel_renderer.as_mut() {
+                    world.update_vertices(&atlases, device);
+                }
+
+                for ent in entity_renderers.iter_mut().filter_map(|e| {
+                    if let EntityRenderer::Brush(b) = e {
+                        Some(b)
+                    } else {
+                        None
+                    }
+                }) {
+                    ent.update_vertices(&atlases, device);
+                }
+            }
+            Err(e) => error!("{e}"),
+        }
+
         WorldRenderer {
             worldmodel_renderer: worldmodel_renderer.unwrap(),
             entity_renderers,
@@ -406,7 +491,7 @@ impl WorldRenderer {
     }
 
     pub fn update_uniform_buffers<'a, I>(
-        &self,
+        &'a self,
         state: &GraphicsState,
         queue: &RenderQueue,
         camera: &Camera,
@@ -499,7 +584,7 @@ impl WorldRenderer {
             pass,
             Update(bump.alloc(brush::VertexPushConstants {
                 transform: camera.view_projection(),
-                model_view: to_mat3(camera.view()),
+                model_view: to_mat3_f16(camera.view()),
             })),
             Clear,
             Clear,
@@ -527,19 +612,19 @@ impl WorldRenderer {
                     &[uniforms.offset()],
                 );
 
-                match self.renderer_for_entity(&ent) {
+                match self.renderer_for_entity(ent) {
                     EntityRenderer::Brush(bmodel) => {
                         pass.set_render_pipeline(state.brush_pipeline().pipeline());
                         BrushPipeline::set_push_constants(
                             pass,
                             Update(bump.alloc(brush::VertexPushConstants {
                                 transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
+                                model_view: to_mat3_f16(self.calculate_mv_transform(camera, ent)),
                             })),
                             Clear,
                             Clear,
                         );
-                        bmodel.record_draw(state, pass, &bump, time, camera, ent.frame_id);
+                        bmodel.record_draw(state, pass, bump, time, camera, ent.frame_id);
                     }
                     EntityRenderer::Alias(alias) => {
                         pass.set_render_pipeline(state.alias_pipeline().pipeline());
@@ -599,7 +684,7 @@ impl WorldRenderer {
         debug!("Drawing particles");
         state
             .particle_pipeline()
-            .record_draw(pass, &bump, camera, particles);
+            .record_draw(pass, bump, camera, particles);
     }
 
     fn renderer_for_entity(&self, ent: &ClientEntity) -> &EntityRenderer {

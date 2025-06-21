@@ -10,15 +10,17 @@ const float WARP_FREQUENCY = 0.25;
 const float WARP_SCALE = 1.0;
 
 layout(location = 0) in vec3 f_normal;
-layout(location = 1) in vec3 f_diffuse; // also used for fullbright, for sky textures this is the position instead
-flat layout(location = 2) in uvec4 f_lightmap_anim;
-layout(location = 3) in vec2 f_lightmap_uv_0;
-layout(location = 4) in vec2 f_lightmap_uv_1;
-layout(location = 5) in vec2 f_lightmap_uv_2;
-layout(location = 6) in vec2 f_lightmap_uv_3;
+layout(location = 1) in vec3 f_diffuse;
+flat layout(location = 2) in vec4 f_diffuse_bounds;
+flat layout(location = 3) in vec4 f_fullbright_bounds;
+flat layout(location = 4) in uvec4 f_lightmap_anim;
+layout(location = 5) in vec2 f_lightmap_uv_0;
+layout(location = 6) in vec2 f_lightmap_uv_1;
+layout(location = 7) in vec2 f_lightmap_uv_2;
+layout(location = 8) in vec2 f_lightmap_uv_3;
 
 layout(push_constant) uniform PushConstants {
-  layout(offset = 128) uint texture_kind;
+  layout(offset = 100) uint texture_kind;
 } push_constants;
 
 // set 0: per-frame
@@ -32,16 +34,11 @@ layout(set = 0, binding = 0) uniform FrameUniforms {
 // set 1: per-entity
 layout(set = 1, binding = 1) uniform sampler u_diffuse_sampler; // also used for fullbright
 layout(set = 1, binding = 2) uniform sampler u_lightmap_sampler;
-
-// set 2: per-texture
-layout(set = 2, binding = 0) uniform texture2D u_diffuse_texture;
-layout(set = 2, binding = 1) uniform texture2D u_fullbright_texture;
-layout(set = 2, binding = 2) uniform TextureUniforms {
-    uint kind;
-} texture_uniforms;
+layout(set = 1, binding = 3) uniform texture2D u_diffuse_texture;
+layout(set = 1, binding = 4) uniform texture2D u_fullbright_texture;
+layout(set = 1, binding = 5) uniform texture2D u_lightmap_texture;
 
 // set 3: per-face
-layout(set = 3, binding = 0) uniform texture2D u_lightmap_texture;
 
 layout(location = 0) out vec4 diffuse_attachment;
 layout(location = 1) out vec4 normal_attachment;
@@ -66,6 +63,8 @@ vec4 calc_light() {
             case 3:
                 lightmap_uv = f_lightmap_uv_3;
                 break;
+            default:
+                lightmap_uv = vec2(0.);
         }
 
         float map = texture(
@@ -101,16 +100,22 @@ const mat3 RGB_2_XYZ = mat3(
 void main() {
     switch (push_constants.texture_kind) {
         case TEXTURE_KIND_REGULAR:
+            vec2 mod_diffuse = vec2(mod(f_diffuse.x, 1.), mod(f_diffuse.y, 1.));
+
+            vec2 fullbright_uv =
+                mod_diffuse * (f_fullbright_bounds.zw - f_fullbright_bounds.xy) + f_fullbright_bounds.xy;
             float fullbright = texture(
                 sampler2D(u_fullbright_texture, u_diffuse_sampler),
-                f_diffuse.xy
+                fullbright_uv
             ).r;
 
-            float light = fullbright == 0. ? dot(calc_light(), vec4(1.)) : 0.25;
+            float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.25;
 
+            vec2 diffuse_uv =
+                mod_diffuse * (f_diffuse_bounds.zw - f_diffuse_bounds.xy) + f_diffuse_bounds.xy;
             diffuse_attachment = vec4(texture(
                 sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                f_diffuse.xy
+                diffuse_uv
             ).rgb, light);
 
             break;
@@ -123,10 +128,13 @@ void main() {
 
             vec2 warp_texcoord = f_diffuse.st + WARP_AMPLITUDE
                 * vec2(sin(wave1.s), sin(wave1.t));
+            vec2 mod_warp = vec2(mod(warp_texcoord.x, 1.), mod(warp_texcoord.y, 1.));
+            vec2 warp_uv =
+                mod_warp * (f_diffuse_bounds.zw - f_diffuse_bounds.xy) + f_diffuse_bounds.xy;
 
             diffuse_attachment = vec4(texture(
                 sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                warp_texcoord
+                warp_uv
             ).rgb, 0.25);
             break;
 

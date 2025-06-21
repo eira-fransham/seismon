@@ -6,12 +6,14 @@ const uint TEXTURE_KIND_SKY = 2;
 
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec2 a_diffuse; // also used for fullbright, for sky textures this is the position instead
-layout(location = 3) in uvec4 a_lightmap_anim;
-layout(location = 4) in vec2 a_lightmap_uv_0;
-layout(location = 5) in vec2 a_lightmap_uv_1;
-layout(location = 6) in vec2 a_lightmap_uv_2;
-layout(location = 7) in vec2 a_lightmap_uv_3;
+layout(location = 2) in vec2 a_diffuse;
+layout(location = 3) in vec4 a_diffuse_bounds;
+layout(location = 4) in vec4 a_fullbright_bounds;
+layout(location = 5) in uvec4 a_lightmap_anim;
+layout(location = 6) in vec2 a_lightmap_uv_0;
+layout(location = 7) in vec2 a_lightmap_uv_1;
+layout(location = 8) in vec2 a_lightmap_uv_2;
+layout(location = 9) in vec2 a_lightmap_uv_3;
 
 layout(push_constant) uniform PushConstants {
   mat4 transform;
@@ -20,12 +22,14 @@ layout(push_constant) uniform PushConstants {
 } push_constants;
 
 layout(location = 0) out vec3 f_normal;
-layout(location = 1) out vec3 f_diffuse; // also used for fullbright, for sky textures this is the position instead
-flat layout(location = 2) out uvec4 f_lightmap_anim;
-layout(location = 3) out vec2 f_lightmap_uv_0;
-layout(location = 4) out vec2 f_lightmap_uv_1;
-layout(location = 5) out vec2 f_lightmap_uv_2;
-layout(location = 6) out vec2 f_lightmap_uv_3;
+layout(location = 1) out vec3 f_diffuse;
+flat layout(location = 2) out vec4 f_diffuse_bounds;
+flat layout(location = 3) out vec4 f_fullbright_bounds;
+flat layout(location = 4) out uvec4 f_lightmap_anim;
+layout(location = 5) out vec2 f_lightmap_uv_0;
+layout(location = 6) out vec2 f_lightmap_uv_1;
+layout(location = 7) out vec2 f_lightmap_uv_2;
+layout(location = 8) out vec2 f_lightmap_uv_3;
 
 // set 0: per-frame
 layout(set = 0, binding = 0) uniform FrameUniforms {
@@ -77,7 +81,11 @@ void main() {
         f_diffuse = vec3(a_diffuse, 0.);
     }
 
-    f_normal = transpose(inv(push_constants.model_view)) * convert(a_normal);
+    f_normal = transpose(inv(mat3(push_constants.model_view[0], push_constants.model_view[1], push_constants.model_view[2]))) * convert(a_normal);
+
+    f_diffuse_bounds = a_diffuse_bounds;
+    f_fullbright_bounds = a_fullbright_bounds;
+
     f_lightmap_anim = a_lightmap_anim;
     f_lightmap_uv_0 = a_lightmap_uv_0;
     f_lightmap_uv_1 = a_lightmap_uv_1;

@@ -173,13 +173,6 @@ impl Palette {
             }
         }
 
-        (
-            DiffuseData {
-                rgba: Cow::owned(rgba),
-            },
-            FullbrightData {
-                fullbright: Cow::owned(fullbright),
-            },
-        )
+        (DiffuseData { rgba }, FullbrightData { fullbright })
     }
 }

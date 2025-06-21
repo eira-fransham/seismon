@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+pub mod atlas;
 /// Rendering functionality.
 ///
 /// # Pipeline stages
@@ -45,6 +46,7 @@
 ///   - Output: `SwapChainTarget`
 mod cvars;
 mod error;
+pub mod mapped;
 pub mod palette;
 mod pipeline;
 mod target;
@@ -53,6 +55,7 @@ mod uniform;
 mod warp;
 mod world;
 
+use atlas::{CompiledTextureAtlas, IncrementalTextureAtlas};
 use beef::Cow;
 use bevy::{
     core_pipeline::{
@@ -71,11 +74,13 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         view::ViewTarget,
     },
+    sprite::TextureAtlasBuilderError,
     ui::graph::NodeUi,
     window::PrimaryWindow,
 };
 pub use cvars::register_cvars;
 pub use error::{RenderError, RenderErrorKind};
+use mapped::Metadata;
 pub use palette::Palette;
 use parking_lot::RwLock;
 pub use pipeline::Pipeline;
@@ -93,6 +98,7 @@ use std::{
     mem::size_of,
     num::NonZeroU64,
     ops::{Deref, DerefMut},
+    sync::atomic::AtomicUsize,
 };
 
 use crate::{
@@ -242,12 +248,7 @@ pub fn create_texture<'a>(
     height: u32,
     data: &TextureData,
 ) -> Texture {
-    trace!(
-        "Creating texture ({:?}: {}x{})",
-        data.format(),
-        width,
-        height
-    );
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
 
     // It looks like sometimes quake includes textures with at least one zero aspect?
     let texture = device.create_texture(&texture_descriptor(
@@ -279,25 +280,43 @@ pub fn create_texture<'a>(
     texture
 }
 
-pub struct DiffuseData<'a> {
-    pub rgba: Cow<'a, [u8]>,
+pub struct DiffuseData {
+    pub rgba: Vec<u8>,
 }
 
-pub struct FullbrightData<'a> {
-    pub fullbright: Cow<'a, [u8]>,
+impl From<Vec<u8>> for DiffuseData {
+    fn from(value: Vec<u8>) -> Self {
+        Self { rgba: value }
+    }
 }
 
-pub struct LightmapData<'a> {
-    pub lightmap: Cow<'a, [u8]>,
+pub struct FullbrightData {
+    pub fullbright: Vec<u8>,
 }
 
-pub enum TextureData<'a> {
-    Diffuse(DiffuseData<'a>),
-    Fullbright(FullbrightData<'a>),
-    Lightmap(LightmapData<'a>),
+impl From<Vec<u8>> for FullbrightData {
+    fn from(value: Vec<u8>) -> Self {
+        Self { fullbright: value }
+    }
 }
 
-impl<'a> TextureData<'a> {
+pub struct LightmapData {
+    pub lightmap: Vec<u8>,
+}
+
+impl From<Vec<u8>> for LightmapData {
+    fn from(value: Vec<u8>) -> Self {
+        Self { lightmap: value }
+    }
+}
+
+pub enum TextureData {
+    Diffuse(DiffuseData),
+    Fullbright(FullbrightData),
+    Lightmap(LightmapData),
+}
+
+impl TextureData {
     pub fn format(&self) -> wgpu::TextureFormat {
         match self {
             TextureData::Diffuse(_) => DIFFUSE_TEXTURE_FORMAT,
@@ -401,15 +420,48 @@ impl ExtractResource for RenderState {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+pub struct Atlases<T = CompiledTextureAtlas> {
+    diffuse: T,
+    fullbright: T,
+    lightmap: T,
+}
+
+impl Metadata for Atlases {
+    type Metadata<'a> = Atlases<&'a CompiledTextureAtlas>;
+
+    fn to_metadata(&self) -> Self::Metadata<'_> {
+        Atlases {
+            diffuse: &self.diffuse,
+            fullbright: &self.fullbright,
+            lightmap: &self.lightmap,
+        }
+    }
+}
+
+impl Default for Atlases<IncrementalTextureAtlas> {
+    fn default() -> Self {
+        Self {
+            diffuse: IncrementalTextureAtlas::new(DIFFUSE_TEXTURE_FORMAT),
+            fullbright: IncrementalTextureAtlas::new(FULLBRIGHT_TEXTURE_FORMAT),
+            lightmap: IncrementalTextureAtlas::new(LIGHTMAP_TEXTURE_FORMAT),
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct GraphicsState {
     world_bind_group_layouts: Vec<BindGroupLayout>,
     world_bind_groups: Vec<BindGroup>,
+    world_textures: Atlases<Texture>,
 
     frame_uniform_buffer: Buffer,
 
     // TODO: This probably doesn't need to be a rwlock
     entity_uniform_buffer: RwLock<DynamicUniformBuffer<EntityUniforms>>,
+
+    atlases: Atlases<IncrementalTextureAtlas>,
+    built_atlases: Option<Atlases>,
 
     diffuse_sampler: Sampler,
     nearest_sampler: Sampler,
@@ -495,6 +547,31 @@ impl GraphicsState {
             ..Default::default()
         });
 
+        let empty_diffuse_atlas = create_texture(
+            device,
+            queue,
+            Some("diffuse atlas"),
+            0,
+            0,
+            &TextureData::Diffuse(vec![].into()),
+        );
+        let empty_fullbright_atlas = create_texture(
+            device,
+            queue,
+            Some("fullbright atlas"),
+            0,
+            0,
+            &TextureData::Fullbright(vec![].into()),
+        );
+        let empty_lightmap_atlas = create_texture(
+            device,
+            queue,
+            Some("lightmap atlas"),
+            0,
+            0,
+            &TextureData::Lightmap(vec![].into()),
+        );
+
         let world_bind_group_layouts: Vec<BindGroupLayout> = world::BIND_GROUP_LAYOUT_DESCRIPTORS
             .iter()
             .map(|desc| device.create_bind_group_layout(None, desc))
@@ -533,6 +610,24 @@ impl GraphicsState {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::Sampler(&lightmap_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &empty_diffuse_atlas.create_view(&default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(
+                            &empty_fullbright_atlas.create_view(&default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &empty_lightmap_atlas.create_view(&default()),
+                        ),
                     },
                 ],
             ),
@@ -602,6 +697,14 @@ impl GraphicsState {
 
             world_bind_group_layouts,
             world_bind_groups,
+            world_textures: Atlases {
+                diffuse: empty_diffuse_atlas,
+                fullbright: empty_fullbright_atlas,
+                lightmap: empty_lightmap_atlas,
+            },
+
+            atlases: default(),
+            built_atlases: None,
 
             alias_pipeline,
             brush_pipeline,
@@ -618,6 +721,118 @@ impl GraphicsState {
             palette,
             gfx_wad,
         })
+    }
+
+    pub fn built_atlases(&self) -> Option<&Atlases> {
+        self.built_atlases.as_ref()
+    }
+
+    pub fn new_lightmap(&mut self, image: Image) -> AssetId<Image> {
+        self.atlases.lightmap.push(image)
+    }
+
+    pub fn new_diffuse(&mut self, image: Image) -> AssetId<Image> {
+        self.atlases.diffuse.push(image)
+    }
+
+    pub fn new_fullbright(&mut self, image: Image) -> AssetId<Image> {
+        self.atlases.fullbright.push(image)
+    }
+
+    pub fn rebuild_atlases(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Result<Atlases, TextureAtlasBuilderError> {
+        let diffuse = self.atlases.diffuse.build()?;
+        let fullbright = self.atlases.fullbright.build()?;
+        let lightmap = self.atlases.lightmap.build()?;
+
+        // TODO: Don't clone here
+        let diffuse_texture = create_texture(
+            device,
+            queue,
+            Some("diffuse atlas"),
+            diffuse.image.width(),
+            diffuse.image.height(),
+            &TextureData::Diffuse(diffuse.image.data.clone().into()),
+        );
+        let fullbright_texture = create_texture(
+            device,
+            queue,
+            Some("diffuse atlas"),
+            fullbright.image.width(),
+            fullbright.image.height(),
+            &TextureData::Fullbright(fullbright.image.data.clone().into()),
+        );
+        let lightmap_texture = create_texture(
+            device,
+            queue,
+            Some("diffuse atlas"),
+            lightmap.image.width(),
+            lightmap.image.height(),
+            &TextureData::Lightmap(lightmap.image.data.clone().into()),
+        );
+
+        self.world_bind_groups[world::BindGroupLayoutId::PerEntity as usize] = device
+            .create_bind_group(
+                Some("brush per-entity bind group"),
+                &self.world_bind_group_layouts[world::BindGroupLayoutId::PerEntity as usize],
+                &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: self.entity_uniform_buffer.read().buffer(),
+                            offset: 0,
+                            size: Some(
+                                NonZeroU64::new(size_of::<EntityUniforms>() as u64).unwrap(),
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.diffuse_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.lightmap_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &diffuse_texture.create_view(&default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(
+                            &fullbright_texture.create_view(&default()),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &lightmap_texture.create_view(&default()),
+                        ),
+                    },
+                ],
+            );
+
+        self.world_textures = Atlases {
+            diffuse: diffuse_texture,
+            fullbright: fullbright_texture,
+            lightmap: lightmap_texture,
+        };
+
+        let out = Atlases {
+            diffuse,
+            fullbright,
+            lightmap,
+        };
+
+        self.built_atlases = Some(out.clone());
+
+        Ok(out)
     }
 
     pub fn create_texture(

@@ -25,11 +25,12 @@ failure = "0.1.8"
 futures = "0.3.5"
 fundsp = "0.20"
 hashbrown = "0.14"
+hashers = "1.0"
 dashmap = "5.5"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
-itertools = "0.12"
+itertools = "0.14"
 memmap2 = "0.9"
 ndarray = "0.15"
 nom = "7.1"
@@ -38,7 +39,7 @@ num-traits = "0.2"
 num-derive = "0.4"
 parking_lot = "0.12"
 png = "0.17"
-rand = { version = "0.8", features = ["small_rng"] }
+rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
 # TODO: Need to use git checkout to allow stdin/stdout to be types other than concrete Stdin/Stdout
 redox_liner = { version = "0.7.1", git = "https://github.com/eira-fransham/liner.git" }
 regex = "1.10"

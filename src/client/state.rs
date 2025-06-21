@@ -33,8 +33,8 @@ use chrono::Duration;
 use hashbrown::HashMap;
 use net::{ClientCmd, ClientStat, EntityState, EntityUpdate, PlayerColor};
 use rand::{
-    SeedableRng,
-    distributions::{Distribution as _, Uniform},
+    SeedableRng as _,
+    distr::{Distribution as _, Uniform},
     rngs::SmallRng,
 };
 
@@ -139,7 +139,7 @@ impl ClientState {
     // TODO: add parameter for number of player slots and reserve them in entity list
     pub fn new() -> ClientState {
         ClientState {
-            rng: SmallRng::from_entropy(),
+            rng: SmallRng::from_rng(&mut rand::rng()),
             models: iter::once(Model::none()).collect(),
             worldmodel_id: 1,
             model_names: default(),
@@ -322,9 +322,9 @@ impl ClientState {
     /// - Spawning dynamic lights on entities with lighting effects
     pub fn update_entities(&mut self) -> Result<(), ClientError> {
         static MFLASH_DIMLIGHT_DISTRIBUTION: LazyLock<Uniform<f32>> =
-            LazyLock::new(|| Uniform::new(200.0, 232.0));
+            LazyLock::new(|| Uniform::new(200.0, 232.0).unwrap());
         static BRIGHTLIGHT_DISTRIBUTION: LazyLock<Uniform<f32>> =
-            LazyLock::new(|| Uniform::new(400.0, 432.0));
+            LazyLock::new(|| Uniform::new(400.0, 432.0).unwrap());
 
         let lerp_factor = self.lerp_factor;
 
@@ -523,7 +523,7 @@ impl ClientState {
 
     pub fn update_temp_entities(&mut self) -> Result<(), ClientError> {
         static ANGLE_DISTRIBUTION: LazyLock<Uniform<f32>> =
-            LazyLock::new(|| Uniform::new(0.0, 360.0));
+            LazyLock::new(|| Uniform::new(0.0, 360.0).unwrap());
 
         self.temp_entities.clear();
         for id in 0..self.beams.len() {
@@ -831,7 +831,7 @@ impl ClientState {
         temp_entity: &TempEntity,
     ) {
         static ZERO_ONE_DISTRIBUTION: LazyLock<Uniform<f32>> =
-            LazyLock::new(|| Uniform::new(0.0, 1.0));
+            LazyLock::new(|| Uniform::new(0.0, 1.0).unwrap());
 
         let mut spike_sound = || match ZERO_ONE_DISTRIBUTION.sample(&mut self.rng) {
             x if x < 0.2 => "weapons/tink1.wav",

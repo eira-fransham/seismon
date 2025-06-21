@@ -36,7 +36,7 @@ use bevy::{
     prelude::*,
     render::{
         camera::Exposure,
-        view::{ColorGrading, ColorGradingGlobal},
+        view::{ColorGrading, ColorGradingGlobal, NoFrustumCulling},
     },
     window::{PresentMode, PrimaryWindow},
 };
@@ -332,12 +332,10 @@ fn main() -> ExitCode {
         .add_systems(Startup, startup(opt));
 
     #[cfg(feature = "screenrecord")]
-    app
-        .add_plugins(CapturePlugin);
+    app.add_plugins(CapturePlugin);
 
     #[cfg(feature = "renderdoc")]
-    app
-        .add_plugins(bevy_renderdoc::RenderDocPlugin);
+    app.add_plugins(bevy_renderdoc::RenderDocPlugin);
 
     #[cfg(feature = "auto-exposure")]
     app.add_plugins(AutoExposurePlugin).cvar_on_set(

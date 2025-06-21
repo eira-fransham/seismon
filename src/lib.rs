@@ -19,7 +19,8 @@
 #![feature(
     type_alias_impl_trait,
     buf_read_has_data_left,
-    error_generic_member_access
+    error_generic_member_access,
+    f16,
 )]
 // TODO: Is this necessary?
 #![recursion_limit = "256"]
