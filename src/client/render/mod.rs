@@ -90,6 +90,7 @@ use texture_collection::{
     CollectTextureExt, IncrementalTextureCollection, TextureArrayConfig, TextureAtlasConfig,
 };
 pub use ui::{UiRenderer, UiState, hud::HudState};
+use world::brush::TextureKind;
 pub use world::{
     Camera,
     deferred::{DeferredRenderer, DeferredUniforms, PointLight},
@@ -500,7 +501,7 @@ pub struct GraphicsState {
     lightmap_sampler: Sampler,
 
     alias_pipeline: AliasPipeline,
-    brush_pipeline: BrushPipeline,
+    brush_pipelines: [BrushPipeline; 3],
     sprite_pipeline: SpritePipeline,
     deferred_pipeline: DeferredPipeline,
     particle_pipeline: ParticlePipeline,
@@ -670,7 +671,7 @@ impl GraphicsState {
 
         let (
             alias_pipeline,
-            brush_pipeline,
+            brush_pipelines,
             sprite_pipeline,
             deferred_pipeline,
             particle_pipeline,
@@ -685,14 +686,18 @@ impl GraphicsState {
                 normal_format,
                 sample_count,
             );
-            let brush_pipeline = BrushPipeline::new(
-                device,
-                compiler,
-                &world_bind_group_layouts,
-                diffuse_format,
-                normal_format,
-                sample_count,
-            );
+            let brush_pipelines =
+                [TextureKind::Normal, TextureKind::Warp, TextureKind::Sky].map(|kind| {
+                    BrushPipeline::new(
+                        device,
+                        compiler,
+                        &world_bind_group_layouts,
+                        diffuse_format,
+                        normal_format,
+                        kind,
+                        sample_count,
+                    )
+                });
             let sprite_pipeline = SpritePipeline::new(
                 device,
                 compiler,
@@ -717,7 +722,7 @@ impl GraphicsState {
 
             (
                 alias_pipeline,
-                brush_pipeline,
+                brush_pipelines,
                 sprite_pipeline,
                 deferred_pipeline,
                 particle_pipeline,
@@ -750,7 +755,7 @@ impl GraphicsState {
             compiled_atlases: None,
 
             alias_pipeline,
-            brush_pipeline,
+            brush_pipelines,
             sprite_pipeline,
             deferred_pipeline,
             particle_pipeline,
@@ -935,8 +940,8 @@ impl GraphicsState {
         &self.alias_pipeline
     }
 
-    pub fn brush_pipeline(&self) -> &BrushPipeline {
-        &self.brush_pipeline
+    pub fn brush_pipeline(&self, texture_kind: TextureKind) -> &BrushPipeline {
+        &self.brush_pipelines[texture_kind as usize]
     }
 
     pub fn sprite_pipeline(&self) -> &SpritePipeline {

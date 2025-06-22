@@ -20,6 +20,7 @@
 
 use std::mem::size_of;
 
+use beef::Cow;
 use bevy::{
     prelude::*,
     render::{
@@ -28,25 +29,41 @@ use bevy::{
         renderer::RenderDevice,
     },
 };
-use wgpu::BindGroupLayoutEntry;
+use wgpu::{BindGroupLayoutEntry, PipelineCompilationOptions};
 
 use crate::common::util::{Pod, any_as_bytes};
 
 /// The `Pipeline` trait, which allows render pipelines to be defined more-or-less declaratively.
 
-fn create_shader<S>(
+fn create_shader<'a, S, K, V, I>(
     device: &RenderDevice,
     compiler: &mut shaderc::Compiler,
     name: S,
     kind: shaderc::ShaderKind,
     source: S,
+    constants: I,
 ) -> wgpu::ShaderModule
 where
     S: AsRef<str>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+    I: IntoIterator<Item = (K, V)>,
 {
     debug!("creating shader {}", name.as_ref());
+    let mut options = shaderc::CompileOptions::new();
+    if let Some(options) = &mut options {
+        for (name, val) in constants {
+            options.add_macro_definition(name.as_ref(), Some(val.as_ref()));
+        }
+    }
     let spirv = compiler
-        .compile_into_spirv(source.as_ref(), kind, name.as_ref(), "main", None)
+        .compile_into_spirv(
+            source.as_ref(),
+            kind,
+            name.as_ref(),
+            "main",
+            options.as_ref(),
+        )
         .unwrap();
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name.as_ref()),
@@ -99,11 +116,18 @@ pub trait Pipeline {
     where
         Self: Pipeline<Args = ()>,
     {
-        Self::color_target_states_with_args(())
+        Self::color_target_states_with_args(&())
     }
 
     /// The default color state used for the pipeline.
-    fn color_target_states_with_args(args: Self::Args) -> Vec<Option<wgpu::ColorTargetState>>;
+    fn color_target_states_with_args(args: &Self::Args) -> Vec<Option<wgpu::ColorTargetState>>;
+
+    /// The compilation settings for some given arguments.
+    fn constants(
+        _args: &Self::Args,
+    ) -> impl Iterator<Item = (Cow<'static, str>, Cow<'static, str>)> {
+        std::iter::empty()
+    }
 
     /// The depth-stencil state used for the pipeline, if any.
     fn depth_stencil_state() -> Option<wgpu::DepthStencilState>;
@@ -235,6 +259,7 @@ pub trait Pipeline {
             format!("{}.vert", Self::name()).as_str(),
             shaderc::ShaderKind::Vertex,
             Self::vertex_shader(),
+            Self::constants(&args),
         );
         let fragment_shader = create_shader(
             device,
@@ -242,6 +267,7 @@ pub trait Pipeline {
             format!("{}.frag", Self::name()).as_str(),
             shaderc::ShaderKind::Fragment,
             Self::fragment_shader(),
+            Self::constants(&args),
         );
 
         info!("create_render_pipeline");
@@ -252,14 +278,20 @@ pub trait Pipeline {
                 module: &vertex_shader,
                 entry_point: Some("main"),
                 buffers: &Self::vertex_buffer_layouts(),
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &default(),
+                    zero_initialize_workgroup_memory: false,
+                },
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
                 entry_point: Some("main"),
-                targets: &Self::color_target_states_with_args(args),
-                compilation_options: Default::default(),
+                targets: &Self::color_target_states_with_args(&args),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &default(),
+                    zero_initialize_workgroup_memory: false,
+                },
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
@@ -297,12 +329,14 @@ pub trait Pipeline {
                 Self::fragment_push_constant_range(),
             ],
         });
+
         let vertex_shader = create_shader(
             device,
             compiler,
             format!("{}.vert", Self::name()).as_str(),
             shaderc::ShaderKind::Vertex,
             Self::vertex_shader(),
+            Self::constants(&args),
         );
         let fragment_shader = create_shader(
             device,
@@ -310,7 +344,9 @@ pub trait Pipeline {
             format!("{}.frag", Self::name()).as_str(),
             shaderc::ShaderKind::Fragment,
             Self::fragment_shader(),
+            Self::constants(&args),
         );
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&format!("{} pipeline", Self::name())),
             layout: Some(&pipeline_layout),
@@ -318,14 +354,20 @@ pub trait Pipeline {
                 module: &vertex_shader,
                 entry_point: Some("main"),
                 buffers: &Self::vertex_buffer_layouts(),
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &default(),
+                    zero_initialize_workgroup_memory: false,
+                },
             },
             primitive: Self::primitive_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
                 entry_point: Some("main"),
-                targets: &Self::color_target_states_with_args(args),
-                compilation_options: Default::default(),
+                targets: &Self::color_target_states_with_args(&args),
+                compilation_options: PipelineCompilationOptions {
+                    constants: &default(),
+                    zero_initialize_workgroup_memory: false,
+                },
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,

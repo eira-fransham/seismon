@@ -199,7 +199,7 @@ impl Pipeline for DeferredPipeline {
         QuadPipeline::primitive_state()
     }
 
-    fn color_target_states_with_args(format: Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
+    fn color_target_states_with_args(&format: &Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
         vec![Some(wgpu::ColorTargetState {
             format,
             blend: Some(wgpu::BlendState::REPLACE),

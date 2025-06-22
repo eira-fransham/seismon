@@ -160,18 +160,18 @@ impl Pipeline for WorldPipelineBase {
     }
 
     fn color_target_states_with_args(
-        (diffuse_format, normal_format): Self::Args,
+        (diffuse_format, normal_format): &Self::Args,
     ) -> Vec<Option<wgpu::ColorTargetState>> {
         vec![
             // diffuse attachment
             Some(wgpu::ColorTargetState {
-                format: diffuse_format,
+                format: *diffuse_format,
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             }),
             // normal attachment
             Some(wgpu::ColorTargetState {
-                format: normal_format,
+                format: *normal_format,
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             }),
@@ -570,23 +570,24 @@ impl WorldRenderer {
             &[],
         );
 
-        pass.set_render_pipeline(state.brush_pipeline().pipeline());
-        BrushPipeline::set_push_constants(
-            pass,
-            Update(bump.alloc(brush::VertexPushConstants {
-                transform: camera.view_projection(),
-                model_view: to_mat3(camera.view()),
-            })),
-            Clear,
-            Clear,
-        );
-        pass.set_bind_group(
-            BindGroupLayoutId::PerEntity as usize,
-            &state.world_bind_groups()[BindGroupLayoutId::PerEntity as usize],
-            &[self.world_uniform_block.offset()],
-        );
         self.worldmodel_renderer
-            .record_draw(state, pass, bump, time, camera, 0);
+            .record_draw(state, pass, bump, time, camera, 0, |pass, kind| {
+                pass.set_render_pipeline(state.brush_pipeline(kind).pipeline());
+                BrushPipeline::set_push_constants(
+                    pass,
+                    Update(bump.alloc(brush::VertexPushConstants {
+                        transform: camera.view_projection(),
+                        model_view: to_mat3(camera.view()),
+                    })),
+                    Clear,
+                    Clear,
+                );
+                pass.set_bind_group(
+                    BindGroupLayoutId::PerEntity as usize,
+                    &state.world_bind_groups()[BindGroupLayoutId::PerEntity as usize],
+                    &[self.world_uniform_block.offset()],
+                );
+            });
 
         for (ent_pos, ent) in entities.enumerate() {
             if let Some(uniforms) = self.entity_uniform_blocks.read().get(ent_pos) {
@@ -598,17 +599,28 @@ impl WorldRenderer {
 
                 match self.renderer_for_entity(ent) {
                     EntityRenderer::Brush(bmodel) => {
-                        pass.set_render_pipeline(state.brush_pipeline().pipeline());
-                        BrushPipeline::set_push_constants(
+                        bmodel.record_draw(
+                            state,
                             pass,
-                            Update(bump.alloc(brush::VertexPushConstants {
-                                transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
-                            })),
-                            Clear,
-                            Clear,
+                            bump,
+                            time,
+                            camera,
+                            ent.frame_id,
+                            |pass, kind| {
+                                pass.set_render_pipeline(state.brush_pipeline(kind).pipeline());
+                                BrushPipeline::set_push_constants(
+                                    pass,
+                                    Update(bump.alloc(brush::VertexPushConstants {
+                                        transform: self.calculate_mvp_transform(camera, ent),
+                                        model_view: to_mat3(
+                                            self.calculate_mv_transform(camera, ent),
+                                        ),
+                                    })),
+                                    Clear,
+                                    Clear,
+                                );
+                            },
                         );
-                        bmodel.record_draw(state, pass, bump, time, camera, ent.frame_id);
                     }
                     EntityRenderer::Alias(alias) => {
                         pass.set_render_pipeline(state.alias_pipeline().pipeline());

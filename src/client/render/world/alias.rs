@@ -147,7 +147,7 @@ impl Pipeline for AliasPipeline {
         WorldPipelineBase::primitive_state()
     }
 
-    fn color_target_states_with_args(args: Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
+    fn color_target_states_with_args(args: &Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
         WorldPipelineBase::color_target_states_with_args(args)
     }
 

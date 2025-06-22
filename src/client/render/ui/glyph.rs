@@ -151,7 +151,7 @@ impl Pipeline for GlyphPipeline {
         vec![BIND_GROUP_LAYOUT_ENTRIES.to_owned()]
     }
 
-    fn color_target_states_with_args(format: Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
+    fn color_target_states_with_args(format: &Self::Args) -> Vec<Option<wgpu::ColorTargetState>> {
         QuadPipeline::color_target_states_with_args(format)
     }
 

@@ -11,12 +11,11 @@ const float WARP_SCALE = 1.0;
 
 layout(location = 0) in vec3 f_normal;
 layout(location = 1) in vec3 f_diffuse; // For sky, this is the world position.
-flat layout(location = 2) in uint f_tex_kind;
-flat layout(location = 3) in uvec4 f_lightmap_anim;
-layout(location = 4) in vec2 f_lightmap_coord_0;
-layout(location = 5) in vec2 f_lightmap_coord_1;
-layout(location = 6) in vec2 f_lightmap_coord_2;
-layout(location = 7) in vec2 f_lightmap_coord_3;
+flat layout(location = 2) in uvec4 f_lightmap_anim;
+layout(location = 3) in vec2 f_lightmap_coord_0;
+layout(location = 4) in vec2 f_lightmap_coord_1;
+layout(location = 5) in vec2 f_lightmap_coord_2;
+layout(location = 6) in vec2 f_lightmap_coord_3;
 
 layout(push_constant) uniform PushConstants {
   layout(offset = 100) uint texture_kind_and_diffuse_index;
@@ -102,7 +101,7 @@ void main() {
     float tex_index_diffuse = float(push_constants.texture_kind_and_diffuse_index & 0x0000FFFF);
 
     // TODO: Switch to making this a compile option.
-    switch (f_tex_kind) {
+    switch (INPUT_TEXTURE_KIND) {
         case TEXTURE_KIND_REGULAR:
             float fullbright = texture(
                 sampler2DArray(u_fullbright_textures, u_diffuse_sampler),
