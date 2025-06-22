@@ -377,11 +377,11 @@ pub struct Extent2d {
     pub height: u32,
 }
 
-impl std::convert::Into<wgpu::Extent3d> for Extent2d {
-    fn into(self) -> wgpu::Extent3d {
+impl std::convert::From<Extent2d> for wgpu::Extent3d {
+    fn from(value: Extent2d) -> wgpu::Extent3d {
         wgpu::Extent3d {
-            width: self.width,
-            height: self.height,
+            width: value.width,
+            height: value.height,
             depth_or_array_layers: 1,
         }
     }
