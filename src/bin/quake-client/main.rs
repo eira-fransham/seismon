@@ -28,7 +28,10 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
-        bloom::Bloom, experimental::taa::TemporalAntiAliasing, prepass::{DepthPrepass, NormalPrepass}, tonemapping::Tonemapping
+        bloom::Bloom,
+        experimental::taa::TemporalAntiAliasing,
+        prepass::{DepthPrepass, NormalPrepass},
+        tonemapping::Tonemapping,
     },
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
@@ -130,8 +133,19 @@ fn cmd_autoexposure(
     In(autoexposure): In<Value>,
     mut commands: Commands,
     assets: Res<AssetServer>,
-    mut cameras: Query<(Entity, Option<&mut AutoExposure>), With<Camera3d>>,
+    mut cameras: Query<
+        (
+            Entity,
+            Option<&mut bevy::core_pipeline::auto_exposure::AutoExposure>,
+        ),
+        With<Camera3d>,
+    >,
 ) {
+    use bevy::{
+        core_pipeline::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
+        math::cubic_splines::LinearSpline,
+    };
+
     let enabled: bool = match autoexposure.as_name() {
         Some("on") => true,
         Some("off") => false,
@@ -154,8 +168,8 @@ fn cmd_autoexposure(
                     metering_mask: assets.load("autoexposure-mask.png"),
                     compensation_curve: assets.add(
                         AutoExposureCompensationCurve::from_curve(LinearSpline::new([
-                            vec2(-8.0, -8.0),
-                            vec2(8.0, -8.0),
+                            [-8.0, -8.0].into(),
+                            [8.0, -8.0].into(),
                         ]))
                         .unwrap(),
                     ),
@@ -337,12 +351,13 @@ fn main() -> ExitCode {
     app.add_plugins(bevy_renderdoc::RenderDocPlugin);
 
     #[cfg(feature = "auto-exposure")]
-    app.add_plugins(AutoExposurePlugin).cvar_on_set(
-        "r_autoexposure",
-        "on",
-        cmd_autoexposure,
-        "Enable/disable automatic exposure compensation",
-    );
+    app.add_plugins(bevy::core_pipeline::auto_exposure::AutoExposurePlugin)
+        .cvar_on_set(
+            "r_autoexposure",
+            "on",
+            cmd_autoexposure,
+            "Enable/disable automatic exposure compensation",
+        );
 
     app.run();
 

@@ -1,21 +1,52 @@
-use std::{
-    borrow::Borrow,
-    sync::LazyLock,
-};
+use std::{borrow::Borrow, sync::LazyLock};
 
 use bevy::{
     asset::RenderAssetUsages, image::TextureFormatPixelInfo, prelude::*,
     sprite::TextureAtlasBuilderError,
 };
 use hashbrown::HashMap;
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use rand::distr::{Distribution as _, Uniform};
 use uuid::Uuid;
 
-// TODO: Refactor this to make it more generic - it should be possible to use this
-//       _only_ for deduplicating images without necessarily creating an atlas.
-// TODO: Fork `TextureAtlasBuilder` to extend the bounds of the image when creating
-//       padding instead of inserting black.
+fn resize_resampling_with_pixel_type<P: image::Pixel<Subpixel = u8> + 'static>(
+    image: &mut Image,
+    new_size: UVec2,
+) {
+    let new_buf = image::imageops::resize(
+        &image::ImageBuffer::<P, _>::from_raw(image.width(), image.height(), &image.data[..])
+            .unwrap(),
+        new_size.x,
+        new_size.y,
+        image::imageops::FilterType::CatmullRom,
+    );
+
+    image.data = new_buf.into_vec();
+    image.texture_descriptor.size = wgpu::Extent3d {
+        width: new_size.x,
+        height: new_size.y,
+        depth_or_array_layers: 1,
+    };
+}
+
+fn resize_image_resampling(image: &mut Image, new_size: UVec2) {
+    match image.texture_descriptor.format.pixel_size() {
+        1 => {
+            resize_resampling_with_pixel_type::<image::Luma<u8>>(image, new_size);
+        }
+        2 => {
+            resize_resampling_with_pixel_type::<image::LumaA<u8>>(image, new_size);
+        }
+        3 => {
+            resize_resampling_with_pixel_type::<image::Rgb<u8>>(image, new_size);
+        }
+        4 => {
+            resize_resampling_with_pixel_type::<image::Rgba<u8>>(image, new_size);
+        }
+        _ => todo!(),
+    }
+}
 
 pub trait CollectTexture<P> {
     type Index: Copy;
@@ -46,6 +77,100 @@ where
     type CompiledTextureCollection = CompiledTextureCollection<Self::Index, Self::Image>;
 }
 
+pub struct BucketedTextureSetConfig {
+    pub format: wgpu::TextureFormat,
+}
+
+impl BucketedTextureSetConfig {
+    pub fn new(format: wgpu::TextureFormat) -> Self {
+        Self { format }
+    }
+}
+
+impl From<wgpu::TextureFormat> for BucketedTextureSetConfig {
+    fn from(value: wgpu::TextureFormat) -> Self {
+        Self::new(value)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BucketedTextureSetIndex {
+    pub bucket_index: usize,
+    pub index_in_bucket: usize,
+}
+
+impl<P> CollectTexture<P> for BucketedTextureSetConfig
+where
+    P: Borrow<Image>,
+{
+    type Index = BucketedTextureSetIndex;
+    type Image = Vec<Image>;
+    type Error = !;
+
+    fn build<'a, I>(
+        &self,
+        vals: I,
+    ) -> Result<CompiledTextureCollection<Self::Index, Self::Image>, Self::Error>
+    where
+        P: 'a,
+        I: IntoIterator<Item = (AssetId<Image>, &'a P)>,
+    {
+        let mut buckets = IndexMap::<UVec2, (Image, Vec<AssetId<Image>>)>::new();
+
+        let layout = vals
+            .into_iter()
+            .map(|(id, img)| {
+                let entry = buckets.entry(img.borrow().size());
+                let bucket_index = entry.index();
+                let (texture_array, bucket) = entry.or_insert_with(|| {
+                    (
+                        Image::new(
+                            wgpu::Extent3d {
+                                width: 0,
+                                height: 0,
+                                depth_or_array_layers: 1,
+                            },
+                            wgpu::TextureDimension::D2,
+                            vec![],
+                            self.format,
+                            RenderAssetUsages::RENDER_WORLD,
+                        ),
+                        default(),
+                    )
+                });
+                texture_array.data.extend(&img.borrow().data);
+                texture_array.texture_descriptor.size.depth_or_array_layers += 1;
+                let index_in_bucket = bucket.len();
+                bucket.push(id);
+
+                (
+                    id,
+                    BucketedTextureSetIndex {
+                        bucket_index,
+                        index_in_bucket,
+                    },
+                )
+            })
+            .collect();
+
+        Ok(CompiledTextureCollection {
+            layout,
+            image: buckets.into_iter().map(|(_, (img, _))| img).collect(),
+        })
+    }
+
+    fn transform(&self, mut image: Image) -> Image {
+        let pow_2_w = image.width().next_power_of_two();
+        let pow_2_h = image.height().next_power_of_two();
+
+        if image.width() != pow_2_w || image.height() != pow_2_h {
+            resize_image_resampling(&mut image, [pow_2_w, pow_2_h].into());
+        }
+
+        image
+    }
+}
+
 pub struct TextureAtlasConfig {
     pub format: wgpu::TextureFormat,
     pub padding: UVec2,
@@ -55,7 +180,7 @@ impl TextureAtlasConfig {
     pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
             format,
-            padding: UVec2 { x: 1, y: 1 },
+            padding: UVec2 { x: 2, y: 2 },
         }
     }
 }
@@ -194,66 +319,6 @@ where
         P: 'a,
         I: IntoIterator<Item = (AssetId<Image>, &'a P)>,
     {
-        fn lcm<I>(mut nums: I) -> Option<usize>
-        where
-            I: Iterator<Item = usize>,
-        {
-            let a = nums.next()?;
-            let Some(b) = lcm(nums) else {
-                return Some(a);
-            };
-            Some(a * b / gcd_of_two_numbers(a, b))
-        }
-
-        fn gcd_of_two_numbers(a: usize, b: usize) -> usize {
-            if b == 0 {
-                return a;
-            }
-            gcd_of_two_numbers(b, a % b)
-        }
-
-        fn resize_resampling_with_pixel_type<P: image::Pixel<Subpixel = u8> + 'static>(
-            image: &mut Image,
-            new_size: UVec2,
-        ) {
-            let new_buf = image::imageops::resize(
-                &image::ImageBuffer::<P, _>::from_raw(
-                    image.width(),
-                    image.height(),
-                    &image.data[..],
-                )
-                .unwrap(),
-                new_size.x,
-                new_size.y,
-                image::imageops::FilterType::CatmullRom,
-            );
-
-            image.data = new_buf.into_vec();
-            image.texture_descriptor.size = wgpu::Extent3d {
-                width: new_size.x,
-                height: new_size.y,
-                depth_or_array_layers: 1,
-            };
-        }
-
-        fn resize_image_resampling(image: &mut Image, new_size: UVec2) {
-            match image.texture_descriptor.format.pixel_size() {
-                1 => {
-                    resize_resampling_with_pixel_type::<image::Luma<u8>>(image, new_size);
-                }
-                2 => {
-                    resize_resampling_with_pixel_type::<image::LumaA<u8>>(image, new_size);
-                }
-                3 => {
-                    resize_resampling_with_pixel_type::<image::Rgb<u8>>(image, new_size);
-                }
-                4 => {
-                    resize_resampling_with_pixel_type::<image::Rgba<u8>>(image, new_size);
-                }
-                _ => todo!(),
-            }
-        }
-
         fn resize_image_by_repeat(image: &mut Image, new_size: UVec2) {
             assert_eq!(new_size.x % image.width(), 0);
             assert_eq!(new_size.y % image.height(), 0);
@@ -294,22 +359,20 @@ where
             .map(|(i, (id, img))| ((id, i), img.borrow().clone()))
             .unzip();
 
+        let mut max_width = 0;
+        let mut max_height = 0;
+
         for image in &mut images {
             let pow_2_w = image.width().next_power_of_two();
             let pow_2_h = image.height().next_power_of_two();
 
-            if image.width() != pow_2_w || image.height() != pow_2_h {
-                resize_image_resampling(image, [pow_2_w, pow_2_h].into());
-            }
+            max_width = max_width.max(pow_2_w);
+            max_height = max_height.max(pow_2_h);
         }
 
         let max_size: UVec2 = UVec2 {
-            x: lcm(std::iter::once(self.min_size.x as usize)
-                .chain(images.iter().map(|i| i.width() as usize)))
-            .unwrap_or_default() as u32,
-            y: lcm(std::iter::once(self.min_size.x as usize)
-                .chain(images.iter().map(|i| i.height() as usize)))
-            .unwrap_or_default() as u32,
+            x: max_width,
+            y: max_height,
         };
 
         let layout = layout
@@ -323,7 +386,10 @@ where
                 {
                     *image = converted;
                 }
-                resize_image_by_repeat(image, max_size);
+
+                if image.width() != max_width || image.height() != max_height {
+                    resize_image_resampling(image, [max_width, max_height].into());
+                }
 
                 (id, (index, mapped_size))
             })
@@ -353,7 +419,7 @@ where
 
 pub type ImagePtr = Image;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct CompiledTextureCollection<
     Index = <TextureAtlasConfig as CollectTexture<ImagePtr>>::Index,
     CompiledImage = <TextureAtlasConfig as CollectTexture<ImagePtr>>::Image,
@@ -425,6 +491,9 @@ where
 
     pub fn push(&mut self, image: Image) -> AssetId<Image> {
         let pixel_components = image.texture_descriptor.format.components() as usize;
+
+        let image = self.format.transform(image);
+
         // Many fullbright textures are all-black but different sizes, so we deduplicate textures
         // that are all one colour.
         let image =
@@ -443,8 +512,6 @@ where
             } else {
                 image
             };
-
-        let image = self.format.transform(image);
 
         let hash = hashers::fx_hash::fxhash64(&image.data);
         let id = AssetId::from(Uuid::from_u64_pair(self.atlas_id, hash));

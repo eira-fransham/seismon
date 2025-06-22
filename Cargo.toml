@@ -30,6 +30,7 @@ dashmap = "5.5"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
+indexmap = "2.9"
 itertools = "0.14"
 memmap2 = "0.9"
 ndarray = "0.15"
@@ -66,7 +67,6 @@ default = ["screenrecord", "fast-compile"]
 screenrecord = ["video-rs"]
 renderdoc = ["bevy_renderdoc"]
 fast-compile = ["bevy/dynamic_linking"]
-auto-exposure = []
 
 [profile.release-lto]
 inherits = "release"

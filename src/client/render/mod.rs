@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub mod texture_collection;
 /// Rendering functionality.
 ///
 /// # Pipeline stages
@@ -50,14 +49,12 @@ pub mod mapped;
 pub mod palette;
 mod pipeline;
 mod target;
+pub mod texture_collection;
 mod ui;
 mod uniform;
 mod warp;
 mod world;
 
-use texture_collection::{
-    CollectTextureExt, IncrementalTextureCollection, TextureArrayConfig, TextureAtlasConfig,
-};
 use bevy::{
     core_pipeline::{
         core_3d::graph::{Core3d, Node3d},
@@ -89,6 +86,9 @@ pub use pipeline::Pipeline;
 pub use postprocess::PostProcessBindGroup;
 use serde::{Deserialize, Serialize};
 pub use target::{PreferredFormat, RenderTarget, RenderTargetResolve};
+use texture_collection::{
+    CollectTextureExt, IncrementalTextureCollection, TextureArrayConfig, TextureAtlasConfig,
+};
 pub use ui::{UiRenderer, UiState, hud::HudState};
 pub use world::{
     Camera,

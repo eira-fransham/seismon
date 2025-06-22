@@ -382,7 +382,7 @@ fn to_mat4_compressed(mat4: Matrix4<f32>) -> Matrix4<u16> {
         x: compress(mat4.x.into()).into(),
         y: compress(mat4.y.into()).into(),
         z: compress(mat4.z.into()).into(),
-        w: compress(mat4.w.into()).into()
+        w: compress(mat4.w.into()).into(),
     }
 }
 
@@ -585,15 +585,8 @@ impl WorldRenderer {
             &state.world_bind_groups()[BindGroupLayoutId::PerEntity as usize],
             &[self.world_uniform_block.offset()],
         );
-        // HACK: Hardcoded frame time (TODO: Actually track frame number)
-        self.worldmodel_renderer.record_draw(
-            state,
-            pass,
-            bump,
-            time,
-            camera,
-            ((engine::duration_to_f32(time) + (0.05 / 2.)) / 0.05) as usize,
-        );
+        self.worldmodel_renderer
+            .record_draw(state, pass, bump, time, camera, 0);
 
         for (ent_pos, ent) in entities.enumerate() {
             if let Some(uniforms) = self.entity_uniform_blocks.read().get(ent_pos) {

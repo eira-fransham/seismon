@@ -357,9 +357,6 @@ pub trait Pipeline {
         let spc_offset = vpc_offset + size_of::<Self::VertexPushConstants>() as u32;
         let fpc_offset = spc_offset + size_of::<Self::SharedPushConstants>() as u32;
 
-        // these push constant size checks are known statically and will be
-        // compiled out
-
         if size_of::<Self::VertexPushConstants>() > 0 {
             let data = match vpc {
                 Update(v) => Some(unsafe { any_as_bytes(v) }),

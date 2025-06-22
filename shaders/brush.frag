@@ -11,18 +11,15 @@ const float WARP_SCALE = 1.0;
 
 layout(location = 0) in vec3 f_normal;
 layout(location = 1) in vec3 f_diffuse; // For sky, this is the world position.
-layout(location = 2) in vec2 f_fullbright;
-flat layout(location = 3) in uint f_tex_indices;
-flat layout(location = 4) in uvec4 f_lightmap_anim;
-layout(location = 5) in vec2 f_lightmap_coord_0;
-layout(location = 6) in vec2 f_lightmap_coord_1;
-layout(location = 7) in vec2 f_lightmap_coord_2;
-layout(location = 8) in vec2 f_lightmap_coord_3;
+flat layout(location = 2) in uint f_tex_kind;
+flat layout(location = 3) in uvec4 f_lightmap_anim;
+layout(location = 4) in vec2 f_lightmap_coord_0;
+layout(location = 5) in vec2 f_lightmap_coord_1;
+layout(location = 6) in vec2 f_lightmap_coord_2;
+layout(location = 7) in vec2 f_lightmap_coord_3;
 
 layout(push_constant) uniform PushConstants {
-  mat4 transform;
-  mat3 model_view;
-  uint texture_kind;
+  layout(offset = 100) uint texture_kind_and_diffuse_index;
 } push_constants;
 
 // set 0: per-frame
@@ -101,15 +98,15 @@ const mat3 RGB_2_XYZ = mat3(
 
 // TODO: Convert this push constant to be separated shaders instead
 void main() {
-    float tex_index_diffuse = float(f_tex_indices & 0x0000FFFF);
-    float tex_index_fullbright = float((f_tex_indices & 0xFFFF0000) >> 16);
+    float tex_index_fullbright = float(push_constants.texture_kind_and_diffuse_index >> 16);
+    float tex_index_diffuse = float(push_constants.texture_kind_and_diffuse_index & 0x0000FFFF);
 
     // TODO: Switch to making this a compile option.
-    switch (push_constants.texture_kind) {
+    switch (f_tex_kind) {
         case TEXTURE_KIND_REGULAR:
             float fullbright = texture(
                 sampler2DArray(u_fullbright_textures, u_diffuse_sampler),
-                vec3(f_fullbright.xy, tex_index_fullbright)
+                vec3(f_diffuse.xy, tex_index_fullbright)
             ).r;
 
             float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.25;

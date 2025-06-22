@@ -7,29 +7,26 @@ const uint TEXTURE_KIND_SKY = 2;
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec2 a_diffuse;
-layout(location = 3) in vec2 a_fullbright;
-layout(location = 4) in uint a_tex_indices;
-layout(location = 5) in uvec4 a_lightmap_anim;
-layout(location = 6) in vec2 a_lightmap_coord_0;
-layout(location = 7) in vec2 a_lightmap_coord_1;
-layout(location = 8) in vec2 a_lightmap_coord_2;
-layout(location = 9) in vec2 a_lightmap_coord_3;
+layout(location = 3) in uint a_tex_kind;
+layout(location = 4) in uvec4 a_lightmap_anim;
+layout(location = 5) in vec2 a_lightmap_coord_0;
+layout(location = 6) in vec2 a_lightmap_coord_1;
+layout(location = 7) in vec2 a_lightmap_coord_2;
+layout(location = 8) in vec2 a_lightmap_coord_3;
 
 layout(push_constant) uniform PushConstants {
   mat4 transform;
   mat3 model_view;
-  uint texture_kind;
 } push_constants;
 
 layout(location = 0) out vec3 f_normal;
 layout(location = 1) out vec3 f_diffuse;
-layout(location = 2) out vec2 f_fullbright;
-flat layout(location = 3) out uint f_tex_indices;
-flat layout(location = 4) out uvec4 f_lightmap_anim;
-layout(location = 5) out vec2 f_lightmap_coord_0;
-layout(location = 6) out vec2 f_lightmap_coord_1;
-layout(location = 7) out vec2 f_lightmap_coord_2;
-layout(location = 8) out vec2 f_lightmap_coord_3;
+flat layout(location = 2) out uint f_tex_kind;
+flat layout(location = 3) out uvec4 f_lightmap_anim;
+layout(location = 4) out vec2 f_lightmap_coord_0;
+layout(location = 5) out vec2 f_lightmap_coord_1;
+layout(location = 6) out vec2 f_lightmap_coord_2;
+layout(location = 7) out vec2 f_lightmap_coord_3;
 
 // set 0: per-frame
 layout(set = 0, binding = 0) uniform FrameUniforms {
@@ -82,17 +79,15 @@ vec2 unpack(uint packed) {
 }
 
 void main() {
-    if (push_constants.texture_kind == TEXTURE_KIND_SKY) {
+    if (a_tex_kind== TEXTURE_KIND_SKY) {
         f_diffuse = a_position;
     } else {
         f_diffuse = vec3(a_diffuse, 0.);
     }
 
-    f_fullbright = a_fullbright;
+    f_tex_kind = a_tex_kind;
 
     f_normal = transpose(inv(push_constants.model_view)) * convert(a_normal);
-
-    f_tex_indices = a_tex_indices;
 
     f_lightmap_anim = a_lightmap_anim;
 

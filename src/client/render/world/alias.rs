@@ -2,7 +2,8 @@ use std::{mem::size_of, ops::Range, sync::LazyLock};
 
 use crate::{
     client::render::{
-        GraphicsState, Pipeline, TextureData,
+        CompiledAtlases, GraphicsState, Pipeline, TextureData,
+        mapped::Mapped,
         world::{BindGroupLayoutId, WorldPipelineBase},
     },
     common::{
@@ -171,6 +172,14 @@ type DiffuseTexcoord = [f32; 2];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+struct AliasVertexInput {
+    position: Position,
+    normal: Normal,
+    diffuse_texcoord: DiffuseTexcoord,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 struct AliasVertex {
     position: Position,
     normal: Normal,
@@ -254,6 +263,7 @@ impl Texture {
 pub struct AliasRenderer {
     keyframes: Vec<Keyframe>,
     textures: Vec<Texture>,
+    // vertices: Mapped<CompiledAtlases, AliasVertexInput, AliasVertex>,
     vertex_buffer: Buffer,
 }
 

@@ -38,7 +38,7 @@ use crate::{
     },
     common::{
         bsp::{
-            BspData, BspFace, BspLeaf, BspModel, BspTexInfo, BspTexture, BspTextureKind,
+            self, BspData, BspFace, BspLeaf, BspModel, BspTexInfo, BspTexture, BspTextureKind,
             BspTextureMipmap,
         },
         math,
@@ -62,6 +62,7 @@ use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
 use num::Zero;
+use rand::Rng;
 use wgpu::Extent3d;
 
 pub struct BrushPipeline {
@@ -138,7 +139,8 @@ pub struct VertexPushConstants {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct SharedPushConstants {
-    pub texture_kind: u32,
+    pub diffuse_index: u16,
+    pub fullbright_index: u16,
 }
 
 // TODO: This vertex layout is heinous
@@ -149,20 +151,18 @@ const VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
     1 => Float32x3,
     // diffuse texcoord
     2 => Float32x2,
-    // fullbright texcoord
-    3 => Float32x2,
-    // diffuse + fullbright indices
-    4 => Uint16x2,
+    // texture kind
+    3 => Uint32,
     // lightmap animation ids
-    5 => Uint8x4,
+    4 => Uint8x4,
     // lightmap texcoords 0
-    6 => Float32x2,
+    5 => Float32x2,
     // lightmap texcoords 1
-    7 => Float32x2,
+    6 => Float32x2,
     // lightmap texcoords 2
-    8 => Float32x2,
+    7 => Float32x2,
     // lightmap texcoords 3
-    9 => Float32x2,
+    8 => Float32x2,
 ];
 
 impl Pipeline for BrushPipeline {
@@ -246,7 +246,7 @@ struct BrushVertexInput {
     position: Vec3,
     normal: Vec3,
     diffuse_texcoord: Vec2,
-    texture: BrushTextureFrame,
+    texture_kind: u32,
     lightmap_anim: LightmapAnim,
     lightmap_uv: Vec2,
     lightmaps: [AssetId<Image>; 4],
@@ -258,9 +258,7 @@ struct BrushVertex {
     position: Position,
     normal: Normal,
     diffuse_texcoord: Texcoord,
-    fullbright_texcoord: Texcoord,
-    diffuse_id: u16,
-    fullbright_id: u16,
+    texture_kind: u32,
     lightmap_anim: LightmapAnim,
     lightmap_texcoords: [Texcoord; 4],
 }
@@ -305,10 +303,21 @@ impl BrushTexture {
         }
     }
 
-    fn get_frame(&self, idx: usize) -> BrushTextureFrame {
+    fn get_frame(&self, frame_id: usize, time: Duration) -> BrushTextureFrame {
+        let idx = (time.num_milliseconds() / bsp::frame_duration().num_milliseconds()) as usize;
+
         match self {
             Self::Static(frame) => *frame,
-            Self::Animated { primary, .. } => primary[idx % primary.len()],
+            Self::Animated { primary, alternate } => {
+                let anim = if frame_id == 0 {
+                    primary
+                } else if let Some(a) = alternate {
+                    a
+                } else {
+                    primary
+                };
+                anim[idx % anim.len()]
+            }
         }
     }
 }
@@ -441,11 +450,11 @@ impl<'a> BrushRendererBuilder<'a> {
                 vertices.push(BrushVertexInput {
                     position: position.into(),
                     normal: normal.into(),
-                    texture: self.textures[texinfo.tex_id].get_frame(0),
                     diffuse_texcoord: vec2(
                         (vert.dot(texinfo.s_vector) + texinfo.s_offset) / tex.width() as f32,
                         (vert.dot(texinfo.t_vector) + texinfo.t_offset) / tex.height() as f32,
                     ),
+                    texture_kind: self.textures[texinfo.tex_id].kind() as _,
                     lightmaps: lightmap_ids,
                     lightmap_uv: lightmap_texcoords,
                     lightmap_anim: face.light_styles,
@@ -480,11 +489,11 @@ impl<'a> BrushRendererBuilder<'a> {
                     vertices.push(BrushVertexInput {
                         position: position.into(),
                         normal: normal.into(),
-                        texture: self.textures[texinfo.tex_id].get_frame(0),
                         diffuse_texcoord: vec2(
                             (vert.dot(texinfo.s_vector) + texinfo.s_offset) / tex.width() as f32,
                             (vert.dot(texinfo.t_vector) + texinfo.t_offset) / tex.height() as f32,
                         ),
+                        texture_kind: self.textures[texinfo.tex_id].kind() as _,
                         lightmaps: lightmap_ids,
                         lightmap_uv: lightmap_texcoords,
                         lightmap_anim: face.light_styles,
@@ -638,30 +647,16 @@ impl<'a> BrushRendererBuilder<'a> {
             vertices: Mapped::new(
                 vertices,
                 out_vertices,
-                |Atlases {
-                     lightmap,
-                     diffuse,
-                     fullbright,
-                 },
-                 in_brush_vertex| {
-                    let lightmap_texcoords: [Texcoord; 4] =
-                        in_brush_vertex.lightmaps.map(|id| {
-                            lightmap.translate(id, in_brush_vertex.lightmap_uv).into()
-                        });
-
-                    let (diffuse_id, diffuse_size) =
-                        diffuse.layout[&in_brush_vertex.texture.diffuse];
-                    let (fullbright_id, fullbright_size) =
-                        fullbright.layout[&in_brush_vertex.texture.fullbright];
+                |Atlases { lightmap, .. }, in_brush_vertex| {
+                    let lightmap_texcoords: [Texcoord; 4] = in_brush_vertex
+                        .lightmaps
+                        .map(|id| lightmap.translate(id, in_brush_vertex.lightmap_uv).into());
 
                     BrushVertex {
                         position: in_brush_vertex.position.into(),
                         normal: in_brush_vertex.normal.into(),
-                        diffuse_texcoord: (in_brush_vertex.diffuse_texcoord * diffuse_size).into(),
-                        fullbright_texcoord: (in_brush_vertex.diffuse_texcoord * fullbright_size)
-                            .into(),
-                        diffuse_id: diffuse_id as _,
-                        fullbright_id: fullbright_id as _,
+                        diffuse_texcoord: in_brush_vertex.diffuse_texcoord.into(),
+                        texture_kind: in_brush_vertex.texture_kind,
                         lightmap_anim: in_brush_vertex.lightmap_anim,
                         lightmap_texcoords,
                     }
@@ -709,10 +704,12 @@ impl BrushRenderer {
         state: &'a GraphicsState,
         pass: &mut TrackedRenderPass<'a>,
         bump: &'a Bump,
-        _time: Duration,
+        time: Duration,
         camera: &Camera,
         frame_id: usize,
     ) {
+        use PushConstantUpdate::*;
+
         let Some(vbuf) = self.vertex_buffer.as_ref() else {
             return;
         };
@@ -738,44 +735,25 @@ impl BrushRenderer {
         }
 
         for (tex_id, face_ids) in self.texture_chains.iter() {
-            use PushConstantUpdate::*;
+            let texture = self.textures[*tex_id].get_frame(frame_id, time);
 
-            let frame = self.textures[*tex_id].get_frame(frame_id);
+            let diffuse_index =
+                state.compiled_atlases().unwrap().diffuse.layout[&texture.diffuse].0 as u16;
+            let fullbright_index =
+                state.compiled_atlases().unwrap().fullbright.layout[&texture.fullbright].0 as u16;
 
             BrushPipeline::set_push_constants(
                 pass,
                 Retain,
                 Update(bump.alloc(SharedPushConstants {
-                    texture_kind: self.textures[*tex_id].kind() as u32,
+                    diffuse_index,
+                    fullbright_index,
                 })),
                 Retain,
             );
 
-            // let bind_group_id = match &self.textures[*tex_id] {
-            //     BrushTexture::Static(frame) => frame.bind_group_id,
-            //     BrushTexture::Animated { primary, alternate } => {
-            //         // if frame is not zero and this texture has an alternate
-            //         // animation, use it
-            //         let anim = if frame_id == 0 {
-            //             primary
-            //         } else if let Some(a) = alternate {
-            //             a
-            //         } else {
-            //             primary
-            //         };
-
-            //         let time_ms = time.num_milliseconds();
-            //         let total_ms = (bsp::frame_duration() * anim.len() as i32).num_milliseconds();
-            //         let anim_ms = if total_ms == 0 { 0 } else { time_ms % total_ms };
-            //         anim[(anim_ms / bsp::frame_duration().num_milliseconds()) as usize]
-            //             .bind_group_id
-            //     }
-            // };
-
-            for face_id in face_ids.iter() {
+            for face_id in face_ids {
                 let face = &self.faces[face_id];
-
-                // only skip the face if we have visibility data but it's not marked
                 if self.leaves.is_some() && !face.draw_flag.swap(false, Ordering::SeqCst) {
                     continue;
                 }
@@ -783,5 +761,6 @@ impl BrushRenderer {
                 pass.draw(face.vertices.clone(), 0..1);
             }
         }
+        // }
     }
 }
