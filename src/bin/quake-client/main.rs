@@ -28,9 +28,7 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
-        bloom::Bloom,
-        prepass::{DepthPrepass, NormalPrepass},
-        tonemapping::Tonemapping,
+        bloom::Bloom, dof::{DepthOfField, DepthOfFieldPlugin}, experimental::taa::{TemporalAntiAliasing, TemporalAntiAliasPlugin}, prepass::{DepthPrepass, NormalPrepass}, tonemapping::Tonemapping
     },
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
@@ -205,6 +203,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
                 hdr: true,
                 ..default()
             },
+            TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
             Exposure::INDOOR,

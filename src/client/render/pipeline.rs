@@ -177,8 +177,7 @@ pub trait Pipeline {
         );
         assert!(
             vpc_size + spc_size + fpc_size < max_pc_size,
-            "Combined size of push constants must be less than push constant size limit of {}",
-            max_pc_size
+            "Combined size of push constants must be less than push constant size limit of {max_pc_size}"
         );
     }
 
@@ -199,7 +198,12 @@ pub trait Pipeline {
         info!("Creating {} pipeline", Self::name());
         let bind_group_layouts = Self::bind_group_layout_descriptors()
             .iter()
-            .map(|desc| device.create_bind_group_layout(None, desc))
+            .enumerate()
+            .map(|(i, desc)| {
+                let num_elements = desc.len();
+                info!("Bind group {i}, {num_elements} entries");
+                device.create_bind_group_layout(None, desc)
+            })
             .collect::<Vec<_>>();
         info!(
             "{} layouts in prefix | {} specific to pipeline",

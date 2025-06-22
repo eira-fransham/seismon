@@ -5,7 +5,7 @@ pub mod particle;
 pub mod postprocess;
 pub mod sprite;
 
-use std::mem::size_of;
+use std::{mem::size_of, num::NonZeroU32};
 
 use crate::{
     client::{
@@ -47,7 +47,7 @@ use parking_lot::RwLock;
 
 use super::RenderVars;
 
-pub static BIND_GROUP_LAYOUT_DESCRIPTORS: [&[BindGroupLayoutEntry]; 2] = [
+pub const BIND_GROUP_LAYOUT_DESCRIPTORS: &[&[wgpu::BindGroupLayoutEntry]] = &[
     &[wgpu::BindGroupLayoutEntry {
         binding: 0,
         visibility: wgpu::ShaderStages::all(),
@@ -85,23 +85,23 @@ pub static BIND_GROUP_LAYOUT_DESCRIPTORS: [&[BindGroupLayoutEntry]; 2] = [
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
-        // diffuse texture atlas
+        // diffuse texture array
         wgpu::BindGroupLayoutEntry {
             binding: 3,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                view_dimension: wgpu::TextureViewDimension::D2,
+                view_dimension: wgpu::TextureViewDimension::D2Array,
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 multisampled: false,
             },
             count: None,
         },
-        // fullbright texture atlas
+        // fullbright texture array
         wgpu::BindGroupLayoutEntry {
             binding: 4,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                view_dimension: wgpu::TextureViewDimension::D2,
+                view_dimension: wgpu::TextureViewDimension::D2Array,
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 multisampled: false,
             },
@@ -373,10 +373,23 @@ fn to_mat3(mat4: Matrix4<f32>) -> Matrix3<f32> {
     }
 }
 
+fn to_mat4_compressed(mat4: Matrix4<f32>) -> Matrix4<u16> {
+    fn compress<const N: usize>(input: [f32; N]) -> [u16; N] {
+        input.map(|f| (f.clamp(0., 1.) * u16::MAX as f32) as u16)
+    }
+
+    Matrix4 {
+        x: compress(mat4.x.into()).into(),
+        y: compress(mat4.y.into()).into(),
+        z: compress(mat4.z.into()).into(),
+        w: compress(mat4.w.into()).into()
+    }
+}
+
 fn to_mat3_f16(mat4: Matrix4<f32>) -> Matrix3<f16> {
-    let x: [f32; 3] =mat4.x.truncate().into();
-    let y: [f32; 3] =mat4.y.truncate().into();
-    let z: [f32; 3] =mat4.z.truncate().into();
+    let x: [f32; 3] = mat4.x.truncate().into();
+    let y: [f32; 3] = mat4.y.truncate().into();
+    let z: [f32; 3] = mat4.z.truncate().into();
 
     Matrix3 {
         x: x.map(|v| v as f16).into(),
@@ -443,28 +456,6 @@ impl WorldRenderer {
 
         match state.rebuild_atlases(device, queue) {
             Ok(atlases) => {
-                let _ = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-                    atlases.diffuse.image.width(),
-                    atlases.diffuse.image.height(),
-                    &atlases.diffuse.image.data[..],
-                )
-                .unwrap()
-                .save("diffuse-atlas.png");
-                let _ = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(
-                    atlases.fullbright.image.width(),
-                    atlases.fullbright.image.height(),
-                    &atlases.fullbright.image.data[..],
-                )
-                .unwrap()
-                .save("fullbright-atlas.png");
-                let _ = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(
-                    atlases.lightmap.image.width(),
-                    atlases.lightmap.image.height(),
-                    &atlases.lightmap.image.data[..],
-                )
-                .unwrap()
-                .save("lightmap-atlas.png");
-
                 if let Some(world) = worldmodel_renderer.as_mut() {
                     world.update_vertices(&atlases, device);
                 }
@@ -584,7 +575,7 @@ impl WorldRenderer {
             pass,
             Update(bump.alloc(brush::VertexPushConstants {
                 transform: camera.view_projection(),
-                model_view: to_mat3_f16(camera.view()),
+                model_view: to_mat3(camera.view()),
             })),
             Clear,
             Clear,
@@ -619,7 +610,7 @@ impl WorldRenderer {
                             pass,
                             Update(bump.alloc(brush::VertexPushConstants {
                                 transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: to_mat3_f16(self.calculate_mv_transform(camera, ent)),
+                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
                             })),
                             Clear,
                             Clear,

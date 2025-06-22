@@ -68,9 +68,6 @@ renderdoc = ["bevy_renderdoc"]
 fast-compile = ["bevy/dynamic_linking"]
 auto-exposure = []
 
-[profile.release]
-strip = "symbols"
-
 [profile.release-lto]
 inherits = "release"
 strip = "symbols"

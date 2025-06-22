@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub mod atlas;
+pub mod texture_collection;
 /// Rendering functionality.
 ///
 /// # Pipeline stages
@@ -55,14 +55,16 @@ mod uniform;
 mod warp;
 mod world;
 
-use atlas::{CompiledTextureAtlas, IncrementalTextureAtlas};
-use beef::Cow;
+use texture_collection::{
+    CollectTextureExt, IncrementalTextureCollection, TextureArrayConfig, TextureAtlasConfig,
+};
 use bevy::{
     core_pipeline::{
         core_3d::graph::{Core3d, Node3d},
         prepass::NORMAL_PREPASS_FORMAT,
     },
     ecs::system::{Res, Resource},
+    image::TextureFormatPixelInfo,
     prelude::*,
     render::{
         Render, RenderApp, RenderSet,
@@ -222,6 +224,7 @@ pub fn texture_descriptor<'a>(
     label: Option<&'a str>,
     width: u32,
     height: u32,
+    length: Option<u32>,
     format: wgpu::TextureFormat,
 ) -> wgpu::TextureDescriptor<'a> {
     wgpu::TextureDescriptor {
@@ -229,7 +232,7 @@ pub fn texture_descriptor<'a>(
         size: wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: length.unwrap_or(1),
         },
         mip_level_count: 1,
         sample_count: 1,
@@ -240,21 +243,47 @@ pub fn texture_descriptor<'a>(
     }
 }
 
-pub fn create_texture<'a>(
+pub fn create_texture(
     device: &RenderDevice,
     queue: &RenderQueue,
-    label: Option<&'a str>,
+    label: Option<&str>,
     width: u32,
     height: u32,
     data: &TextureData,
 ) -> Texture {
+    create_texture_array(device, queue, label, width, height, None, data)
+}
+
+pub fn create_texture_array<L>(
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    label: Option<&str>,
+    width: u32,
+    height: u32,
+    length: L,
+    data: &TextureData,
+) -> Texture
+where
+    L: Into<Option<u32>>,
+{
     static COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    let length = length.into();
+
+    let count = COUNT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+    if let Some(length) = length {
+        info!("Creating texture {count} (label: {label:?}) {width}x{height}x{length}");
+    } else {
+        info!("Creating texture {count} (label: {label:?}) {width}x{height}");
+    }
 
     // It looks like sometimes quake includes textures with at least one zero aspect?
     let texture = device.create_texture(&texture_descriptor(
         label,
         width.max(1),
         height.max(1),
+        length.map(|l| l.max(2)),
         data.format(),
     ));
     queue.write_texture(
@@ -268,12 +297,12 @@ pub fn create_texture<'a>(
         wgpu::ImageDataLayout {
             offset: 0,
             bytes_per_row: Some(width * data.stride()),
-            rows_per_image: None,
+            rows_per_image: if length.is_some() { Some(height) } else { None },
         },
         wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: length.unwrap_or(1),
         },
     );
 
@@ -334,20 +363,7 @@ impl TextureData {
     }
 
     pub fn stride(&self) -> u32 {
-        use std::mem;
-        use wgpu::TextureFormat::*;
-
-        (match self.format() {
-            Rg8Unorm | Rg8Snorm | Rg8Uint | Rg8Sint => mem::size_of::<[u8; 2]>(),
-            R8Unorm | R8Snorm | R8Uint | R8Sint => mem::size_of::<u8>(),
-            Bgra8Unorm | Bgra8UnormSrgb | Rgba8Unorm | Rgba8UnormSrgb => mem::size_of::<[u8; 4]>(),
-            R16Uint | R16Sint | R16Unorm | R16Snorm | R16Float => mem::size_of::<u16>(),
-            Rg16Uint | Rg16Sint | Rg16Unorm | Rg16Snorm | Rg16Float => mem::size_of::<[u16; 2]>(),
-            Rgba16Uint | Rgba16Sint | Rgba16Unorm | Rgba16Snorm | Rgba16Float => {
-                mem::size_of::<[u16; 4]>()
-            }
-            _ => todo!(),
-        }) as u32
+        self.format().pixel_size() as _
     }
 
     pub fn size(&self) -> wgpu::BufferAddress {
@@ -420,15 +436,24 @@ impl ExtractResource for RenderState {
     }
 }
 
+type CompiledAtlases = Atlases<
+    <TextureArrayConfig as CollectTextureExt<texture_collection::ImagePtr>>::CompiledTextureCollection,
+    <TextureAtlasConfig as CollectTextureExt<texture_collection::ImagePtr>>::CompiledTextureCollection,
+>;
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
-pub struct Atlases<T = CompiledTextureAtlas> {
-    diffuse: T,
-    fullbright: T,
-    lightmap: T,
+pub struct Atlases<Diffuse, Lightmap = Diffuse> {
+    diffuse: Diffuse,
+    fullbright: Diffuse,
+    lightmap: Lightmap,
 }
 
-impl Metadata for Atlases {
-    type Metadata<'a> = Atlases<&'a CompiledTextureAtlas>;
+impl<D, L> Metadata for Atlases<D, L>
+where
+    D: 'static,
+    L: 'static,
+{
+    type Metadata<'a> = Atlases<&'a D, &'a L>;
 
     fn to_metadata(&self) -> Self::Metadata<'_> {
         Atlases {
@@ -439,12 +464,12 @@ impl Metadata for Atlases {
     }
 }
 
-impl Default for Atlases<IncrementalTextureAtlas> {
+impl Default for Atlases<IncrementalTextureCollection> {
     fn default() -> Self {
         Self {
-            diffuse: IncrementalTextureAtlas::new(DIFFUSE_TEXTURE_FORMAT),
-            fullbright: IncrementalTextureAtlas::new(FULLBRIGHT_TEXTURE_FORMAT),
-            lightmap: IncrementalTextureAtlas::new(LIGHTMAP_TEXTURE_FORMAT),
+            diffuse: IncrementalTextureCollection::new(DIFFUSE_TEXTURE_FORMAT),
+            fullbright: IncrementalTextureCollection::new(FULLBRIGHT_TEXTURE_FORMAT),
+            lightmap: IncrementalTextureCollection::new(LIGHTMAP_TEXTURE_FORMAT),
         }
     }
 }
@@ -457,11 +482,18 @@ pub struct GraphicsState {
 
     frame_uniform_buffer: Buffer,
 
+    diffuse_format: wgpu::TextureFormat,
+    normal_format: wgpu::TextureFormat,
+    sample_count: u32,
+
     // TODO: This probably doesn't need to be a rwlock
     entity_uniform_buffer: RwLock<DynamicUniformBuffer<EntityUniforms>>,
 
-    atlases: Atlases<IncrementalTextureAtlas>,
-    built_atlases: Option<Atlases>,
+    atlases: Atlases<
+        IncrementalTextureCollection<TextureArrayConfig>,
+        IncrementalTextureCollection<TextureAtlasConfig>,
+    >,
+    compiled_atlases: Option<CompiledAtlases>,
 
     diffuse_sampler: Sampler,
     nearest_sampler: Sampler,
@@ -494,7 +526,7 @@ impl GraphicsState {
         let diffuse_format = view_target.main_texture_format();
         let normal_format = NORMAL_PREPASS_FORMAT;
 
-        let palette = Palette::load(&vfs, "gfx/palette.lmp");
+        let palette = Palette::load(vfs, "gfx/palette.lmp");
         let gfx_wad = Wad::load(vfs.open("gfx.wad")?).unwrap();
 
         let frame_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -547,34 +579,37 @@ impl GraphicsState {
             ..Default::default()
         });
 
-        let empty_diffuse_atlas = create_texture(
+        let empty_diffuse_array = create_texture_array(
             device,
             queue,
             Some("diffuse atlas"),
             0,
             0,
+            0,
             &TextureData::Diffuse(vec![].into()),
         );
-        let empty_fullbright_atlas = create_texture(
+        let empty_fullbright_array = create_texture_array(
             device,
             queue,
             Some("fullbright atlas"),
             0,
             0,
+            0,
             &TextureData::Fullbright(vec![].into()),
         );
-        let empty_lightmap_atlas = create_texture(
+        let empty_lightmap_atlas = create_texture_array(
             device,
             queue,
             Some("lightmap atlas"),
             0,
             0,
+            None,
             &TextureData::Lightmap(vec![].into()),
         );
 
         let world_bind_group_layouts: Vec<BindGroupLayout> = world::BIND_GROUP_LAYOUT_DESCRIPTORS
             .iter()
-            .map(|desc| device.create_bind_group_layout(None, desc))
+            .map(|desc| device.create_bind_group_layout(None, &desc[..]))
             .collect();
         let world_bind_groups = vec![
             device.create_bind_group(
@@ -614,13 +649,13 @@ impl GraphicsState {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::TextureView(
-                            &empty_diffuse_atlas.create_view(&default()),
+                            &empty_diffuse_array.create_view(&default()),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(
-                            &empty_fullbright_atlas.create_view(&default()),
+                            &empty_fullbright_array.create_view(&default()),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -695,16 +730,24 @@ impl GraphicsState {
             frame_uniform_buffer,
             entity_uniform_buffer: entity_uniform_buffer.into(),
 
+            diffuse_format,
+            normal_format,
+            sample_count,
+
             world_bind_group_layouts,
             world_bind_groups,
             world_textures: Atlases {
-                diffuse: empty_diffuse_atlas,
-                fullbright: empty_fullbright_atlas,
+                diffuse: empty_diffuse_array,
+                fullbright: empty_fullbright_array,
                 lightmap: empty_lightmap_atlas,
             },
 
-            atlases: default(),
-            built_atlases: None,
+            atlases: Atlases {
+                diffuse: IncrementalTextureCollection::new(DIFFUSE_TEXTURE_FORMAT),
+                fullbright: IncrementalTextureCollection::new(FULLBRIGHT_TEXTURE_FORMAT),
+                lightmap: IncrementalTextureCollection::new(LIGHTMAP_TEXTURE_FORMAT),
+            },
+            compiled_atlases: None,
 
             alias_pipeline,
             brush_pipeline,
@@ -723,8 +766,8 @@ impl GraphicsState {
         })
     }
 
-    pub fn built_atlases(&self) -> Option<&Atlases> {
-        self.built_atlases.as_ref()
+    pub fn compiled_atlases(&self) -> Option<&CompiledAtlases> {
+        self.compiled_atlases.as_ref()
     }
 
     pub fn new_lightmap(&mut self, image: Image) -> AssetId<Image> {
@@ -743,34 +786,37 @@ impl GraphicsState {
         &mut self,
         device: &RenderDevice,
         queue: &RenderQueue,
-    ) -> Result<Atlases, TextureAtlasBuilderError> {
-        let diffuse = self.atlases.diffuse.build()?;
-        let fullbright = self.atlases.fullbright.build()?;
+    ) -> Result<CompiledAtlases, TextureAtlasBuilderError> {
+        let Ok(diffuse) = self.atlases.diffuse.build();
+        let Ok(fullbright) = self.atlases.fullbright.build();
         let lightmap = self.atlases.lightmap.build()?;
 
         // TODO: Don't clone here
-        let diffuse_texture = create_texture(
+        let diffuse_texture = create_texture_array(
             device,
             queue,
             Some("diffuse atlas"),
             diffuse.image.width(),
             diffuse.image.height(),
+            diffuse.layout.len() as u32,
             &TextureData::Diffuse(diffuse.image.data.clone().into()),
         );
-        let fullbright_texture = create_texture(
+        let fullbright_texture = create_texture_array(
             device,
             queue,
-            Some("diffuse atlas"),
+            Some("fullbright atlas"),
             fullbright.image.width(),
             fullbright.image.height(),
+            fullbright.layout.len() as u32,
             &TextureData::Fullbright(fullbright.image.data.clone().into()),
         );
-        let lightmap_texture = create_texture(
+        let lightmap_texture = create_texture_array(
             device,
             queue,
-            Some("diffuse atlas"),
+            Some("lightmap atlas"),
             lightmap.image.width(),
             lightmap.image.height(),
+            None,
             &TextureData::Lightmap(lightmap.image.data.clone().into()),
         );
 
@@ -830,7 +876,7 @@ impl GraphicsState {
             lightmap,
         };
 
-        self.built_atlases = Some(out.clone());
+        self.compiled_atlases = Some(out.clone());
 
         Ok(out)
     }

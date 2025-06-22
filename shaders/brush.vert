@@ -7,13 +7,13 @@ const uint TEXTURE_KIND_SKY = 2;
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec2 a_diffuse;
-layout(location = 3) in vec4 a_diffuse_bounds;
-layout(location = 4) in vec4 a_fullbright_bounds;
+layout(location = 3) in vec2 a_fullbright;
+layout(location = 4) in uint a_tex_indices;
 layout(location = 5) in uvec4 a_lightmap_anim;
-layout(location = 6) in vec2 a_lightmap_uv_0;
-layout(location = 7) in vec2 a_lightmap_uv_1;
-layout(location = 8) in vec2 a_lightmap_uv_2;
-layout(location = 9) in vec2 a_lightmap_uv_3;
+layout(location = 6) in vec2 a_lightmap_coord_0;
+layout(location = 7) in vec2 a_lightmap_coord_1;
+layout(location = 8) in vec2 a_lightmap_coord_2;
+layout(location = 9) in vec2 a_lightmap_coord_3;
 
 layout(push_constant) uniform PushConstants {
   mat4 transform;
@@ -23,13 +23,13 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) out vec3 f_normal;
 layout(location = 1) out vec3 f_diffuse;
-flat layout(location = 2) out vec4 f_diffuse_bounds;
-flat layout(location = 3) out vec4 f_fullbright_bounds;
+layout(location = 2) out vec2 f_fullbright;
+flat layout(location = 3) out uint f_tex_indices;
 flat layout(location = 4) out uvec4 f_lightmap_anim;
-layout(location = 5) out vec2 f_lightmap_uv_0;
-layout(location = 6) out vec2 f_lightmap_uv_1;
-layout(location = 7) out vec2 f_lightmap_uv_2;
-layout(location = 8) out vec2 f_lightmap_uv_3;
+layout(location = 5) out vec2 f_lightmap_coord_0;
+layout(location = 6) out vec2 f_lightmap_coord_1;
+layout(location = 7) out vec2 f_lightmap_coord_2;
+layout(location = 8) out vec2 f_lightmap_coord_3;
 
 // set 0: per-frame
 layout(set = 0, binding = 0) uniform FrameUniforms {
@@ -74,6 +74,13 @@ mat3 inv(mat3 matrix) {
     return (1.0 / dot(row0, minors0)) * adj;
 }
 
+vec2 unpack(uint packed) {
+    return vec2(
+        float((packed & 0x0000FFFF)) / float(0xFFFF),
+        float((packed & 0xFFFF0000) >> 16) / float(0xFFFF)
+    );
+}
+
 void main() {
     if (push_constants.texture_kind == TEXTURE_KIND_SKY) {
         f_diffuse = a_position;
@@ -81,16 +88,18 @@ void main() {
         f_diffuse = vec3(a_diffuse, 0.);
     }
 
-    f_normal = transpose(inv(mat3(push_constants.model_view[0], push_constants.model_view[1], push_constants.model_view[2]))) * convert(a_normal);
+    f_fullbright = a_fullbright;
 
-    f_diffuse_bounds = a_diffuse_bounds;
-    f_fullbright_bounds = a_fullbright_bounds;
+    f_normal = transpose(inv(push_constants.model_view)) * convert(a_normal);
+
+    f_tex_indices = a_tex_indices;
 
     f_lightmap_anim = a_lightmap_anim;
-    f_lightmap_uv_0 = a_lightmap_uv_0;
-    f_lightmap_uv_1 = a_lightmap_uv_1;
-    f_lightmap_uv_2 = a_lightmap_uv_2;
-    f_lightmap_uv_3 = a_lightmap_uv_3;
+
+    f_lightmap_coord_0 = a_lightmap_coord_0;
+    f_lightmap_coord_1 = a_lightmap_coord_1;
+    f_lightmap_coord_2 = a_lightmap_coord_2;
+    f_lightmap_coord_3 = a_lightmap_coord_3;
 
     gl_Position = push_constants.transform * vec4(convert(a_position), 1.0);
 

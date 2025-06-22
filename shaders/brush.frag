@@ -10,17 +10,19 @@ const float WARP_FREQUENCY = 0.25;
 const float WARP_SCALE = 1.0;
 
 layout(location = 0) in vec3 f_normal;
-layout(location = 1) in vec3 f_diffuse;
-flat layout(location = 2) in vec4 f_diffuse_bounds;
-flat layout(location = 3) in vec4 f_fullbright_bounds;
+layout(location = 1) in vec3 f_diffuse; // For sky, this is the world position.
+layout(location = 2) in vec2 f_fullbright;
+flat layout(location = 3) in uint f_tex_indices;
 flat layout(location = 4) in uvec4 f_lightmap_anim;
-layout(location = 5) in vec2 f_lightmap_uv_0;
-layout(location = 6) in vec2 f_lightmap_uv_1;
-layout(location = 7) in vec2 f_lightmap_uv_2;
-layout(location = 8) in vec2 f_lightmap_uv_3;
+layout(location = 5) in vec2 f_lightmap_coord_0;
+layout(location = 6) in vec2 f_lightmap_coord_1;
+layout(location = 7) in vec2 f_lightmap_coord_2;
+layout(location = 8) in vec2 f_lightmap_coord_3;
 
 layout(push_constant) uniform PushConstants {
-  layout(offset = 100) uint texture_kind;
+  mat4 transform;
+  mat3 model_view;
+  uint texture_kind;
 } push_constants;
 
 // set 0: per-frame
@@ -34,8 +36,8 @@ layout(set = 0, binding = 0) uniform FrameUniforms {
 // set 1: per-entity
 layout(set = 1, binding = 1) uniform sampler u_diffuse_sampler; // also used for fullbright
 layout(set = 1, binding = 2) uniform sampler u_lightmap_sampler;
-layout(set = 1, binding = 3) uniform texture2D u_diffuse_texture;
-layout(set = 1, binding = 4) uniform texture2D u_fullbright_texture;
+layout(set = 1, binding = 3) uniform texture2DArray u_diffuse_textures;
+layout(set = 1, binding = 4) uniform texture2DArray u_fullbright_textures;
 layout(set = 1, binding = 5) uniform texture2D u_lightmap_texture;
 
 // set 3: per-face
@@ -45,31 +47,32 @@ layout(location = 1) out vec4 normal_attachment;
 
 vec4 calc_light() {
     vec4 light = vec4(0.0, 0.0, 0.0, 0.0);
+
     for (int i = 0; i < 4; i++) {
         if (f_lightmap_anim[i] == LIGHTMAP_ANIM_END)
             break;
 
-        vec2 lightmap_uv;
+        vec2 lightmap_coord;
         switch (i) {
             case 0:
-                lightmap_uv = f_lightmap_uv_0;
+                lightmap_coord = f_lightmap_coord_0;
                 break;
             case 1:
-                lightmap_uv = f_lightmap_uv_1;
+                lightmap_coord = f_lightmap_coord_1;
                 break;
             case 2:
-                lightmap_uv = f_lightmap_uv_2;
+                lightmap_coord = f_lightmap_coord_2;
                 break;
             case 3:
-                lightmap_uv = f_lightmap_uv_3;
+                lightmap_coord = f_lightmap_coord_3;
                 break;
             default:
-                lightmap_uv = vec2(0.);
+                lightmap_coord = vec2(0., 0.);
         }
 
         float map = texture(
             sampler2D(u_lightmap_texture, u_lightmap_sampler),
-            lightmap_uv
+            lightmap_coord
         ).r;
 
         // range [0, 4]
@@ -98,24 +101,22 @@ const mat3 RGB_2_XYZ = mat3(
 
 // TODO: Convert this push constant to be separated shaders instead
 void main() {
+    float tex_index_diffuse = float(f_tex_indices & 0x0000FFFF);
+    float tex_index_fullbright = float((f_tex_indices & 0xFFFF0000) >> 16);
+
+    // TODO: Switch to making this a compile option.
     switch (push_constants.texture_kind) {
         case TEXTURE_KIND_REGULAR:
-            vec2 mod_diffuse = vec2(mod(f_diffuse.x, 1.), mod(f_diffuse.y, 1.));
-
-            vec2 fullbright_uv =
-                mod_diffuse * (f_fullbright_bounds.zw - f_fullbright_bounds.xy) + f_fullbright_bounds.xy;
             float fullbright = texture(
-                sampler2D(u_fullbright_texture, u_diffuse_sampler),
-                fullbright_uv
+                sampler2DArray(u_fullbright_textures, u_diffuse_sampler),
+                vec3(f_fullbright.xy, tex_index_fullbright)
             ).r;
 
             float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.25;
 
-            vec2 diffuse_uv =
-                mod_diffuse * (f_diffuse_bounds.zw - f_diffuse_bounds.xy) + f_diffuse_bounds.xy;
             diffuse_attachment = vec4(texture(
-                sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                diffuse_uv
+                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+                vec3(f_diffuse.xy, tex_index_diffuse)
             ).rgb, light);
 
             break;
@@ -126,15 +127,12 @@ void main() {
                 * (WARP_SCALE * f_diffuse.ts
                     + WARP_FREQUENCY * frame_uniforms.time);
 
-            vec2 warp_texcoord = f_diffuse.st + WARP_AMPLITUDE
+            vec2 warp_uv = f_diffuse.st + WARP_AMPLITUDE
                 * vec2(sin(wave1.s), sin(wave1.t));
-            vec2 mod_warp = vec2(mod(warp_texcoord.x, 1.), mod(warp_texcoord.y, 1.));
-            vec2 warp_uv =
-                mod_warp * (f_diffuse_bounds.zw - f_diffuse_bounds.xy) + f_diffuse_bounds.xy;
 
             diffuse_attachment = vec4(texture(
-                sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                warp_uv
+                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+                vec3(warp_uv, tex_index_diffuse)
             ).rgb, 0.25);
             break;
 
@@ -152,7 +150,9 @@ void main() {
             // interpolation when the skybox is not parallel to the sky plane (e.g. for sky-textured walls)
             vec3 dir = normalize(f_diffuse - frame_uniforms.camera_pos.xyz / frame_uniforms.camera_pos.w);
 
-            vec2 size = vec2(textureSize(sampler2D(u_diffuse_texture, u_diffuse_sampler), 0));
+            // vec2 size = vec2(textureSize(sampler2DArray(u_diffuse_textures, u_diffuse_sampler), tex_index_diffuse));
+            // Hard-coding for now as moving to texture arrays makes this awkward.
+            vec2 size = vec2(256., 128.);
 
             vec2 scroll = vec2(frame_uniforms.sky_time * 10.);
 
@@ -163,12 +163,12 @@ void main() {
             cloud_coord = mod((cloud_coord + scroll) / size.y / sky_size, 1.) * vec2(0.5, 1.);
 
             vec4 sky_color = texture(
-                sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                sky_coord
+                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+                vec3(sky_coord, tex_index_diffuse)
             );
             vec4 cloud_color = texture(
-                sampler2D(u_diffuse_texture, u_diffuse_sampler),
-                cloud_coord
+                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+                vec3(cloud_coord, tex_index_diffuse)
             );
 
             float lum = (RGB_2_XYZ * cloud_color.rgb).y;

@@ -29,8 +29,8 @@ use std::{
 
 use crate::{
     client::render::{
-        Atlases, Camera, DIFFUSE_TEXTURE_FORMAT, FULLBRIGHT_TEXTURE_FORMAT, GraphicsState,
-        LIGHTMAP_TEXTURE_FORMAT, Pipeline,
+        Atlases, Camera, CompiledAtlases, DIFFUSE_TEXTURE_FORMAT, FULLBRIGHT_TEXTURE_FORMAT,
+        GraphicsState, LIGHTMAP_TEXTURE_FORMAT, Pipeline,
         mapped::Mapped,
         pipeline::PushConstantUpdate,
         warp,
@@ -38,7 +38,7 @@ use crate::{
     },
     common::{
         bsp::{
-            self, BspData, BspFace, BspLeaf, BspModel, BspTexInfo, BspTexture, BspTextureKind,
+            BspData, BspFace, BspLeaf, BspModel, BspTexInfo, BspTexture, BspTextureKind,
             BspTextureMipmap,
         },
         math,
@@ -132,7 +132,7 @@ impl BrushPipeline {
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: Matrix4<f32>,
-    pub model_view: Matrix3<f16>,
+    pub model_view: Matrix3<f32>,
 }
 
 #[repr(C)]
@@ -149,19 +149,19 @@ const VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
     1 => Float32x3,
     // diffuse texcoord
     2 => Float32x2,
-    // diffuse bounds
-    3 => Float32x4,
-    // fullbright bounds
-    4 => Float32x4,
+    // fullbright texcoord
+    3 => Float32x2,
+    // diffuse + fullbright indices
+    4 => Uint16x2,
     // lightmap animation ids
     5 => Uint8x4,
-    // lightmap texcoord 0
+    // lightmap texcoords 0
     6 => Float32x2,
-    // lightmap texcoord 1
+    // lightmap texcoords 1
     7 => Float32x2,
-    // lightmap texcoord 2
+    // lightmap texcoords 2
     8 => Float32x2,
-    // lightmap texcoord 3
+    // lightmap texcoords 3
     9 => Float32x2,
 ];
 
@@ -232,9 +232,13 @@ fn calculate_lightmap_texcoords(
 
 type Position = [f32; 3];
 type Normal = [f32; 3];
-type DiffuseTexcoord = [f32; 2];
-type LightmapTexcoord = [f32; 2];
+type Texcoord = [f32; 2];
+type CompressedTexcoord = [u16; 2];
 type LightmapAnim = [u8; 4];
+
+fn compress<const N: usize>(input: [f32; N]) -> [u16; N] {
+    input.map(|f| (f.clamp(0., 1.) * u16::MAX as f32) as u16)
+}
 
 #[repr(C)]
 #[derive(Clone, Debug)]
@@ -253,11 +257,12 @@ struct BrushVertexInput {
 struct BrushVertex {
     position: Position,
     normal: Normal,
-    diffuse_texcoord: DiffuseTexcoord,
-    diffuse_bounds: Rect,
-    fullbright_bounds: Rect,
+    diffuse_texcoord: Texcoord,
+    fullbright_texcoord: Texcoord,
+    diffuse_id: u16,
+    fullbright_id: u16,
     lightmap_anim: LightmapAnim,
-    lightmap_texcoords: [LightmapTexcoord; 4],
+    lightmap_texcoords: [Texcoord; 4],
 }
 
 #[repr(u32)]
@@ -639,35 +644,26 @@ impl<'a> BrushRendererBuilder<'a> {
                      fullbright,
                  },
                  in_brush_vertex| {
-                    let mapped_texcoords: [[f32; 2]; 4] = in_brush_vertex
-                        .lightmaps
-                        .map(|id| lightmap.translate(id, in_brush_vertex.lightmap_uv).into());
+                    let lightmap_texcoords: [Texcoord; 4] =
+                        in_brush_vertex.lightmaps.map(|id| {
+                            lightmap.translate(id, in_brush_vertex.lightmap_uv).into()
+                        });
 
-                    let diffuse_size = diffuse.layout.size.as_vec2();
-                    let fullbright_size = fullbright.layout.size.as_vec2();
-                    let diffuse_rect = diffuse.layout.textures
-                        [diffuse.id_map.texture_ids[&in_brush_vertex.texture.diffuse]];
-                    let fullbright_rect = fullbright.layout.textures
-                        [fullbright.id_map.texture_ids[&in_brush_vertex.texture.fullbright]];
-                    let (diffuse_bounds, fullbright_bounds) = (
-                        Rect {
-                            min: diffuse_rect.min.as_vec2() / diffuse_size,
-                            max: diffuse_rect.max.as_vec2() / diffuse_size,
-                        },
-                        Rect {
-                            min: fullbright_rect.min.as_vec2() / fullbright_size,
-                            max: fullbright_rect.max.as_vec2() / fullbright_size,
-                        },
-                    );
+                    let (diffuse_id, diffuse_size) =
+                        diffuse.layout[&in_brush_vertex.texture.diffuse];
+                    let (fullbright_id, fullbright_size) =
+                        fullbright.layout[&in_brush_vertex.texture.fullbright];
 
                     BrushVertex {
                         position: in_brush_vertex.position.into(),
                         normal: in_brush_vertex.normal.into(),
-                        diffuse_texcoord: in_brush_vertex.diffuse_texcoord.into(),
-                        diffuse_bounds,
-                        fullbright_bounds,
+                        diffuse_texcoord: (in_brush_vertex.diffuse_texcoord * diffuse_size).into(),
+                        fullbright_texcoord: (in_brush_vertex.diffuse_texcoord * fullbright_size)
+                            .into(),
+                        diffuse_id: diffuse_id as _,
+                        fullbright_id: fullbright_id as _,
                         lightmap_anim: in_brush_vertex.lightmap_anim,
-                        lightmap_texcoords: mapped_texcoords,
+                        lightmap_texcoords,
                     }
                 } as _,
             ),
@@ -686,7 +682,7 @@ pub struct BrushRenderer {
 
     vertex_buffer: Option<Buffer>,
 
-    vertices: Mapped<Atlases, BrushVertexInput, BrushVertex>,
+    vertices: Mapped<CompiledAtlases, BrushVertexInput, BrushVertex>,
 
     // faces are grouped by texture to reduce the number of texture rebinds
     // texture_chains maps texture ids to face ids
@@ -696,7 +692,7 @@ pub struct BrushRenderer {
 }
 
 impl BrushRenderer {
-    pub fn update_vertices(&mut self, meta: &Atlases, device: &RenderDevice) {
+    pub fn update_vertices(&mut self, meta: &CompiledAtlases, device: &RenderDevice) {
         self.vertices.update(meta);
         self.vertex_buffer = Some(device.create_buffer_with_data(
             &wgpu::util::BufferInitDescriptor {

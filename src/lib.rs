@@ -21,6 +21,7 @@
     buf_read_has_data_left,
     error_generic_member_access,
     f16,
+    never_type
 )]
 // TODO: Is this necessary?
 #![recursion_limit = "256"]
