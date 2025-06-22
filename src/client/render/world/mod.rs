@@ -5,7 +5,7 @@ pub mod particle;
 pub mod postprocess;
 pub mod sprite;
 
-use std::{mem::size_of, num::NonZeroU32};
+use std::mem::size_of;
 
 use crate::{
     client::{

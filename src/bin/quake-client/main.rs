@@ -28,13 +28,13 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     core_pipeline::{
-        bloom::Bloom, dof::{DepthOfField, DepthOfFieldPlugin}, experimental::taa::{TemporalAntiAliasing, TemporalAntiAliasPlugin}, prepass::{DepthPrepass, NormalPrepass}, tonemapping::Tonemapping
+        bloom::Bloom, experimental::taa::TemporalAntiAliasing, prepass::{DepthPrepass, NormalPrepass}, tonemapping::Tonemapping
     },
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
     render::{
         camera::Exposure,
-        view::{ColorGrading, ColorGradingGlobal, NoFrustumCulling},
+        view::{ColorGrading, ColorGradingGlobal},
     },
     window::{PresentMode, PrimaryWindow},
 };

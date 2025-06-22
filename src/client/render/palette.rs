@@ -5,7 +5,6 @@ use crate::{
     common::vfs::Vfs,
 };
 
-use beef::Cow;
 use bevy::{
     asset::AssetLoader,
     image::ImageSampler,

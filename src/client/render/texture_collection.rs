@@ -1,7 +1,6 @@
 use std::{
     borrow::Borrow,
-    ops::Deref,
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
 };
 
 use bevy::{
