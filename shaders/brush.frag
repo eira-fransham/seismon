@@ -108,7 +108,7 @@ void main() {
                 vec3(f_diffuse.xy, tex_index_fullbright)
             ).r;
 
-            float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.25;
+            float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.4;
 
             diffuse_attachment = vec4(texture(
                 sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
