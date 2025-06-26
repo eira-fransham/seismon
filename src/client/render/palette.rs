@@ -41,7 +41,7 @@ impl AssetLoader for PaletteLoader {
             .collect();
 
         Ok(Image {
-            data: rgba,
+            data: Some(rgba),
             texture_descriptor: wgpu::TextureDescriptor {
                 label: Some("palette"),
                 size: Extent3d {

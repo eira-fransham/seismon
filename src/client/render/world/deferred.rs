@@ -2,7 +2,7 @@ use std::{mem::size_of, num::NonZeroU64, slice};
 
 use bevy::{
     core_pipeline::prepass::ViewPrepassTextures,
-    ecs::system::Resource,
+    ecs::resource::Resource,
     prelude::default,
     render::{
         camera::ExtractedCamera,
@@ -177,7 +177,7 @@ impl Pipeline for DeferredPipeline {
         "deferred"
     }
 
-    fn bind_group_layout_descriptors() -> Vec<Vec<BindGroupLayoutEntry>> {
+    fn bind_group_layout_descriptors() -> Vec<Vec<wgpu::BindGroupLayoutEntry>> {
         vec![BIND_GROUP_LAYOUT_ENTRIES.to_owned()]
     }
 
@@ -372,6 +372,7 @@ impl ViewNode for DeferredPass {
         let PostProcessWrite {
             source: diffuse_input,
             destination: diffuse_target,
+            ..
         } = target.post_process_write();
         let ViewPrepassTextures {
             normal:

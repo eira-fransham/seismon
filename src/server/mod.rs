@@ -89,7 +89,7 @@ impl Plugin for SeismonServerPlugin {
                         if let Err(e) = res {
                             error!("Failed spawning server: {}", Report::from_error(e));
                             commands.remove_resource::<Session>();
-                            runcmd.send("startdemos".into());
+                            runcmd.write("startdemos".into());
                         }
                     },
                 ),
@@ -2713,7 +2713,7 @@ pub mod systems {
 
         if !out_packet.is_empty() {
             // TODO: Should not hard-code client id 0
-            server_messages.send(ServerMessage {
+            server_messages.write(ServerMessage {
                 client_id: 0,
                 packet: out_packet,
             });
@@ -2795,7 +2795,7 @@ pub mod systems {
         }
         .serialize(&mut packet)?;
 
-        server_messages.send(ServerMessage {
+        server_messages.write(ServerMessage {
             client_id: 0,
             packet,
         });
@@ -2934,7 +2934,7 @@ pub mod systems {
                 // events related to those entities
                 packet.extend_from_slice(&level.broadcast);
 
-                server_messages.send(ServerMessage { client_id, packet });
+                server_messages.write(ServerMessage { client_id, packet });
             }
 
             level.broadcast.clear();

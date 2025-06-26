@@ -22,7 +22,8 @@ mod item;
 
 use bevy::{
     ecs::{
-        system::{Commands, IntoSystem, Resource, SystemId},
+        resource::Resource,
+        system::{Commands, IntoSystem, SystemId},
         world::World,
     },
     render::extract_resource::ExtractResource,

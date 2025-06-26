@@ -124,7 +124,7 @@ impl Pipeline for AliasPipeline {
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/alias.frag"))
     }
 
-    fn bind_group_layout_descriptors() -> Vec<Vec<BindGroupLayoutEntry>> {
+    fn bind_group_layout_descriptors() -> Vec<Vec<wgpu::BindGroupLayoutEntry>> {
         vec![
             // group 2: updated per-texture
             vec![

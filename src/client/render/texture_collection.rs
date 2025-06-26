@@ -1,8 +1,9 @@
 use std::{borrow::Borrow, sync::LazyLock};
 
 use bevy::{
-    asset::RenderAssetUsages, image::TextureFormatPixelInfo, prelude::*,
-    sprite::TextureAtlasBuilderError,
+    asset::RenderAssetUsages,
+    image::{TextureAtlasBuilderError, TextureFormatPixelInfo},
+    prelude::*,
 };
 use hashbrown::HashMap;
 use indexmap::IndexMap;
@@ -15,14 +16,18 @@ fn resize_resampling_with_pixel_type<P: image::Pixel<Subpixel = u8> + 'static>(
     new_size: UVec2,
 ) {
     let new_buf = image::imageops::resize(
-        &image::ImageBuffer::<P, _>::from_raw(image.width(), image.height(), &image.data[..])
-            .unwrap(),
+        &image::ImageBuffer::<P, _>::from_raw(
+            image.width(),
+            image.height(),
+            image.data.as_deref().unwrap_or_default(),
+        )
+        .unwrap(),
         new_size.x,
         new_size.y,
         image::imageops::FilterType::CatmullRom,
     );
 
-    image.data = new_buf.into_vec();
+    image.data = Some(new_buf.into_vec());
     image.texture_descriptor.size = wgpu::Extent3d {
         width: new_size.x,
         height: new_size.y,
@@ -138,7 +143,13 @@ where
                         default(),
                     )
                 });
-                texture_array.data.extend(&img.borrow().data);
+                match (&mut texture_array.data, &img.borrow().data) {
+                    (Some(dst), Some(src)) => dst.extend(src),
+                    (dst @ None, Some(src)) => {
+                        *dst = Some(src.clone());
+                    }
+                    (_, None) => {}
+                }
                 texture_array.texture_descriptor.size.depth_or_array_layers += 1;
                 let index_in_bucket = bucket.len();
                 bucket.push(id);
@@ -217,6 +228,8 @@ where
 
         let (layout, id_map, image) = atlas.build()?;
 
+        dbg!(image.size());
+
         Ok(CompiledTextureCollection {
             layout: id_map
                 .texture_ids
@@ -256,13 +269,21 @@ where
 
         let final_row = pad_row(
             self.padding,
-            &image.data[image.data.len().saturating_sub(
-                image.width() as usize * image.texture_descriptor.format.pixel_size(),
-            )..],
+            image
+                .data
+                .as_deref()
+                .map(|data| {
+                    &data[data.len().saturating_sub(
+                        image.width() as usize * image.texture_descriptor.format.pixel_size(),
+                    )..]
+                })
+                .unwrap_or_default(),
         );
         let pixel_size = image.texture_descriptor.format.pixel_size();
         let mut extended_x = image
             .data
+            .as_deref()
+            .unwrap_or_default()
             .chunks(image.width() as usize * pixel_size)
             .map(|chunk| pad_row(self.padding, chunk))
             .peekable();
@@ -274,7 +295,7 @@ where
             .copied()
             .collect::<Vec<_>>();
 
-        image.data = new_data;
+        image.data = Some(new_data);
         image.texture_descriptor.size = wgpu::Extent3d {
             width: image.width() + self.padding.x * 2,
             height: image.height() + self.padding.y * 2,
@@ -332,6 +353,8 @@ where
             );
             let new_data = image
                 .data
+                .as_deref()
+                .unwrap_or_default()
                 .chunks(image.width() as usize * pixel_size)
                 .map(|chunk| {
                     chunk
@@ -345,7 +368,7 @@ where
                 .flatten()
                 .collect::<Vec<_>>();
 
-            image.data = new_data;
+            image.data = Some(new_data);
             image.texture_descriptor.size = wgpu::Extent3d {
                 width: new_size.x,
                 height: new_size.y,
@@ -404,7 +427,7 @@ where
             wgpu::TextureDimension::D3,
             images
                 .into_iter()
-                .flat_map(|image| image.data.into_iter())
+                .flat_map(|image| image.data.unwrap_or_default().into_iter())
                 .collect(),
             self.format,
             RenderAssetUsages::RENDER_WORLD,
@@ -496,24 +519,27 @@ where
 
         // Many fullbright textures are all-black but different sizes, so we deduplicate textures
         // that are all one colour.
-        let image =
-            if let Ok(homogenous) = image.data.chunks_exact(pixel_components).all_equal_value() {
-                Image::new(
-                    wgpu::Extent3d {
-                        width: 1,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    image.texture_descriptor.dimension,
-                    homogenous.to_vec(),
-                    image.texture_descriptor.format,
-                    image.asset_usage,
-                )
-            } else {
-                image
-            };
+        let image = if let Some(Ok(homogenous)) = image
+            .data
+            .as_deref()
+            .map(|v| v.chunks_exact(pixel_components).all_equal_value())
+        {
+            Image::new(
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                image.texture_descriptor.dimension,
+                homogenous.to_vec(),
+                image.texture_descriptor.format,
+                image.asset_usage,
+            )
+        } else {
+            image
+        };
 
-        let hash = hashers::fx_hash::fxhash64(&image.data);
+        let hash = hashers::fx_hash::fxhash64(image.data.as_deref().unwrap_or_default());
         let id = AssetId::from(Uuid::from_u64_pair(self.atlas_id, hash));
 
         self.images.entry(id).or_insert(image);

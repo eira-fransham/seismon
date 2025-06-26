@@ -385,6 +385,7 @@ impl ViewNode for PostProcessPass {
         let PostProcessWrite {
             source: diffuse_input,
             destination: diffuse_target,
+            ..
         } = target.post_process_write();
 
         let pipeline = pipeline_cache.get_render_pipeline(*pipeline_id).unwrap();

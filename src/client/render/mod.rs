@@ -60,8 +60,8 @@ use bevy::{
         core_3d::graph::{Core3d, Node3d},
         prepass::NORMAL_PREPASS_FORMAT,
     },
-    ecs::system::{Res, Resource},
-    image::TextureFormatPixelInfo,
+    ecs::{resource::Resource, system::Res},
+    image::{TextureAtlasBuilderError, TextureFormatPixelInfo},
     prelude::*,
     render::{
         Render, RenderApp, RenderSet,
@@ -73,7 +73,6 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         view::ViewTarget,
     },
-    sprite::TextureAtlasBuilderError,
     ui::graph::NodeUi,
     window::PrimaryWindow,
 };
@@ -288,14 +287,14 @@ where
         data.format(),
     ));
     queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: Default::default(),
         },
         data.data(),
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * data.stride()),
             rows_per_image: if length.is_some() { Some(height) } else { None },
@@ -403,6 +402,7 @@ impl FromWorld for RenderResolution {
         let res = &world
             .query_filtered::<&Window, With<PrimaryWindow>>()
             .single(world)
+            .expect("No window or multiple windows found!")
             .resolution;
 
         RenderResolution(res.width() as _, res.height() as _)
@@ -804,7 +804,7 @@ impl GraphicsState {
             diffuse.image.width(),
             diffuse.image.height(),
             diffuse.layout.len() as u32,
-            &TextureData::Diffuse(diffuse.image.data.clone().into()),
+            &TextureData::Diffuse(diffuse.image.data.clone().unwrap_or_default().into()),
         );
         let fullbright_texture = create_texture_array(
             device,
@@ -813,7 +813,7 @@ impl GraphicsState {
             fullbright.image.width(),
             fullbright.image.height(),
             fullbright.layout.len() as u32,
-            &TextureData::Fullbright(fullbright.image.data.clone().into()),
+            &TextureData::Fullbright(fullbright.image.data.clone().unwrap_or_default().into()),
         );
         let lightmap_texture = create_texture_array(
             device,
@@ -822,7 +822,7 @@ impl GraphicsState {
             lightmap.image.width(),
             lightmap.image.height(),
             None,
-            &TextureData::Lightmap(lightmap.image.data.clone().into()),
+            &TextureData::Lightmap(fullbright.image.data.clone().unwrap_or_default().into()),
         );
 
         self.world_bind_groups[world::BindGroupLayoutId::PerEntity as usize] = device

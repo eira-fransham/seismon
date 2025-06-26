@@ -20,7 +20,7 @@ pub mod console;
 pub mod game;
 
 use bevy::{
-    ecs::system::Resource, input::keyboard::KeyboardInput, prelude::*,
+    ecs::resource::Resource, input::keyboard::KeyboardInput, prelude::*,
     render::extract_resource::ExtractResource,
 };
 

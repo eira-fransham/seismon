@@ -65,10 +65,12 @@ where
             options.as_ref(),
         )
         .unwrap();
-    device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(name.as_ref()),
-        source: wgpu::ShaderSource::SpirV(spirv.as_binary().into()),
-    })
+    unsafe {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(name.as_ref()),
+            source: wgpu::ShaderSource::SpirV(spirv.as_binary().into()),
+        })
+    }
 }
 
 pub enum PushConstantUpdate<T> {

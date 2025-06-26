@@ -1,4 +1,9 @@
-use std::{io::Read, iter, sync::LazyLock};
+use std::{
+    io::{Cursor, Read},
+    iter,
+    path::Path,
+    sync::LazyLock,
+};
 
 use super::{sound::MixerEvent, view::BobVars};
 use crate::{
@@ -27,9 +32,17 @@ use crate::{
     },
 };
 use arrayvec::ArrayVec;
-use bevy::prelude::*;
+use beef::Cow;
+use bevy::{
+    asset::{AssetServer, Handle},
+    ecs::{entity::Entity, event::EventWriter, resource::Resource},
+    log::*,
+    prelude::default,
+};
+use bevy_seedling::sample::Sample;
 use cgmath::{Angle as _, Deg, InnerSpace as _, Matrix4, Vector3, Zero as _};
 use chrono::Duration;
+use firewheel::sample_resource::DecodedAudioF32;
 use hashbrown::HashMap;
 use net::{ClientCmd, ClientStat, EntityState, EntityUpdate, PlayerColor};
 use rand::{
@@ -37,6 +50,7 @@ use rand::{
     distr::{Distribution as _, Uniform},
     rngs::SmallRng,
 };
+use symphonium::{SymphoniumLoader, symphonia::core::probe::Hint};
 
 const CACHED_SOUND_NAMES: &[&str] = &[
     "hknight/hit.wav",
@@ -75,10 +89,10 @@ pub struct ClientState {
     pub model_names: im::HashMap<String, usize>,
 
     // audio source precache
-    pub sounds: im::Vector<Handle<AudioSource>>,
+    pub sounds: im::Vector<Handle<Sample>>,
 
     // sounds that are always needed even if not in precache
-    cached_sounds: im::HashMap<String, Handle<AudioSource>>,
+    cached_sounds: im::HashMap<Cow<'static, str>, Handle<Sample>>,
 
     // entities and entity-like things
     pub entities: im::Vector<ClientEntity>,
@@ -181,6 +195,8 @@ impl ClientState {
         model_precache: Vec<String>,
         sound_precache: Vec<SName>,
     ) -> Result<ClientState, ClientError> {
+        let mut sound_loader = SymphoniumLoader::new();
+
         // TODO: validate submodel names
         let mut models: im::Vector<_> = iter::once(Model::none()).collect();
         let mut model_names = im::HashMap::new();
@@ -217,22 +233,63 @@ impl ClientState {
                     .read_to_end(&mut data)
                     .unwrap();
 
-                Ok(asset_server.add(AudioSource { bytes: data.into() }))
+                let ext = Path::new(snd_name)
+                    .extension()
+                    .map(|ext| ext.to_string_lossy());
+
+                let cursor = Cursor::new(data);
+
+                let mut decode_hint = Hint::new();
+
+                if let Some(ext) = ext.as_ref().map(|ext| &**ext) {
+                    decode_hint.with_extension(ext);
+                }
+
+                let decoded = sound_loader.load_f32_from_source(
+                    Box::new(cursor),
+                    Some(decode_hint),
+                    None,
+                    Default::default(),
+                    None,
+                )?;
+
+                Ok(asset_server.add(Sample::new(DecodedAudioF32::from(decoded))))
                 // TODO: send keepalive message?
             })
             .collect::<Result<_, ClientError>>()?;
 
         let cached_sounds = CACHED_SOUND_NAMES
             .iter()
-            .map(|name| {
+            .copied()
+            .map(|snd_name| {
                 let mut data = Vec::new();
-                vfs.open(format!("sound/{}", name))?
+                vfs.open(format!("sound/{snd_name}"))?
                     .read_to_end(&mut data)
                     .unwrap();
 
+                let ext = Path::new(snd_name)
+                    .extension()
+                    .map(|ext| ext.to_string_lossy());
+
+                let cursor = Cursor::new(data);
+
+                let mut decode_hint = Hint::new();
+
+                if let Some(ext) = ext.as_ref().map(|ext| &**ext) {
+                    decode_hint.with_extension(ext);
+                }
+
+                let decoded = sound_loader.load_f32_from_source(
+                    Box::new(cursor),
+                    Some(decode_hint),
+                    None,
+                    Default::default(),
+                    None,
+                )?;
+
                 Ok((
-                    name.to_string(),
-                    asset_server.add(AudioSource { bytes: data.into() }),
+                    snd_name.into(),
+                    asset_server.add(Sample::new(DecodedAudioF32::from(decoded))),
                 ))
             })
             .collect::<Result<_, ClientError>>()?;
@@ -874,7 +931,7 @@ impl ClientState {
                         );
 
                         if let Some(snd) = sound {
-                            events.send(MixerEvent::StartSound(StartSound {
+                            events.write(MixerEvent::StartSound(StartSound {
                                 src: self.cached_sounds.get(snd).unwrap().clone(),
                                 ent_id: None,
                                 ent_channel: 0,
@@ -899,7 +956,7 @@ impl ClientState {
                             None,
                         );
 
-                        events.send(MixerEvent::StartSound(StartSound {
+                        events.write(MixerEvent::StartSound(StartSound {
                             src: self
                                 .cached_sounds
                                 .get("weapons/r_exp3.wav")
@@ -934,7 +991,7 @@ impl ClientState {
                             None,
                         );
 
-                        events.send(MixerEvent::StartSound(StartSound {
+                        events.write(MixerEvent::StartSound(StartSound {
                             src: self
                                 .cached_sounds
                                 .get("weapons/r_exp3.wav")
@@ -951,7 +1008,7 @@ impl ClientState {
                     TarExplosion => {
                         self.particles.create_spawn_explosion(self.time, *origin);
 
-                        events.send(MixerEvent::StartSound(StartSound {
+                        events.write(MixerEvent::StartSound(StartSound {
                             src: self
                                 .cached_sounds
                                 .get("weapons/r_exp3.wav")

@@ -290,7 +290,7 @@ impl Pipeline for ParticlePipeline {
 
     // NOTE: if any of the binding indices are changed, they must also be changed in
     // the corresponding shaders and the BindGroupLayout generation functions.
-    fn bind_group_layout_descriptors() -> Vec<Vec<BindGroupLayoutEntry>> {
+    fn bind_group_layout_descriptors() -> Vec<Vec<wgpu::BindGroupLayoutEntry>> {
         vec![
             // group 0
             BIND_GROUP_LAYOUT_ENTRIES.to_owned(),

@@ -68,7 +68,7 @@ use bevy::{
     asset::AssetServer,
     ecs::{
         event::{EventCursor, EventWriter},
-        system::{Res, ResMut, Resource},
+        system::{Res, ResMut},
     },
     prelude::*,
     render::extract_resource::ExtractResource,
@@ -249,6 +249,8 @@ pub enum ClientError {
     Sound(#[from] SoundError),
     #[error("Virtual filesystem error: {0}")]
     Vfs(#[from] VfsError),
+    #[error("Sound decoding error: {0}")]
+    DecodeSound(#[from] symphonium::error::LoadError),
 }
 
 impl From<ConsoleError> for ClientError {
@@ -625,7 +627,7 @@ impl Connection {
                 ServerCmd::NoOp => {}
 
                 ServerCmd::CdTrack { track, .. } => {
-                    mixer_events.send(MixerEvent::StartMusic(Some(sound::MusicSource::TrackId(
+                    mixer_events.write(MixerEvent::StartMusic(Some(sound::MusicSource::TrackId(
                         match track_override {
                             Some(t) => t as usize,
                             None => track as usize,
@@ -785,7 +787,7 @@ impl Connection {
 
                     let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
                     let attenuation = attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                    mixer_events.send(MixerEvent::StartSound(StartSound {
+                    mixer_events.write(MixerEvent::StartSound(StartSound {
                         src: self.state.sounds[sound_id as usize].clone(),
                         ent_id: Some(entity_id as usize),
                         ent_channel: channel,
@@ -864,7 +866,7 @@ impl Connection {
                     attenuation,
                 } => {
                     if let Some(sound) = self.state.sounds.get(sound_id as usize) {
-                        mixer_events.send(MixerEvent::StartStaticSound(StartStaticSound {
+                        mixer_events.write(MixerEvent::StartStaticSound(StartStaticSound {
                             src: sound.clone(),
                             origin,
                             volume: volume as f32 / 255.0,
@@ -983,7 +985,7 @@ impl Connection {
                 ServerCmd::SetPause { .. } => {}
 
                 ServerCmd::StopSound { entity_id, channel } => {
-                    mixer_events.send(MixerEvent::StopSound(StopSound {
+                    mixer_events.write(MixerEvent::StopSound(StopSound {
                         ent_id: Some(entity_id as _),
                         ent_channel: channel,
                     }));
@@ -1204,6 +1206,7 @@ pub struct Impulse(pub u8);
 mod systems {
     use common::net::MessageKind;
     use serde::Deserialize;
+    use video_rs::ffmpeg::log;
 
     use self::common::console::Registry;
 
@@ -1246,7 +1249,7 @@ mod systems {
                 );
                 let mut msg = Vec::new();
                 move_cmd.serialize(&mut msg)?;
-                client_events.send(ClientMessage {
+                client_events.write(ClientMessage {
                     client_id: 0,
                     packet: msg,
                     kind: MessageKind::Unreliable,
@@ -1417,7 +1420,11 @@ mod systems {
         window: Query<&Window, With<PrimaryWindow>>,
         mut target_resource: ResMut<RenderResolution>,
     ) {
-        let res = &window.single().resolution;
+        let Ok(window) = window.single() else {
+            error!("No window or multiple windows found!");
+            return;
+        };
+        let res = &window.resolution;
         let res = RenderResolution(res.width() as _, res.height() as _);
         if *target_resource != res {
             *target_resource = res;
@@ -1439,7 +1446,7 @@ mod systems {
             ConnectionState::SignOn(_) => BlockingMode::Timeout(Duration::try_seconds(5).unwrap()),
         };
 
-        server_events.send(ServerMessage {
+        server_events.write(ServerMessage {
             client_id: 0,
             packet: qsock.recv_msg(blocking_mode)?,
         });

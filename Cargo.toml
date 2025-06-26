@@ -8,10 +8,41 @@ resolver = "2"
 [dependencies]
 arrayvec = "0.7"
 beef = "0.5"
-bevy = { version = "0.15", features = ["vorbis", "wav", "flac", "shader_format_glsl"] }
-bevy_renderdoc = { git = "https://github.com/eira-fransham/bevy_renderdoc.git", rev = "f00a7874a76528b5479f86a21ded498d8e378273", optional = true }
-# TODO: Need to use git checkout for bevy 0.13 compatibility
-bevy-mod-dynamicaudio = { git = "https://github.com/eira-fransham/bevy-mod-dynamicaudio.git", rev = "8037db924f866551f1be62c02cd0a9a8a04a6ad5" }
+bevy = { version = "0.16", default-features = false, features = [
+    "animation",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gilrs",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_mesh_picking_backend",
+    "bevy_pbr",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_sprite_picking_backend",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    "custom_cursor",
+    "default_font",
+    "hdr",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "sysinfo_plugin",
+    "tonemapping_luts",
+    "shader_format_glsl",
+    "webgl2",
+    "x11",
+    "wayland",
+] }
+bevy_seedling = { version = "0.4", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "74a5568" }
 bitflags = "2.4"
 bimap = "0.6"
 bumpalo = "3.4"
@@ -22,9 +53,10 @@ chrono = "0.4.0"
 clap = { version = "4.5", features = ["derive", "color"] }
 crossbeam-channel = "0.5"
 failure = "0.1.8"
+firewheel = "0.4"
 futures = "0.3.5"
 fundsp = "0.20"
-hashbrown = "0.14"
+hashbrown = "0.15"
 hashers = "1.0"
 dashmap = "5.5"
 im = "15.1.0"
@@ -54,10 +86,11 @@ smol_str = "0.2"
 snafu = { version = "0.8", features = ["unstable-provider-api"] }
 strum = "0.26"
 strum_macros = "0.26"
+symphonium = "0.5"
 thiserror = "1.0"
 uluru = "3"
 uuid = "1.12"
-wgpu = { version = "23.0", features = ["spirv", "vulkan-portability"] }
+wgpu = { version = "24.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
 video-rs = { version = "0.6", features = ["ndarray"], optional = true }
@@ -65,7 +98,6 @@ video-rs = { version = "0.6", features = ["ndarray"], optional = true }
 [features]
 default = ["screenrecord", "fast-compile"]
 screenrecord = ["video-rs"]
-renderdoc = ["bevy_renderdoc"]
 fast-compile = ["bevy/dynamic_linking"]
 
 [profile.release-lto]

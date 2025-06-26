@@ -26,7 +26,6 @@ mod menu;
 use std::{path::PathBuf, process::ExitCode};
 
 use bevy::{
-    audio::AudioPlugin,
     core_pipeline::{
         bloom::Bloom,
         experimental::taa::TemporalAntiAliasing,
@@ -295,8 +294,7 @@ fn main() -> ExitCode {
         .set(ImagePlugin::default_nearest());
 
     let default_plugins = default_plugins
-        .disable::<AudioPlugin>()
-        .add(bevy_mod_dynamicaudio::AudioPlugin::default());
+        .add(bevy_seedling::SeedlingPlugin::default());
 
     app
         .add_plugins(default_plugins)
@@ -346,9 +344,6 @@ fn main() -> ExitCode {
 
     #[cfg(feature = "screenrecord")]
     app.add_plugins(CapturePlugin);
-
-    #[cfg(feature = "renderdoc")]
-    app.add_plugins(bevy_renderdoc::RenderDocPlugin);
 
     #[cfg(feature = "auto-exposure")]
     app.add_plugins(bevy::core_pipeline::auto_exposure::AutoExposurePlugin)

@@ -31,7 +31,7 @@ use bevy::{
     },
     prelude::*,
     reflect::TypePath,
-    utils::ConditionalSendFuture,
+    tasks::ConditionalSendFuture,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use hashbrown::HashMap;

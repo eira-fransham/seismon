@@ -30,8 +30,10 @@ use std::{
 use beef::Cow;
 use bevy::{
     ecs::{
-        system::{Resource, SystemId},
-        world::{Command, DeferredWorld, World},
+        prelude::Command,
+        resource::Resource,
+        system::{SystemId, SystemParamValidationError},
+        world::{DeferredWorld, World},
     },
     prelude::*,
     render::render_asset::RenderAssetUsages,
@@ -522,7 +524,7 @@ where
     unsafe fn validate_param_unsafe(
         &mut self,
         world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'_>,
-    ) -> bool {
+    ) -> Result<(), SystemParamValidationError> {
         unsafe { self.inner.validate_param_unsafe(world) }
     }
 
@@ -2096,10 +2098,7 @@ mod console_text {
             text: Query<(Entity, &AtlasText), Changed<AtlasText>>,
         ) {
             for (entity, text) in text.iter() {
-                commands.queue(DespawnChildrenRecursive {
-                    entity,
-                    warn: false,
-                });
+                commands.entity(entity).despawn();
 
                 let mut commands = commands.entity(entity);
 
@@ -2528,7 +2527,7 @@ mod systems {
                                 let args = args.clone();
                                 let cmd = *cmd;
 
-                                match world.run_system_with_input(cmd, args) {
+                                match world.run_system_with(cmd, args) {
                                     Err(_) => {
                                         error!(
                                             "Command handler was registered in console but not in world"
@@ -2571,7 +2570,7 @@ mod systems {
 
                                 let cmd = *cmd;
 
-                                match world.run_system_with_input(cmd, (trigger, args)) {
+                                match world.run_system_with(cmd, (trigger, args)) {
                                     Err(_) => {
                                         error!(
                                             "Command handler was registered in console but not in world"
@@ -2620,7 +2619,7 @@ mod systems {
 
     pub fn update_cvars(mut commands: Commands, mut registry: ResMut<Registry>) {
         for (sys, val) in registry.changed_cvars.drain() {
-            commands.run_system_with_input(sys.0, val);
+            commands.run_system_with(sys.0, val);
         }
     }
 }
