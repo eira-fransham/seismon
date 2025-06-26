@@ -58,7 +58,6 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3};
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
@@ -134,8 +133,8 @@ impl BrushPipeline {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
-    pub transform: Matrix4<f32>,
-    pub model_view: Matrix3<f32>,
+    pub transform: Mat4,
+    pub model_view: Mat3,
 }
 
 #[repr(C)]
@@ -223,11 +222,7 @@ impl Pipeline for BrushPipeline {
     }
 }
 
-fn calculate_lightmap_texcoords(
-    position: Vector3<f32>,
-    face: &BspFace,
-    texinfo: &BspTexInfo,
-) -> Vec2 {
+fn calculate_lightmap_texcoords(position: Vec3, face: &BspFace, texinfo: &BspTexInfo) -> Vec2 {
     let mut s = texinfo.s_vector.dot(position) + texinfo.s_offset;
     s -= (face.texture_mins[0] as f32 / 16.0).floor() * 16.0;
     s += 0.5;
@@ -410,8 +405,8 @@ impl<'a> BrushRendererBuilder<'a> {
         let texinfo = &self.bsp_data.texinfo()[face.texinfo_id];
         let tex = &self.bsp_data.textures()[texinfo.tex_id];
 
-        let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
-        let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        let mut min = Vec3::INFINITY;
+        let mut max = Vec3::NEG_INFINITY;
 
         let no_collinear =
             math::remove_collinear(self.bsp_data.face_iter_vertices(face_id).collect());
@@ -450,7 +445,7 @@ impl<'a> BrushRendererBuilder<'a> {
             let verts = warp::subdivide(no_collinear);
             let normal = match &*verts {
                 [a, b, c, ..] => (a - b).cross(c - b).normalize(),
-                _ => Vector3::zero(),
+                _ => Vec3::ZERO,
             };
             for vert in verts.into_iter() {
                 let lightmap_texcoords = calculate_lightmap_texcoords(vert, face, texinfo);
@@ -480,7 +475,7 @@ impl<'a> BrushRendererBuilder<'a> {
             let verts = no_collinear;
             let normal = match &*verts {
                 [a, b, c, ..] => (a - b).cross(c - b).normalize(),
-                _ => Vector3::zero(),
+                _ => Vec3::ZERO,
             };
             let mut vert_iter = verts.into_iter();
 

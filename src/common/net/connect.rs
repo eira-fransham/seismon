@@ -800,7 +800,7 @@ mod test {
     #[test]
     fn test_response_reject_packet_len() {
         let response_reject = ResponseReject {
-            message: String::from("error"),
+            message: QString::from("error"),
         };
         let packet_len = response_reject.packet_len() as usize;
         let packet = response_reject.to_bytes().unwrap();

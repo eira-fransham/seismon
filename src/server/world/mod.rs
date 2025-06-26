@@ -53,7 +53,6 @@ use crate::{
 
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
-use cgmath::{InnerSpace, Vector3, Zero};
 use hashbrown::HashMap;
 
 const AREA_DEPTH: usize = 4;
@@ -105,7 +104,7 @@ struct AreaNode {
 
 impl AreaNode {
     /// Generate a breadth-first 2-D binary space partitioning tree with the given extents.
-    pub fn generate(mins: Vector3<f32>, maxs: Vector3<f32>) -> ArrayVec<AreaNode, NUM_AREA_NODES> {
+    pub fn generate(mins: Vec3, maxs: Vec3) -> ArrayVec<AreaNode, NUM_AREA_NODES> {
         let mut nodes: ArrayVec<AreaNode, NUM_AREA_NODES> = ArrayVec::new();
 
         // we generate the skeleton of the tree iteratively -- the nodes are linked but have no
@@ -143,12 +142,7 @@ impl AreaNode {
         nodes
     }
 
-    fn setup(
-        nodes: &mut ArrayVec<AreaNode, NUM_AREA_NODES>,
-        index: usize,
-        mins: Vector3<f32>,
-        maxs: Vector3<f32>,
-    ) {
+    fn setup(nodes: &mut ArrayVec<AreaNode, NUM_AREA_NODES>, index: usize, mins: Vec3, maxs: Vec3) {
         let size = maxs - mins;
 
         let axis = if size.x > size.y {
@@ -810,9 +804,9 @@ impl World {
             let ent = self.entities.get_mut(e_id)?;
 
             let origin =
-                Vector3::from(ent.get_vector(&self.type_def, FieldAddrVector::Origin as i16)?);
-            let mins = Vector3::from(ent.get_vector(&self.type_def, FieldAddrVector::Mins as i16)?);
-            let maxs = Vector3::from(ent.get_vector(&self.type_def, FieldAddrVector::Maxs as i16)?);
+                Vec3::from(ent.get_vector(&self.type_def, FieldAddrVector::Origin as i16)?);
+            let mins = Vec3::from(ent.get_vector(&self.type_def, FieldAddrVector::Mins as i16)?);
+            let maxs = Vec3::from(ent.get_vector(&self.type_def, FieldAddrVector::Maxs as i16)?);
             debug!("origin = {:?} mins = {:?} maxs = {:?}", origin, mins, maxs);
             abs_min = origin + mins;
             abs_max = origin + maxs;
@@ -891,7 +885,7 @@ impl World {
 
     pub fn set_entity_model(&mut self, e_id: EntityId, model_id: usize) -> Result<(), ProgsError> {
         if model_id == 0 {
-            self.set_entity_size(e_id, Vector3::zero(), Vector3::zero())?;
+            self.set_entity_size(e_id, Vec3::ZERO, Vec3::ZERO)?;
         } else {
             let min = self.models[model_id].min();
             let max = self.models[model_id].max();
@@ -904,8 +898,8 @@ impl World {
     pub fn set_entity_size(
         &mut self,
         e_id: EntityId,
-        min: Vector3<f32>,
-        max: Vector3<f32>,
+        min: Vec3,
+        max: Vec3,
     ) -> Result<(), ProgsError> {
         let ent = self.entities.get_mut(e_id)?;
         ent.set_min_max_size(&self.type_def, min, max)?;
@@ -923,9 +917,9 @@ impl World {
     pub fn hull_for_entity(
         &self,
         e_id: EntityId,
-        min: Vector3<f32>,
-        max: Vector3<f32>,
-    ) -> Result<(BspCollisionHull, Vector3<f32>), ProgsError> {
+        min: Vec3,
+        max: Vec3,
+    ) -> Result<(BspCollisionHull, Vec3), ProgsError> {
         let solid = self.entities.get(e_id).unwrap().solid(&self.type_def)?;
         debug!("Entity solid type: {:?}", solid);
 
@@ -989,10 +983,10 @@ impl World {
     pub fn trace_entity_move(
         &mut self,
         e_id: EntityId,
-        start: Vector3<f32>,
-        min: Vector3<f32>,
-        max: Vector3<f32>,
-        end: Vector3<f32>,
+        start: Vec3,
+        min: Vec3,
+        max: Vec3,
+        end: Vec3,
         kind: CollideKind,
     ) -> Result<(Trace, Option<EntityId>), ProgsError> {
         debug!(
@@ -1011,8 +1005,8 @@ impl World {
         // if this is a rocket or a grenade, expand the monster collision box
         let (monster_min, monster_max) = match kind {
             CollideKind::Missile => (
-                min - Vector3::new(15.0, 15.0, 15.0),
-                max + Vector3::new(15.0, 15.0, 15.0),
+                min - Vec3::new(15.0, 15.0, 15.0),
+                max + Vec3::new(15.0, 15.0, 15.0),
             ),
             _ => (min, max),
         };
@@ -1055,8 +1049,8 @@ impl World {
         collide: &Collide,
     ) -> Result<(Trace, Option<EntityId>), ProgsError> {
         let mut trace = Trace::new(
-            TraceStart::new(Vector3::zero(), 0.0),
-            TraceEnd::terminal(Vector3::zero()),
+            TraceStart::new(Vec3::ZERO, 0.0),
+            TraceEnd::terminal(Vec3::ZERO),
             BspLeafContents::Empty,
         );
 
@@ -1149,8 +1143,8 @@ impl World {
                 )?
             };
 
-            let old_dist = (trace.end_point() - collide.start).magnitude();
-            let new_dist = (tmp_trace.end_point() - collide.start).magnitude();
+            let old_dist = (trace.end_point() - collide.start).length();
+            let new_dist = (tmp_trace.end_point() - collide.start).length();
 
             // check to see if this candidate is the closest yet and update trace if so
             if tmp_trace.all_solid() || tmp_trace.start_solid() || new_dist < old_dist {
@@ -1179,10 +1173,10 @@ impl World {
     pub fn collide_move_with_entity(
         &self,
         e_id: EntityId,
-        start: Vector3<f32>,
-        min: Vector3<f32>,
-        max: Vector3<f32>,
-        end: Vector3<f32>,
+        start: Vec3,
+        min: Vec3,
+        max: Vec3,
+        end: Vec3,
     ) -> Result<Trace, ProgsError> {
         let (hull, offset) = self.hull_for_entity(e_id, min, max)?;
         debug!("hull offset: {:?}", offset);
@@ -1198,13 +1192,7 @@ impl World {
     }
 
     // TODO: This doesn't take entities into account
-    pub fn trace(
-        &self,
-        start: Vector3<f32>,
-        min: Vector3<f32>,
-        max: Vector3<f32>,
-        end: Vector3<f32>,
-    ) -> Result<Trace, ProgsError> {
+    pub fn trace(&self, start: Vec3, min: Vec3, max: Vec3, end: Vec3) -> Result<Trace, ProgsError> {
         self.collide_move_with_entity(EntityId(0), start, min, max, end)
     }
 }

@@ -18,7 +18,7 @@
 pub mod console;
 pub mod map;
 
-use cgmath::Vector3;
+use bevy::math::Vec3;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
@@ -95,7 +95,7 @@ where
     Some([x, y, z])
 }
 
-pub fn vector3<S>(src: S) -> Option<Vector3<f32>>
+pub fn vector3<S>(src: S) -> Option<Vec3>
 where
     S: AsRef<str>,
 {
@@ -121,7 +121,7 @@ where
         None => return None,
     };
 
-    Some(Vector3::new(x, y, z))
+    Some(Vec3::new(x, y, z))
 }
 
 #[cfg(test)]

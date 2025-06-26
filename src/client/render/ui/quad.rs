@@ -16,15 +16,17 @@ use crate::{
     common::{util::any_slice_as_bytes, wad::QPic},
 };
 
-use bevy::render::{
-    render_phase::TrackedRenderPass,
-    render_resource::{
-        BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, Texture,
-        TextureView,
+use bevy::{
+    math::Mat4,
+    render::{
+        render_phase::TrackedRenderPass,
+        render_resource::{
+            BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, Texture,
+            TextureView,
+        },
+        renderer::{RenderDevice, RenderQueue},
     },
-    renderer::{RenderDevice, RenderQueue},
 };
-use cgmath::Matrix4;
 use parking_lot::RwLock;
 
 pub const VERTICES: [QuadVertex; 6] = [
@@ -265,7 +267,7 @@ impl Pipeline for QuadPipeline {
 #[repr(C, align(256))]
 #[derive(Clone, Copy, Debug)]
 pub struct QuadUniforms {
-    transform: Matrix4<f32>,
+    transform: Mat4,
 }
 
 pub struct QuadTexture {

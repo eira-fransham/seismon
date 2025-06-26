@@ -21,7 +21,6 @@ use crate::common::{engine, model::SyncType};
 
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use cgmath::Vector3;
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
@@ -48,16 +47,16 @@ pub struct SpriteModel {
 }
 
 impl SpriteModel {
-    pub fn min(&self) -> Vector3<f32> {
-        Vector3::new(
+    pub fn min(&self) -> Vec3 {
+        Vec3::new(
             -(self.max_width as f32) / 2.0,
             -(self.max_width as f32) / 2.0,
             -(self.max_height as f32) / 2.0,
         )
     }
 
-    pub fn max(&self) -> Vector3<f32> {
-        Vector3::new(
+    pub fn max(&self) -> Vec3 {
+        Vec3::new(
             self.max_width as f32 / 2.0,
             self.max_width as f32 / 2.0,
             self.max_height as f32 / 2.0,

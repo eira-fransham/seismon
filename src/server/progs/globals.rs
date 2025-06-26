@@ -19,8 +19,8 @@ use std::{error::Error, fmt};
 
 use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, StringId, Type};
 
+use bevy::math::{EulerRot, Mat3, Vec3};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cgmath::{Deg, Euler, InnerSpace, Matrix3, Vector3};
 use num_derive::FromPrimitive;
 
 pub const GLOBAL_STATIC_START: usize = 28;
@@ -1102,9 +1102,15 @@ impl Globals {
 
         let rotation_matrix = make_vectors(angles);
 
-        self.put_vector(rotation_matrix.x.into(), GlobalAddrVector::VForward as i16)?;
-        self.put_vector(rotation_matrix.y.into(), GlobalAddrVector::VRight as i16)?;
-        self.put_vector(rotation_matrix.z.into(), GlobalAddrVector::VUp as i16)?;
+        self.put_vector(
+            rotation_matrix.x_axis.into(),
+            GlobalAddrVector::VForward as i16,
+        )?;
+        self.put_vector(
+            rotation_matrix.y_axis.into(),
+            GlobalAddrVector::VRight as i16,
+        )?;
+        self.put_vector(rotation_matrix.z_axis.into(), GlobalAddrVector::VUp as i16)?;
 
         Ok(())
     }
@@ -1114,8 +1120,8 @@ impl Globals {
     /// Loads the vector from `GLOBAL_ADDR_ARG_0` and stores its magnitude at
     /// `GLOBAL_ADDR_RETURN`.
     pub fn builtin_v_len(&mut self) -> Result<(), GlobalsError> {
-        let v = Vector3::from(self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?);
-        self.put_float(v.magnitude(), GLOBAL_ADDR_RETURN as i16)?;
+        let v = Vec3::from(self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?);
+        self.put_float(v.length(), GLOBAL_ADDR_RETURN as i16)?;
         Ok(())
     }
 
@@ -1181,45 +1187,43 @@ impl Globals {
     }
 }
 
-pub fn make_vectors(angles: [f32; 3]) -> Matrix3<f32> {
-    let pitch = Deg(-angles[0]);
-    let yaw = Deg(angles[1]);
-    let roll = Deg(angles[2]);
+pub fn make_vectors(angles: [f32; 3]) -> Mat3 {
+    let pitch = -angles[0].to_radians();
+    let yaw = angles[1].to_radians();
+    let roll = angles[2].to_radians();
 
-    Matrix3::from(Euler::new(roll, pitch, yaw))
+    Mat3::from_euler(EulerRot::XYZ, roll, pitch, yaw)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use cgmath::SquareMatrix;
-
     #[test]
     fn test_make_vectors_no_rotation() {
         let angles_zero = [0.0; 3];
         let result = make_vectors(angles_zero);
-        assert_eq!(Matrix3::identity(), result);
+        assert_eq!(Mat3::IDENTITY, result);
     }
 
     #[test]
     fn test_make_vectors_pitch() {
         let pitch_90 = [90.0, 0.0, 0.0];
         let result = make_vectors(pitch_90);
-        assert_eq!(Matrix3::from_angle_y(Deg(-90.0)), result);
+        assert_eq!(Mat3::from_rotation_y(-90f32.to_radians()), result);
     }
 
     #[test]
     fn test_make_vectors_yaw() {
         let yaw_90 = [0.0, 90.0, 0.0];
         let result = make_vectors(yaw_90);
-        assert_eq!(Matrix3::from_angle_z(Deg(90.0)), result);
+        assert_eq!(Mat3::from_rotation_z(90f32.to_radians()), result);
     }
 
     #[test]
     fn test_make_vectors_roll() {
         let roll_90 = [0.0, 0.0, 90.0];
         let result = make_vectors(roll_90);
-        assert_eq!(Matrix3::from_angle_x(Deg(90.0)), result);
+        assert_eq!(Mat3::from_rotation_x(90f32.to_radians()), result);
     }
 }

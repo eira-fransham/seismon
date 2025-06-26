@@ -7,7 +7,7 @@ use crate::common::{
 };
 
 use super::IntermissionKind;
-use cgmath::{Angle as _, Deg, InnerSpace as _, Vector3, Zero as _};
+use bevy::math::{Rot2, Vec3};
 use chrono::Duration;
 use serde::Deserialize;
 
@@ -20,7 +20,7 @@ pub struct View {
     view_height: f32,
 
     // TODO
-    ideal_pitch: Deg<f32>,
+    ideal_pitch: f32,
 
     // view angles from client input
     input_angles: Angles,
@@ -38,7 +38,7 @@ pub struct View {
     final_angles: Angles,
 
     // final origin accounting for view bob
-    final_origin: Vector3<f32>,
+    final_origin: Vec3,
 }
 
 impl View {
@@ -46,13 +46,13 @@ impl View {
         View {
             entity_id: 0,
             view_height: 0.0,
-            ideal_pitch: Deg(0.0),
+            ideal_pitch: 0.0,
             input_angles: Angles::zero(),
             damage_angles: Angles::zero(),
             damage_time: Duration::zero(),
             punch_angles: Angles::zero(),
             final_angles: Angles::zero(),
-            final_origin: Vector3::zero(),
+            final_origin: Vec3::ZERO,
         }
     }
 
@@ -72,11 +72,11 @@ impl View {
         self.view_height = view_height;
     }
 
-    pub fn ideal_pitch(&self) -> Deg<f32> {
+    pub fn ideal_pitch(&self) -> f32 {
         self.ideal_pitch
     }
 
-    pub fn set_ideal_pitch(&mut self, ideal_pitch: Deg<f32>) {
+    pub fn set_ideal_pitch(&mut self, ideal_pitch: f32) {
         self.ideal_pitch = ideal_pitch;
     }
 
@@ -123,20 +123,20 @@ impl View {
         if !game_input.is_pressed("strafe") {
             let right_factor = game_input.is_pressed("right") as i32 as f32;
             let left_factor = game_input.is_pressed("right") as i32 as f32;
-            self.input_angles.yaw += Deg(speed * cl_yawspeed * (left_factor - right_factor));
-            self.input_angles.yaw = self.input_angles.yaw.normalize();
+            self.input_angles.yaw += speed * cl_yawspeed * (left_factor - right_factor);
+            self.input_angles.yaw = self.input_angles.yaw.rem_euclid(360.);
         }
 
         let lookup_factor = game_input.is_pressed("lookup") as i32 as f32;
         let lookdown_factor = game_input.is_pressed("lookup") as i32 as f32;
-        self.input_angles.pitch += Deg(speed * cl_pitchspeed * (lookdown_factor - lookup_factor));
+        self.input_angles.pitch += speed * cl_pitchspeed * (lookdown_factor - lookup_factor);
 
         if mlook {
             todo!("Reimplement mouse look");
             // let pitch_factor = mouse_vars.pitch_factor * mouse_vars.sensitivity;
             // let yaw_factor = mouse_vars.yaw_factor * mouse_vars.sensitivity;
-            // self.input_angles.pitch += Deg(game_input.mouse_delta().1 as f32 * pitch_factor);
-            // self.input_angles.yaw -= Deg(game_input.mouse_delta().0 as f32 * yaw_factor);
+            // self.input_angles.pitch += Rot2::degrees(game_input.mouse_delta().1 as f32 * pitch_factor);
+            // self.input_angles.yaw -= Rot2::degrees(game_input.mouse_delta().0 as f32 * yaw_factor);
         }
 
         if lookup_factor != 0.0 || lookdown_factor != 0.0 {
@@ -144,8 +144,8 @@ impl View {
         }
 
         // clamp pitch to [-70, 80] and roll to [-50, 50]
-        self.input_angles.pitch = math::clamp_deg(self.input_angles.pitch, Deg(-70.0), Deg(80.0));
-        self.input_angles.roll = math::clamp_deg(self.input_angles.roll, Deg(-50.0), Deg(50.0));
+        self.input_angles.pitch = math::clamp_deg(self.input_angles.pitch, -70.0, 80.0);
+        self.input_angles.roll = math::clamp_deg(self.input_angles.roll, -50.0, 50.0);
     }
 
     pub fn handle_damage(
@@ -153,9 +153,9 @@ impl View {
         time: Duration,
         armor_dmg: f32,
         health_dmg: f32,
-        view_ent_origin: Vector3<f32>,
+        view_ent_origin: Vec3,
         view_ent_angles: Angles,
-        src_origin: Vector3<f32>,
+        src_origin: Vec3,
         vars: KickVars,
     ) {
         self.damage_time = time + duration_from_f32(vars.kick_time);
@@ -165,26 +165,26 @@ impl View {
         let dmg_vector = (view_ent_origin - src_origin).normalize();
         let rot = view_ent_angles.mat3_quake();
 
-        let roll_factor = dmg_vector.dot(-rot.x);
-        self.damage_angles.roll = Deg(dmg_factor * roll_factor * vars.kick_roll);
+        let roll_factor = dmg_vector.dot(-rot.x_axis);
+        self.damage_angles.roll = dmg_factor * roll_factor * vars.kick_roll;
 
-        let pitch_factor = dmg_vector.dot(rot.y);
-        self.damage_angles.pitch = Deg(dmg_factor * pitch_factor * vars.kick_pitch);
+        let pitch_factor = dmg_vector.dot(rot.y_axis);
+        self.damage_angles.pitch = dmg_factor * pitch_factor * vars.kick_pitch;
     }
 
     pub fn calc_final_angles(
         &mut self,
         time: Duration,
         intermission: Option<&IntermissionKind>,
-        velocity: Vector3<f32>,
+        velocity: Vec3,
         mut idle_vars: IdleVars,
         kick_vars: KickVars,
         roll_vars: RollVars,
     ) {
         let move_angles = Angles {
-            pitch: Deg(0.0),
+            pitch: 0.0,
             roll: roll(self.input_angles, velocity, roll_vars),
-            yaw: Deg(0.0),
+            yaw: 0.0,
         };
 
         let kick_factor = duration_to_f32(self.damage_time - time).max(0.0) / kick_vars.kick_time;
@@ -207,18 +207,18 @@ impl View {
     pub fn calc_final_origin(
         &mut self,
         time: Duration,
-        origin: Vector3<f32>,
-        velocity: Vector3<f32>,
+        origin: Vec3,
+        velocity: Vec3,
         bob_vars: BobVars,
     ) {
         // offset the view by 1/32 unit to keep it from intersecting liquid planes
-        let plane_offset = Vector3::new(1.0 / 32.0, 1.0 / 32.0, 1.0 / 32.0);
-        let height_offset = Vector3::new(0.0, 0.0, self.view_height);
-        let bob_offset = Vector3::new(0.0, 0.0, bob(time, velocity, bob_vars));
+        let plane_offset = Vec3::new(1.0 / 32.0, 1.0 / 32.0, 1.0 / 32.0);
+        let height_offset = Vec3::new(0.0, 0.0, self.view_height);
+        let bob_offset = Vec3::new(0.0, 0.0, bob(time, velocity, bob_vars));
         self.final_origin = origin + plane_offset + height_offset + bob_offset;
     }
 
-    pub fn final_origin(&self) -> Vector3<f32> {
+    pub fn final_origin(&self) -> Vec3 {
         self.final_origin
     }
 
@@ -255,7 +255,7 @@ pub struct BobVars {
     pub cl_bobup: f32,
 }
 
-pub fn bob(time: Duration, velocity: Vector3<f32>, vars: BobVars) -> f32 {
+pub fn bob(time: Duration, velocity: Vec3, vars: BobVars) -> f32 {
     let time = duration_to_f32(time);
     let ratio = (time % vars.cl_bobcycle) / vars.cl_bobcycle;
     let cycle = if ratio < vars.cl_bobup {
@@ -265,7 +265,7 @@ pub fn bob(time: Duration, velocity: Vector3<f32>, vars: BobVars) -> f32 {
     };
 
     // drop z coordinate
-    let vel_mag = velocity.truncate().magnitude();
+    let vel_mag = velocity.truncate().length();
     let bob = vars.cl_bob * (vel_mag * 0.3 + vel_mag * 0.7 * cycle.sin());
 
     bob.max(-7.0).min(4.0)
@@ -277,9 +277,9 @@ pub struct RollVars {
     pub cl_rollspeed: f32,
 }
 
-pub fn roll(angles: Angles, velocity: Vector3<f32>, vars: RollVars) -> Deg<f32> {
+pub fn roll(angles: Angles, velocity: Vec3, vars: RollVars) -> f32 {
     let rot = angles.mat3_quake();
-    let side = velocity.dot(rot.y);
+    let side = velocity.dot(rot.y_axis);
     let sign = side.signum();
     let side_abs = side.abs();
 
@@ -289,7 +289,7 @@ pub fn roll(angles: Angles, velocity: Vector3<f32>, vars: RollVars) -> Deg<f32> 
         vars.cl_rollangle
     };
 
-    Deg(roll_abs * sign)
+    roll_abs * sign
 }
 
 #[derive(Deserialize, Clone, Copy, Debug)]
@@ -305,9 +305,9 @@ pub struct IdleVars {
 
 pub fn idle(time: Duration, vars: IdleVars) -> Angles {
     let time = duration_to_f32(time);
-    let pitch = Deg(vars.v_idlescale * (time * vars.v_ipitch_cycle).sin() * vars.v_ipitch_level);
-    let roll = Deg(vars.v_idlescale * (time * vars.v_iroll_cycle).sin() * vars.v_iroll_level);
-    let yaw = Deg(vars.v_idlescale * (time * vars.v_iyaw_cycle).sin() * vars.v_iyaw_level);
+    let pitch = vars.v_idlescale * (time * vars.v_ipitch_cycle).sin() * vars.v_ipitch_level;
+    let roll = vars.v_idlescale * (time * vars.v_iroll_cycle).sin() * vars.v_iroll_level;
+    let yaw = vars.v_idlescale * (time * vars.v_iyaw_cycle).sin() * vars.v_iyaw_level;
 
     Angles { pitch, roll, yaw }
 }

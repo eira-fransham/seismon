@@ -41,7 +41,6 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::{Euler, InnerSpace, Matrix3, Matrix4, SquareMatrix as _, Vector3, Vector4};
 use chrono::Duration;
 use parking_lot::RwLock;
 
@@ -210,22 +209,22 @@ pub enum BindGroupLayoutId {
 }
 
 pub struct Camera {
-    origin: Vector3<f32>,
+    origin: Vec3,
     angles: Angles,
-    view: Matrix4<f32>,
-    view_projection: Matrix4<f32>,
-    projection: Matrix4<f32>,
-    inverse_projection: Matrix4<f32>,
-    clipping_planes: [Vector4<f32>; 6],
+    view: Mat4,
+    view_projection: Mat4,
+    projection: Mat4,
+    inverse_projection: Mat4,
+    clipping_planes: [Vec4; 6],
 }
 
 impl Camera {
-    pub fn new(origin: Vector3<f32>, angles: Angles, projection: Matrix4<f32>) -> Camera {
+    pub fn new(origin: Vec3, angles: Angles, projection: Mat4) -> Camera {
         // convert coordinates
-        let converted_origin = Vector3::new(-origin.y, origin.z, -origin.x);
+        let converted_origin = Vec3::new(-origin.y, origin.z, -origin.x);
 
         // translate the world by inverse of camera position
-        let translation = Matrix4::from_translation(-converted_origin);
+        let translation = Mat4::from_translation(-converted_origin);
         let rotation = angles.mat4_wgpu();
         let view = rotation * translation;
         let view_projection = projection * view;
@@ -233,17 +232,17 @@ impl Camera {
         // see https://www.gamedevs.org/uploads/fast-extraction-viewing-frustum-planes-from-world-view-projection-matrix.pdf
         let clipping_planes = [
             // left
-            view_projection.w + view_projection.x,
+            view_projection.w_axis + view_projection.x_axis,
             // right
-            view_projection.w - view_projection.x,
+            view_projection.w_axis - view_projection.x_axis,
             // bottom
-            view_projection.w + view_projection.y,
+            view_projection.w_axis + view_projection.y_axis,
             // top
-            view_projection.w - view_projection.y,
+            view_projection.w_axis - view_projection.y_axis,
             // near
-            view_projection.w + view_projection.z,
+            view_projection.w_axis + view_projection.z_axis,
             // far
-            view_projection.w - view_projection.z,
+            view_projection.w_axis - view_projection.z_axis,
         ];
 
         Camera {
@@ -252,12 +251,12 @@ impl Camera {
             view,
             view_projection,
             projection,
-            inverse_projection: projection.invert().unwrap(),
+            inverse_projection: projection.inverse(),
             clipping_planes,
         }
     }
 
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
@@ -265,25 +264,25 @@ impl Camera {
         self.angles
     }
 
-    pub fn view(&self) -> Matrix4<f32> {
+    pub fn view(&self) -> Mat4 {
         self.view
     }
 
-    pub fn view_projection(&self) -> Matrix4<f32> {
+    pub fn view_projection(&self) -> Mat4 {
         self.view_projection
     }
 
-    pub fn projection(&self) -> Matrix4<f32> {
+    pub fn projection(&self) -> Mat4 {
         self.projection
     }
 
-    pub fn inverse_projection(&self) -> Matrix4<f32> {
+    pub fn inverse_projection(&self) -> Mat4 {
         self.inverse_projection
     }
 
     // TODO: this seems to be too lenient
     /// Determines whether a point falls outside the viewing frustum.
-    pub fn cull_point(&self, p: Vector3<f32>) -> bool {
+    pub fn cull_point(&self, p: Vec3) -> bool {
         for plane in self.clipping_planes.iter() {
             if (self.view_projection() * p.extend(1.0)).dot(*plane) < 0.0 {
                 return true;
@@ -297,8 +296,8 @@ impl Camera {
 #[repr(C, align(256))]
 #[derive(Copy, Clone, Debug)]
 pub struct FrameUniforms {
-    lightmap_anim_frames: [Vector4<f32>; 16],
-    camera_pos: Vector4<f32>,
+    lightmap_anim_frames: [Vec4; 16],
+    camera_pos: Vec4,
     time: f32,
     sky_time: f32,
 
@@ -310,10 +309,10 @@ pub struct FrameUniforms {
 #[derive(Clone, Copy, Debug)]
 pub struct EntityUniforms {
     /// Model-view-projection transform matrix
-    transform: Matrix4<f32>,
+    transform: Mat4,
 
     /// Model-only transform matrix
-    model: Matrix4<f32>,
+    model: Mat4,
 }
 
 enum EntityRenderer {
@@ -365,37 +364,29 @@ pub fn extract_world_renderer(
     }
 }
 
-fn to_mat3(mat4: Matrix4<f32>) -> Matrix3<f32> {
-    Matrix3 {
-        x: mat4.x.truncate(),
-        y: mat4.y.truncate(),
-        z: mat4.z.truncate(),
-    }
-}
-
-fn to_mat4_compressed(mat4: Matrix4<f32>) -> Matrix4<u16> {
+fn to_mat4_compressed(mat4: Mat4) -> [[u16; 4]; 4] {
     fn compress<const N: usize>(input: [f32; N]) -> [u16; N] {
         input.map(|f| (f.clamp(0., 1.) * u16::MAX as f32) as u16)
     }
 
-    Matrix4 {
-        x: compress(mat4.x.into()).into(),
-        y: compress(mat4.y.into()).into(),
-        z: compress(mat4.z.into()).into(),
-        w: compress(mat4.w.into()).into(),
-    }
+    [
+        compress(mat4.x_axis.into()),
+        compress(mat4.y_axis.into()),
+        compress(mat4.z_axis.into()),
+        compress(mat4.w_axis.into()),
+    ]
 }
 
-fn to_mat3_f16(mat4: Matrix4<f32>) -> Matrix3<f16> {
-    let x: [f32; 3] = mat4.x.truncate().into();
-    let y: [f32; 3] = mat4.y.truncate().into();
-    let z: [f32; 3] = mat4.z.truncate().into();
+fn to_mat3_f16(mat4: Mat4) -> [[f16; 3]; 3] {
+    let x: [f32; 3] = mat4.x_axis.truncate().into();
+    let y: [f32; 3] = mat4.y_axis.truncate().into();
+    let z: [f32; 3] = mat4.z_axis.truncate().into();
 
-    Matrix3 {
-        x: x.map(|v| v as f16).into(),
-        y: y.map(|v| v as f16).into(),
-        z: z.map(|v| v as f16).into(),
-    }
+    [
+        x.map(|v| v as f16).into(),
+        y.map(|v| v as f16).into(),
+        z.map(|v| v as f16).into(),
+    ]
 }
 
 impl WorldRenderer {
@@ -410,8 +401,8 @@ impl WorldRenderer {
         let mut entity_renderers = Vec::new();
 
         let world_uniform_block = state.entity_uniform_buffer_mut().allocate(EntityUniforms {
-            transform: Matrix4::identity(),
-            model: Matrix4::identity(),
+            transform: Mat4::IDENTITY,
+            model: Mat4::IDENTITY,
         });
 
         for (i, model) in models.enumerate() {
@@ -497,10 +488,10 @@ impl WorldRenderer {
         let time_secs = engine::duration_to_f32(time);
         let uniforms = FrameUniforms {
             lightmap_anim_frames: {
-                let mut frames = [Vector4::<f32>::unit_x(); 16];
+                let mut frames = [Vec4::X; 16];
                 for i in 0..16 {
                     for j in 0..4 {
-                        frames[i] = Vector4::<f32>::new(
+                        frames[i] = Vec4::new(
                             lightstyle_values[i * j],
                             lightstyle_values[i * j + 1],
                             lightstyle_values[i * j + 2],
@@ -522,7 +513,7 @@ impl WorldRenderer {
         trace!("Updating entity uniform buffer");
         let world_uniforms = EntityUniforms {
             transform: camera.view_projection(),
-            model: Matrix4::identity(),
+            model: Mat4::IDENTITY,
         };
         state
             .entity_uniform_buffer_mut()
@@ -577,7 +568,7 @@ impl WorldRenderer {
                     pass,
                     Update(bump.alloc(brush::VertexPushConstants {
                         transform: camera.view_projection(),
-                        model_view: to_mat3(camera.view()),
+                        model_view: Mat3::from_mat4(camera.view()),
                     })),
                     Clear,
                     Clear,
@@ -612,7 +603,7 @@ impl WorldRenderer {
                                     pass,
                                     Update(bump.alloc(brush::VertexPushConstants {
                                         transform: self.calculate_mvp_transform(camera, ent),
-                                        model_view: to_mat3(
+                                        model_view: Mat3::from_mat4(
                                             self.calculate_mv_transform(camera, ent),
                                         ),
                                     })),
@@ -628,7 +619,9 @@ impl WorldRenderer {
                             pass,
                             Update(bump.alloc(alias::VertexPushConstants {
                                 transform: self.calculate_mvp_transform(camera, ent),
-                                model_view: to_mat3(self.calculate_mv_transform(camera, ent)),
+                                model_view: Mat3::from_mat4(
+                                    self.calculate_mv_transform(camera, ent),
+                                ),
                             })),
                             Clear,
                             Clear,
@@ -647,13 +640,13 @@ impl WorldRenderer {
 
         let viewmodel_orig = camera.origin();
         let cam_angles = camera.angles();
-        let viewmodel_mat = Matrix4::from_translation(Vector3::new(
+        let viewmodel_mat = Mat4::from_translation(Vec3::new(
             -viewmodel_orig.y,
             viewmodel_orig.z,
             -viewmodel_orig.x,
-        )) * Matrix4::from_angle_y(cam_angles.yaw)
-            * Matrix4::from_angle_x(-cam_angles.pitch)
-            * Matrix4::from_angle_z(cam_angles.roll);
+        )) * Mat4::from_rotation_y(cam_angles.yaw.to_radians())
+            * Mat4::from_rotation_x(-cam_angles.pitch.to_radians())
+            * Mat4::from_rotation_z(cam_angles.roll.to_radians());
         match viewmodel_id.and_then(|vid| self.entity_renderers.get(vid)) {
             Some(EntityRenderer::Alias(alias)) => {
                 pass.set_render_pipeline(state.alias_pipeline().pipeline());
@@ -661,7 +654,7 @@ impl WorldRenderer {
                     pass,
                     Update(bump.alloc(alias::VertexPushConstants {
                         transform: camera.view_projection() * viewmodel_mat,
-                        model_view: to_mat3(camera.view() * viewmodel_mat),
+                        model_view: Mat3::from_mat4(camera.view() * viewmodel_mat),
                     })),
                     Clear,
                     Clear,
@@ -691,25 +684,30 @@ impl WorldRenderer {
         }
     }
 
-    fn calculate_mvp_transform(&self, camera: &Camera, entity: &ClientEntity) -> Matrix4<f32> {
+    fn calculate_mvp_transform(&self, camera: &Camera, entity: &ClientEntity) -> Mat4 {
         let model_transform = self.calculate_model_transform(camera, entity);
 
         camera.view_projection() * model_transform
     }
 
-    fn calculate_mv_transform(&self, camera: &Camera, entity: &ClientEntity) -> Matrix4<f32> {
+    fn calculate_mv_transform(&self, camera: &Camera, entity: &ClientEntity) -> Mat4 {
         let model_transform = self.calculate_model_transform(camera, entity);
 
         camera.view() * model_transform
     }
 
-    fn calculate_model_transform(&self, camera: &Camera, entity: &ClientEntity) -> Matrix4<f32> {
+    fn calculate_model_transform(&self, camera: &Camera, entity: &ClientEntity) -> Mat4 {
         let origin = entity.get_origin();
         let angles = entity.get_angles();
         let rotation = match self.renderer_for_entity(entity) {
             EntityRenderer::Sprite(sprite) => match sprite.kind() {
                 // used for decals
-                SpriteKind::Oriented => Matrix4::from(Euler::new(angles.z, -angles.x, angles.y)),
+                SpriteKind::Oriented => Mat4::from_euler(
+                    EulerRot::YZX,
+                    -angles.x.to_radians(),
+                    angles.y.to_radians(),
+                    angles.z.to_radians(),
+                ),
 
                 _ => {
                     // keep sprite facing player, but preserve roll
@@ -724,9 +722,14 @@ impl WorldRenderer {
                 }
             },
 
-            _ => Matrix4::from(Euler::new(angles.x, angles.y, angles.z)),
+            _ => Mat4::from_euler(
+                EulerRot::XYX,
+                angles.x.to_radians(),
+                angles.y.to_radians(),
+                angles.z.to_radians(),
+            ),
         };
 
-        Matrix4::from_translation(Vector3::new(-origin.y, origin.z, -origin.x)) * rotation
+        Mat4::from_translation(Vec3::new(-origin.y, origin.z, -origin.x)) * rotation
     }
 }

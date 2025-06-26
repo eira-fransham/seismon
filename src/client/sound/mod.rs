@@ -25,28 +25,26 @@ use bevy::{
     app::{Main, Plugin},
     prelude::*,
 };
-use bevy_seedling::{
-    prelude::{Volume, *},
-    sample::Sample,
-};
+use bevy_seedling::{prelude::*, sample::Sample};
 use firewheel::sample_resource::DecodedAudioF32;
-use fundsp::snoop::{Snoop, SnoopBackend};
 
 pub use music::MusicPlayer;
 use symphonium::symphonia::core::probe::Hint;
 
 use std::{
     io::{self, Cursor, Read as _},
-    num::NonZeroU32,
     path::Path,
 };
 
 use crate::common::vfs::{Vfs, VfsError};
 
-use cgmath::{InnerSpace, Vector3};
 use thiserror::Error;
 
 pub const DISTANCE_ATTENUATION_FACTOR: f32 = 0.001;
+
+fn attenuation_factor(attenuation: f32) -> Vec3 {
+    Vec3::splat(attenuation * DISTANCE_ATTENUATION_FACTOR)
+}
 
 #[derive(Error, Debug)]
 pub enum SoundError {
@@ -63,56 +61,42 @@ pub enum SoundError {
 /// Data needed for sound spatialization.
 ///
 /// This struct is updated every frame.
-#[derive(Debug, Clone, Resource)]
+#[derive(Default, Debug, Clone, Resource)]
 pub struct Listener {
-    pub origin: Vector3<f32>,
-    pub left_ear: Vector3<f32>,
-    pub right_ear: Vector3<f32>,
-}
-
-impl Default for Listener {
-    fn default() -> Self {
-        Listener {
-            origin: Vector3::new(0.0, 0.0, 0.0),
-            left_ear: Vector3::new(0.0, 0.0, 0.0),
-            right_ear: Vector3::new(0.0, 0.0, 0.0),
-        }
-    }
+    pub origin: Vec3,
+    pub rotation: Quat,
+    pub left_ear: Vec3,
+    pub right_ear: Vec3,
 }
 
 impl Listener {
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
-    pub fn left_ear(&self) -> Vector3<f32> {
+    pub fn left_ear(&self) -> Vec3 {
         self.left_ear
     }
 
-    pub fn right_ear(&self) -> Vector3<f32> {
+    pub fn right_ear(&self) -> Vec3 {
         self.right_ear
     }
 
-    pub fn set_origin(&mut self, new_origin: Vector3<f32>) {
+    pub fn set_origin(&mut self, new_origin: Vec3) {
         self.origin = new_origin;
     }
 
-    pub fn set_left_ear(&mut self, new_origin: Vector3<f32>) {
+    pub fn set_left_ear(&mut self, new_origin: Vec3) {
         self.left_ear = new_origin;
     }
 
-    pub fn set_right_ear(&mut self, new_origin: Vector3<f32>) {
+    pub fn set_right_ear(&mut self, new_origin: Vec3) {
         self.right_ear = new_origin;
     }
 
-    pub fn attenuate(
-        &self,
-        emitter_origin: Vector3<f32>,
-        base_volume: f32,
-        attenuation: f32,
-    ) -> f32 {
+    pub fn attenuate(&self, emitter_origin: Vec3, base_volume: f32, attenuation: f32) -> f32 {
         let decay =
-            (emitter_origin - self.origin).magnitude() * attenuation * DISTANCE_ATTENUATION_FACTOR;
+            (emitter_origin - self.origin).length() * attenuation * DISTANCE_ATTENUATION_FACTOR;
         let volume = ((1.0 - decay) * base_volume).max(0.0);
         volume
     }
@@ -138,7 +122,7 @@ where
 
     let mut decode_hint = Hint::new();
 
-    if let Some(ext) = ext.as_ref().map(|ext| &**ext) {
+    if let Some(ext) = ext.as_deref() {
         decode_hint.with_extension(ext);
     }
 
@@ -153,36 +137,10 @@ where
     Ok(Sample::new(DecodedAudioF32::from(decoded)))
 }
 
-type ReverbNode = impl fundsp::audionode::AudioNode + Send + Sync + 'static;
-
-#[define_opaque(ReverbNode)]
-fn create_mixer(sender_l: SnoopBackend, sender_r: SnoopBackend) -> ReverbNode {
-    use self::limiter::limiter_stereo;
-    use fundsp::hacker32::*;
-
-    let sender_l = An(sender_l);
-    let sender_r = An(sender_r);
-
-    let delay_time = 0.15;
-    let delay = feedback(
-        0.4 * ((delay(delay_time) | delay(delay_time))
-            >> (moog_hz(1500., 0.) | moog_hz(1500., 0.))),
-    );
-
-    ((multipass() & (0.3 * reverb_stereo(20.0, 0.8, 0.5)) & (0.2 * delay))
-        >> limiter_stereo(0., 0.7, 0.7)
-        >> limiter_stereo(0., 0.03, 0.05)
-        >> (sender_l | sender_r))
-        .0
-}
-
 pub struct SeismonSoundPlugin;
 
 #[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone)]
 pub struct ReverbBus;
-
-#[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone)]
-pub struct MasterBus;
 
 #[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone)]
 pub struct MainPool;
@@ -194,8 +152,6 @@ impl Plugin for SeismonSoundPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut commands = app.world_mut().commands();
 
-        commands.spawn(MasterBus);
-
         commands
             .spawn((
                 VolumeNode {
@@ -203,15 +159,11 @@ impl Plugin for SeismonSoundPlugin {
                 },
                 ReverbBus,
             ))
-            .chain_node(FreeverbNode::default())
-            .connect(MasterBus);
+            .chain_node(FreeverbNode::default());
 
-        commands
-            .spawn((SpatialListener3D, SamplerPool(MainPool)))
-            .connect(ReverbBus)
-            .connect(MasterBus);
+        commands.spawn(SpatialListener3D);
 
-        commands.spawn(SamplerPool(MusicPool)).connect(MasterBus);
+        commands.spawn(SamplerPool(MusicPool));
 
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
@@ -229,12 +181,12 @@ impl Plugin for SeismonSoundPlugin {
 
 #[derive(Component)]
 #[require(Transform, SamplePlayer)]
-pub struct StaticSound;
+pub struct Sound;
 
 #[derive(Debug, Clone)]
 pub struct StartStaticSound {
     pub src: Handle<Sample>,
-    pub origin: Vector3<f32>,
+    pub origin: Vec3,
     pub volume: f32,
     pub attenuation: f32,
 }
@@ -248,28 +200,13 @@ pub struct GlobalMixer {
 #[derive(Clone, Debug, Component)]
 pub struct Channel {
     channel: i8,
-    origin: Vector3<f32>,
+    origin: Vec3,
 }
 
+/// If a `Sound` does not include this component, sound is associated with a temp entity
 #[derive(Clone, Debug, Component)]
 pub struct EntityChannel {
-    // if None, sound is associated with a temp entity
     id: usize,
-}
-
-#[derive(Bundle)]
-struct EntitySoundBundle {
-    entity: EntityChannel,
-    chan: Channel,
-    audio: SamplePlayer,
-    settings: PlaybackSettings,
-}
-
-#[derive(Bundle)]
-struct TempEntitySoundBundle {
-    chan: Channel,
-    audio: SamplePlayer,
-    settings: PlaybackSettings,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -345,64 +282,60 @@ mod systems {
 
             match event {
                 MixerEvent::StartSound(start) => {
-                    commands.spawn((
+                    let mut new_sound = commands.spawn((
+                        Sound,
                         Channel {
                             origin: start.origin.into(),
                             channel: start.ent_channel,
                         },
                         SamplePlayer::new(start.src.clone()),
-                        SpatialScale(Vec3::new(
-                            start.attenuation,
-                            start.attenuation,
-                            start.attenuation,
-                        )),
-                        MainPool,
+                        Transform::from_translation(start.origin.into()),
                         sample_effects![
-                            VolumeNode {
-                                volume: Volume::Linear(start.volume),
-                            },
-                            SpatialBasicNode {
-                                panning_threshold: 0.3,
-                                ..Default::default()
-                            }
+                            (
+                                SpatialBasicNode {
+                                    volume: Volume::Linear(start.volume),
+                                    ..Default::default()
+                                },
+                                SpatialScale(attenuation_factor(start.attenuation))
+                            ),
+                            SendNode::new(Volume::Decibels(-12.), ReverbBus)
                         ],
                     ));
+
+                    if let Some(id) = start.ent_id {
+                        new_sound.insert(EntityChannel { id });
+                    }
                 }
                 MixerEvent::StopSound(StopSound { .. }) => {
                     // Handled by previous match
                 }
                 MixerEvent::StartStaticSound(static_sound) => {
-                    let origin: [f32; 3] = static_sound.origin.into();
                     commands.spawn((
-                        Transform::from_translation(origin.into()),
+                        Sound,
                         SamplePlayer::new(static_sound.src.clone()).looping(),
-                        SpatialScale(Vec3::new(
-                            static_sound.attenuation,
-                            static_sound.attenuation,
-                            static_sound.attenuation,
-                        )),
-                        MainPool,
+                        Transform::from_translation(static_sound.origin),
                         sample_effects![
-                            VolumeNode {
-                                volume: Volume::Linear(static_sound.volume),
-                            },
-                            SpatialBasicNode {
-                                panning_threshold: 0.3,
-                                ..Default::default()
-                            }
+                            (
+                                SpatialBasicNode {
+                                    volume: Volume::Linear(static_sound.volume),
+                                    ..Default::default()
+                                },
+                                SpatialScale(attenuation_factor(static_sound.attenuation))
+                            ),
+                            SendNode::new(Volume::Decibels(-12.), ReverbBus)
                         ],
                     ));
                 }
                 MixerEvent::StartMusic(Some(MusicSource::Named(named))) => {
                     // TODO: Error handling
                     music_player
-                        .play_named(&*asset_server, &mut commands, &*vfs, MusicPool, named)
+                        .play_named(&asset_server, &mut commands, &vfs, MusicPool, named)
                         .unwrap();
                 }
                 MixerEvent::StartMusic(Some(MusicSource::TrackId(id))) => {
                     // TODO: Error handling
                     music_player
-                        .play_track(&*asset_server, &mut commands, &*vfs, MusicPool, *id)
+                        .play_track(&asset_server, &mut commands, &vfs, MusicPool, *id)
                         .unwrap();
                 }
                 MixerEvent::StartMusic(None) => music_player.resume(&mut all_sounds),
@@ -413,25 +346,29 @@ mod systems {
     }
 
     pub fn update_entities(
-        mut entities: Query<(&mut SpatialBasicNode, Option<&EntityChannel>, &mut Channel)>,
-        listener: Res<Listener>,
+        mut entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
         conn: Option<Res<Connection>>,
     ) {
         let Some(conn) = conn else {
             return;
         };
 
-        for (mut spatial_element, e_chan, mut chan) in entities.iter_mut() {
-            if let Some(e) = e_chan.and_then(|e| conn.state.entities.get(e.id)) {
-                let offset: [f32; 3] = (e.origin - listener.origin).into();
-                spatial_element.offset = offset.into();
+        for (mut transform, e_chan) in &mut entities {
+            if let Some(e) = conn.state.entities.get(e_chan.id) {
+                *transform = Transform::from_translation(e.origin);
             }
         }
     }
 
-    pub fn update_listener(mut listener: ResMut<Listener>, conn: Option<Res<Connection>>) {
+    pub fn update_listener(
+        mut listeners: Query<&mut Transform, With<SpatialListener3D>>,
+        conn: Option<Res<Connection>>,
+    ) {
         if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {
-            *listener = new_listener;
+            for mut transform in &mut listeners {
+                *transform = Transform::from_rotation(new_listener.rotation)
+                    .with_translation(new_listener.origin);
+            }
         }
     }
 }

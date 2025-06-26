@@ -30,7 +30,6 @@ use bevy::{
         view::ViewTarget,
     },
 };
-use cgmath::{Matrix4, Vector2};
 use chrono::Duration;
 
 use self::hud::HudVars;
@@ -42,21 +41,16 @@ pub fn screen_space_vertex_translate(
     display_h: u32,
     pos_x: i32,
     pos_y: i32,
-) -> Vector2<f32> {
+) -> Vec2 {
     // rescale from [0, DISPLAY_*] to [-1, 1] (NDC)
-    Vector2::new(
+    Vec2::new(
         (pos_x * 2 - display_w as i32) as f32 / display_w as f32,
         (pos_y * 2 - display_h as i32) as f32 / display_h as f32,
     )
 }
 
-pub fn screen_space_vertex_scale(
-    display_w: u32,
-    display_h: u32,
-    quad_w: u32,
-    quad_h: u32,
-) -> Vector2<f32> {
-    Vector2::new(
+pub fn screen_space_vertex_scale(display_w: u32, display_h: u32, quad_w: u32, quad_h: u32) -> Vec2 {
+    Vec2::new(
         (quad_w * 2) as f32 / display_w as f32,
         (quad_h * 2) as f32 / display_h as f32,
     )
@@ -69,17 +63,17 @@ pub fn screen_space_vertex_transform(
     quad_h: u32,
     pos_x: i32,
     pos_y: i32,
-) -> Matrix4<f32> {
-    let Vector2 { x: ndc_x, y: ndc_y } =
+) -> Mat4 {
+    let Vec2 { x: ndc_x, y: ndc_y } =
         screen_space_vertex_translate(display_w, display_h, pos_x, pos_y);
 
-    let Vector2 {
+    let Vec2 {
         x: scale_x,
         y: scale_y,
     } = screen_space_vertex_scale(display_w, display_h, quad_w, quad_h);
 
-    Matrix4::from_translation([ndc_x, ndc_y, 0.0].into())
-        * Matrix4::from_nonuniform_scale(scale_x, scale_y, 1.0)
+    Mat4::from_translation([ndc_x, ndc_y, 0.0].into())
+        * Mat4::from_scale(Vec3::new(scale_x, scale_y, 1.0))
 }
 
 pub enum UiState<'a> {

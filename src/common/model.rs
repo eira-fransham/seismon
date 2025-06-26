@@ -24,7 +24,6 @@ use crate::common::{
 
 use bevy::prelude::*;
 use bitflags::bitflags;
-use cgmath::Vector3;
 use num_derive::FromPrimitive;
 use thiserror::Error;
 
@@ -153,7 +152,7 @@ impl Model {
     }
 
     /// Return the minimum extent of this model.
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         debug!("Retrieving min of model {}", self.name);
         match self.kind {
             ModelKind::None => panic!("attempted to take min() of NULL model"),
@@ -162,12 +161,12 @@ impl Model {
 
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vector3::new(-16.0, -16.0, -16.0),
+            ModelKind::Alias(_) => Vec3::new(-16.0, -16.0, -16.0),
         }
     }
 
     /// Return the maximum extent of this model.
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         debug!("Retrieving max of model {}", self.name);
         match self.kind {
             ModelKind::None => panic!("attempted to take max() of NULL model"),
@@ -176,7 +175,7 @@ impl Model {
 
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vector3::new(16.0, 16.0, 16.0),
+            ModelKind::Alias(_) => Vec3::new(16.0, 16.0, 16.0),
         }
     }
 

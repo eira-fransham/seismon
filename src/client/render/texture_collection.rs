@@ -228,15 +228,15 @@ where
 
         let (layout, id_map, image) = atlas.build()?;
 
-        dbg!(image.size());
+        let size = layout.size.as_vec2();
 
         Ok(CompiledTextureCollection {
             layout: id_map
                 .texture_ids
                 .into_iter()
                 .map(|(id, index)| {
-                    let size = layout.size.as_vec2();
                     let rect = layout.textures[index];
+
                     (
                         id,
                         Rect {
@@ -340,42 +340,6 @@ where
         P: 'a,
         I: IntoIterator<Item = (AssetId<Image>, &'a P)>,
     {
-        fn resize_image_by_repeat(image: &mut Image, new_size: UVec2) {
-            assert_eq!(new_size.x % image.width(), 0);
-            assert_eq!(new_size.y % image.height(), 0);
-            let pixel_size = image.texture_descriptor.format.pixel_size();
-            trace!(
-                "Original size {}x{}, new size {}x{}",
-                image.width(),
-                image.height(),
-                new_size.x,
-                new_size.y
-            );
-            let new_data = image
-                .data
-                .as_deref()
-                .unwrap_or_default()
-                .chunks(image.width() as usize * pixel_size)
-                .map(|chunk| {
-                    chunk
-                        .iter()
-                        .copied()
-                        .cycle()
-                        .take(pixel_size * new_size.x as usize)
-                })
-                .cycle()
-                .take(new_size.y as _)
-                .flatten()
-                .collect::<Vec<_>>();
-
-            image.data = Some(new_data);
-            image.texture_descriptor.size = wgpu::Extent3d {
-                width: new_size.x,
-                height: new_size.y,
-                depth_or_array_layers: 1,
-            };
-        }
-
         let (layout, mut images): (Vec<_>, Vec<_>) = vals
             .into_iter()
             .enumerate()

@@ -126,7 +126,6 @@ use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 use crate::server::world::{Trace, TraceEnd, TraceStart};
 
 use bevy::prelude::*;
-use cgmath::Vector3;
 use chrono::Duration;
 use num_derive::FromPrimitive;
 
@@ -263,9 +262,9 @@ pub struct BspRenderNode {
 
 #[derive(Debug)]
 pub struct BspTexInfo {
-    pub s_vector: Vector3<f32>,
+    pub s_vector: Vec3,
     pub s_offset: f32,
-    pub t_vector: Vector3<f32>,
+    pub t_vector: Vec3,
     pub t_offset: f32,
     pub tex_id: usize,
     pub special: bool,
@@ -362,8 +361,8 @@ pub struct BspCollisionHull {
     planes: Arc<Box<[Hyperplane]>>,
     nodes: Arc<Box<[BspCollisionNode]>>,
     node_id: usize,
-    mins: Vector3<f32>,
-    maxs: Vector3<f32>,
+    mins: Vec3,
+    maxs: Vec3,
 }
 
 impl BspCollisionHull {
@@ -372,10 +371,7 @@ impl BspCollisionHull {
     ///
     /// This generates six planes which intersect to form a rectangular prism. The interior of the
     /// prism is `BspLeafContents::Solid`; the exterior is `BspLeafContents::Empty`.
-    pub fn for_bounds(
-        mins: Vector3<f32>,
-        maxs: Vector3<f32>,
-    ) -> Result<BspCollisionHull, BspError> {
+    pub fn for_bounds(mins: Vec3, maxs: Vec3) -> Result<BspCollisionHull, BspError> {
         debug!(
             "Generating collision hull for min = {:?} max = {:?}",
             mins, maxs
@@ -457,23 +453,23 @@ impl BspCollisionHull {
         })
     }
 
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         self.mins
     }
 
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         self.maxs
     }
 
     /// Returns the leaf contents at the given point in this hull.
-    pub fn contents_at_point(&self, point: Vector3<f32>) -> Result<BspLeafContents, BspError> {
+    pub fn contents_at_point(&self, point: Vec3) -> Result<BspLeafContents, BspError> {
         self.contents_at_point_node(self.node_id, point)
     }
 
     fn contents_at_point_node(
         &self,
         node: usize,
-        point: Vector3<f32>,
+        point: Vec3,
     ) -> Result<BspLeafContents, BspError> {
         let mut current_node = &self.nodes[node];
 
@@ -487,16 +483,11 @@ impl BspCollisionHull {
         }
     }
 
-    pub fn trace(&self, start: Vector3<f32>, end: Vector3<f32>) -> Result<Trace, BspError> {
+    pub fn trace(&self, start: Vec3, end: Vec3) -> Result<Trace, BspError> {
         self.recursive_trace(self.node_id, start, end)
     }
 
-    fn recursive_trace(
-        &self,
-        node: usize,
-        start: Vector3<f32>,
-        end: Vector3<f32>,
-    ) -> Result<Trace, BspError> {
+    fn recursive_trace(&self, node: usize, start: Vec3, end: Vec3) -> Result<Trace, BspError> {
         debug!("start={:?} end={:?}", start, end);
         let node = &self.nodes[node];
         let plane = &self.planes[node.plane_id];
@@ -702,7 +693,7 @@ impl<'a> BspLightmap<'a> {
 pub struct BspData {
     pub(crate) planes: Arc<Box<[Hyperplane]>>,
     pub(crate) textures: Box<[BspTexture]>,
-    pub(crate) vertices: Box<[Vector3<f32>]>,
+    pub(crate) vertices: Box<[Vec3]>,
     pub(crate) visibility: Box<[u8]>,
     pub(crate) render_nodes: Box<[BspRenderNode]>,
     pub(crate) texinfo: Box<[BspTexInfo]>,
@@ -724,7 +715,7 @@ impl BspData {
         &self.textures
     }
 
-    pub fn vertices(&self) -> &[Vector3<f32>] {
+    pub fn vertices(&self) -> &[Vec3] {
         &self.vertices
     }
 
@@ -740,7 +731,7 @@ impl BspData {
         &self.faces[face_id]
     }
 
-    pub fn face_iter_vertices(&self, face_id: usize) -> impl Iterator<Item = Vector3<f32>> + '_ {
+    pub fn face_iter_vertices(&self, face_id: usize) -> impl Iterator<Item = Vec3> + '_ {
         let face = &self.faces[face_id];
         self.edgelist[face.edge_id..face.edge_id + face.edge_count]
             .iter()
@@ -811,7 +802,7 @@ impl BspData {
     /// Locates the leaf containing the given position vector and returns its index.
     pub fn find_leaf<V>(&self, pos: V) -> usize
     where
-        V: Into<Vector3<f32>>,
+        V: Into<Vec3>,
     {
         let pos_vec = pos.into();
 
@@ -935,9 +926,9 @@ impl BspData {
 #[derive(Debug, Clone)]
 pub struct BspModel {
     pub bsp_data: Arc<BspData>,
-    pub min: Vector3<f32>,
-    pub max: Vector3<f32>,
-    pub origin: Vector3<f32>,
+    pub min: Vec3,
+    pub max: Vec3,
+    pub origin: Vec3,
     pub collision_node_ids: [usize; MAX_HULLS],
     pub collision_node_counts: [usize; MAX_HULLS],
     pub leaf_id: usize,
@@ -952,22 +943,22 @@ impl BspModel {
     }
 
     /// Returns the minimum extent of this BSP model.
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         self.min
     }
 
     /// Returns the maximum extent of this BSP model.
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         self.max
     }
 
     /// Returns the size of this BSP model.
-    pub fn size(&self) -> Vector3<f32> {
+    pub fn size(&self) -> Vec3 {
         self.max - self.min
     }
 
     /// Returns the origin of this BSP model.
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
@@ -1005,30 +996,28 @@ impl BspModel {
 #[cfg(test)]
 mod test {
     use super::*;
-    use cgmath::Zero;
 
     #[test]
     fn test_hull_for_bounds() {
-        let hull =
-            BspCollisionHull::for_bounds(Vector3::zero(), Vector3::new(1.0, 1.0, 1.0)).unwrap();
+        let hull = BspCollisionHull::for_bounds(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)).unwrap();
 
         let empty_points = vec![
             // points strictly less than hull min should be empty
-            Vector3::new(-1.0, -1.0, -1.0),
+            Vec3::new(-1.0, -1.0, -1.0),
             // points strictly greater than hull max should be empty
-            Vector3::new(2.0, 2.0, 2.0),
+            Vec3::new(2.0, 2.0, 2.0),
             // points in front of hull should be empty
-            Vector3::new(2.0, 0.5, 0.5),
+            Vec3::new(2.0, 0.5, 0.5),
             // points behind hull should be empty
-            Vector3::new(-1.0, 0.5, 0.5),
+            Vec3::new(-1.0, 0.5, 0.5),
             // points left of hull should be empty
-            Vector3::new(0.5, 2.0, 0.5),
+            Vec3::new(0.5, 2.0, 0.5),
             // points right of hull should be empty
-            Vector3::new(0.5, -1.0, 0.5),
+            Vec3::new(0.5, -1.0, 0.5),
             // points above hull should be empty
-            Vector3::new(0.5, 0.5, 2.0),
+            Vec3::new(0.5, 0.5, 2.0),
             // points below hull should be empty
-            Vector3::new(0.5, 0.5, -1.0),
+            Vec3::new(0.5, 0.5, -1.0),
         ];
 
         for point in empty_points {
@@ -1040,16 +1029,16 @@ mod test {
 
         let solid_points = vec![
             // center of the hull should be solid
-            Vector3::new(0.5, 0.5, 0.5),
+            Vec3::new(0.5, 0.5, 0.5),
             // various interior corners should be solid
-            Vector3::new(0.01, 0.01, 0.01),
-            Vector3::new(0.99, 0.01, 0.01),
-            Vector3::new(0.01, 0.99, 0.01),
-            Vector3::new(0.01, 0.01, 0.99),
-            Vector3::new(0.99, 0.99, 0.01),
-            Vector3::new(0.99, 0.01, 0.99),
-            Vector3::new(0.01, 0.99, 0.99),
-            Vector3::new(0.99, 0.99, 0.99),
+            Vec3::new(0.01, 0.01, 0.01),
+            Vec3::new(0.99, 0.01, 0.01),
+            Vec3::new(0.01, 0.99, 0.01),
+            Vec3::new(0.01, 0.01, 0.99),
+            Vec3::new(0.99, 0.99, 0.01),
+            Vec3::new(0.99, 0.01, 0.99),
+            Vec3::new(0.01, 0.99, 0.99),
+            Vec3::new(0.99, 0.99, 0.99),
         ];
 
         for point in solid_points {

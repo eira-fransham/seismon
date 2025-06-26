@@ -27,8 +27,7 @@ use crate::common::{
     net::{EntityEffects, EntityState, EntityUpdate},
 };
 
-use bevy::ecs::component::Component;
-use cgmath::{Deg, Vector3};
+use bevy::{ecs::component::Component, math::Vec3};
 use chrono::Duration;
 
 // if this is changed, it must also be changed in deferred.frag
@@ -55,10 +54,10 @@ pub struct ClientEntity {
     pub force_link: bool,
     pub baseline: EntityState,
     pub msg_time: Duration,
-    pub msg_origins: [Vector3<f32>; 2],
-    pub origin: Vector3<f32>,
-    pub msg_angles: [Vector3<Deg<f32>>; 2],
-    pub angles: Vector3<Deg<f32>>,
+    pub msg_origins: [Vec3; 2],
+    pub origin: Vec3,
+    pub msg_angles: [Vec3; 2],
+    pub angles: Vec3,
     pub model_id: usize,
     model_changed: bool,
     pub frame_id: usize,
@@ -76,8 +75,8 @@ pub struct QuakeEntity {
     pub force_link: bool,
     pub baseline: EntityState,
     pub msg_time: Duration,
-    pub msg_origins: [Vector3<f32>; 2],
-    pub msg_angles: [Vector3<Deg<f32>>; 2],
+    pub msg_origins: [Vec3; 2],
+    pub msg_angles: [Vec3; 2],
     pub frame_id: usize,
     pub skin_id: usize,
     pub colormap: Option<u8>,
@@ -94,12 +93,9 @@ impl ClientEntity {
             force_link: false,
             baseline: baseline.clone(),
             msg_time: Duration::zero(),
-            msg_origins: [Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0)],
+            msg_origins: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
             origin: baseline.origin,
-            msg_angles: [
-                Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
-                Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
-            ],
+            msg_angles: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
             angles: baseline.angles,
             model_id: baseline.model_id,
             model_changed: false,
@@ -118,13 +114,10 @@ impl ClientEntity {
             force_link: false,
             baseline: EntityState::uninitialized(),
             msg_time: Duration::zero(),
-            msg_origins: [Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0)],
-            origin: Vector3::new(0.0, 0.0, 0.0),
-            msg_angles: [
-                Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
-                Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
-            ],
-            angles: Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
+            msg_origins: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
+            origin: Vec3::new(0.0, 0.0, 0.0),
+            msg_angles: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
+            angles: Vec3::new(0.0, 0.0, 0.0),
             model_id: 0,
             model_changed: false,
             frame_id: 0,
@@ -180,7 +173,7 @@ impl ClientEntity {
     /// Sets the entity's most recent message angles to the specified value.
     ///
     /// This is primarily useful for allowing interpolated view angles in demos.
-    pub fn update_angles(&mut self, angles: Vector3<Deg<f32>>) {
+    pub fn update_angles(&mut self, angles: Vec3) {
         self.msg_angles[0] = angles;
     }
 
@@ -189,7 +182,7 @@ impl ClientEntity {
     ///
     /// This causes the entity to "snap" to the correct angle rather than
     /// interpolating to it.
-    pub fn set_angles(&mut self, angles: Vector3<Deg<f32>>) {
+    pub fn set_angles(&mut self, angles: Vec3) {
         self.msg_angles[0] = angles;
         self.msg_angles[1] = angles;
         self.angles = angles;
@@ -209,11 +202,11 @@ impl ClientEntity {
         self.colormap
     }
 
-    pub fn get_origin(&self) -> Vector3<f32> {
+    pub fn get_origin(&self) -> Vec3 {
         self.origin
     }
 
-    pub fn get_angles(&self) -> Vector3<Deg<f32>> {
+    pub fn get_angles(&self) -> Vec3 {
         self.angles
     }
 
@@ -234,7 +227,7 @@ impl ClientEntity {
 #[derive(Clone, Debug)]
 pub struct LightDesc {
     /// The origin of the light.
-    pub origin: Vector3<f32>,
+    pub origin: Vec3,
 
     /// The initial radius of the light.
     pub init_radius: f32,
@@ -252,7 +245,7 @@ pub struct LightDesc {
 /// A dynamic point light.
 #[derive(Clone, Debug)]
 pub struct Light {
-    origin: Vector3<f32>,
+    origin: Vec3,
     init_radius: f32,
     decay_rate: f32,
     min_radius: Option<f32>,
@@ -274,7 +267,7 @@ impl Light {
     }
 
     /// Return the origin of the light.
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
@@ -373,6 +366,6 @@ pub struct Beam {
     pub entity_id: usize,
     pub model_id: usize,
     pub expire: Duration,
-    pub start: Vector3<f32>,
-    pub end: Vector3<f32>,
+    pub start: Vec3,
+    pub end: Vec3,
 }

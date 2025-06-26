@@ -14,16 +14,14 @@ use crate::{
 
 use bevy::{
     ecs::component::Component,
+    math::{Mat3, Mat4, Vec3},
     render::{
         render_phase::TrackedRenderPass,
-        render_resource::{
-            BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline,
-        },
+        render_resource::{BindGroup, BindGroupLayout, Buffer, RenderPipeline},
         renderer::{RenderDevice, RenderQueue},
         texture::CachedTexture,
     },
 };
-use cgmath::{InnerSpace as _, Matrix3, Matrix4, Vector3, Zero as _};
 use chrono::Duration;
 use failure::Error;
 
@@ -88,8 +86,8 @@ impl AliasPipeline {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
-    pub transform: Matrix4<f32>,
-    pub model_view: Matrix3<f32>,
+    pub transform: Mat4,
+    pub model_view: Mat3,
 }
 
 static VERTEX_ATTRIBUTES: LazyLock<[wgpu::VertexAttribute; 3]> = LazyLock::new(|| {
@@ -284,7 +282,7 @@ impl AliasRenderer {
                 mdl::Keyframe::Static(ref static_keyframe) => {
                     let vertex_start = vertices.len() as u32;
                     for polygon in alias_model.polygons() {
-                        let mut tri = [Vector3::zero(); 3];
+                        let mut tri = [Vec3::ZERO; 3];
                         let mut texcoords = [[0.0; 2]; 3];
                         for (i, index) in polygon.indices().iter().enumerate() {
                             tri[i] = static_keyframe.vertices()[*index as usize];
@@ -325,7 +323,7 @@ impl AliasRenderer {
 
                         let vertex_start = vertices.len() as u32;
                         for polygon in alias_model.polygons() {
-                            let mut tri = [Vector3::zero(); 3];
+                            let mut tri = [Vec3::ZERO; 3];
                             let mut texcoords = [[0.0; 2]; 3];
                             for (i, index) in polygon.indices().iter().enumerate() {
                                 tri[i] = frame.vertices()[*index as usize].into();

@@ -7,9 +7,8 @@ use crate::common::{
 };
 
 use arrayvec::ArrayVec;
-use bevy::log::warn;
+use bevy::{log::warn, math::Vec3};
 use byteorder::{LittleEndian, ReadBytesExt};
-use cgmath::{Deg, Vector3};
 use io::BufReader;
 use thiserror::Error;
 
@@ -30,19 +29,19 @@ pub enum DemoServerError {
 
 #[derive(Clone)]
 struct DemoMessage {
-    view_angles: Vector3<Deg<f32>>,
+    view_angles: Vec3,
     msg_range: Range<usize>,
 }
 
 /// A view of a server message from a demo.
 pub struct DemoMessageView<'a> {
-    view_angles: Vector3<Deg<f32>>,
+    view_angles: Vec3,
     message: &'a [u8],
 }
 
 impl<'a> DemoMessageView<'a> {
     /// Returns the view angles recorded for this demo message.
-    pub fn view_angles(&self) -> Vector3<Deg<f32>> {
+    pub fn view_angles(&self) -> Vec3 {
         self.view_angles
     }
 
@@ -124,11 +123,7 @@ impl DemoServer {
         while let Ok(msg_len) = dem_reader.read_u32::<LittleEndian>() {
             // get view angles
             let view_angles_f32 = read_f32_3(&mut dem_reader)?;
-            let view_angles = Vector3::new(
-                Deg(view_angles_f32[0]),
-                Deg(view_angles_f32[1]),
-                Deg(view_angles_f32[2]),
-            );
+            let view_angles = Vec3::new(view_angles_f32[0], view_angles_f32[1], view_angles_f32[2]);
 
             // read next message
             let msg_start = message_data.len();

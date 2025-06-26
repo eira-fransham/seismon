@@ -62,7 +62,6 @@ use crate::{
         vfs::{Vfs, VfsError},
     },
 };
-use cgmath::{Deg, Vector3};
 
 use bevy::{
     asset::AssetServer,
@@ -345,7 +344,7 @@ enum ConnectionKind {
 
 struct ServerUpdate {
     message: Vec<u8>,
-    angles: Option<Vector3<Deg<f32>>>,
+    angles: Option<Vec3>,
     track_override: Option<u32>,
 }
 
@@ -465,14 +464,14 @@ impl Connection {
             let msg_origins = [ent.msg_origins[0].into(), ent.msg_origins[1].into()];
             let msg_angles_deg = [
                 [
-                    ent.msg_angles[0][0].0,
-                    ent.msg_angles[0][1].0,
-                    ent.msg_angles[0][2].0,
+                    ent.msg_angles[0][0],
+                    ent.msg_angles[0][1],
+                    ent.msg_angles[0][2],
                 ],
                 [
-                    ent.msg_angles[1][0].0,
-                    ent.msg_angles[1][1].0,
-                    ent.msg_angles[1][2].0,
+                    ent.msg_angles[1][0],
+                    ent.msg_angles[1][1],
+                    ent.msg_angles[1][2],
                 ],
             ];
 
@@ -807,11 +806,8 @@ impl Connection {
                     angles,
                 } => {
                     if ent_id == 0 {
-                        match &mut *state {
-                            ConnectionState::Connected(state) => {
-                                state.worldmodel_id = model_id as _
-                            }
-                            _ => {}
+                        if let ConnectionState::Connected(state) = &mut *state {
+                            state.worldmodel_id = model_id as _;
                         }
 
                         self.state.worldmodel_id = model_id as _;

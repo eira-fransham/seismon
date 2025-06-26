@@ -25,7 +25,6 @@ use crate::common::{
 
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use cgmath::{ElementWise as _, Vector3};
 use chrono::Duration;
 use num::FromPrimitive;
 use thiserror::Error;
@@ -157,9 +156,9 @@ impl IndexedPolygon {
 #[derive(Clone, Debug)]
 pub struct StaticKeyframe {
     name: String,
-    min: Vector3<f32>,
-    max: Vector3<f32>,
-    vertices: Box<[Vector3<f32>]>,
+    min: Vec3,
+    max: Vec3,
+    vertices: Box<[Vec3]>,
 }
 
 impl StaticKeyframe {
@@ -169,17 +168,17 @@ impl StaticKeyframe {
     }
 
     /// Returns the minimum extent of this keyframe relative to the model origin.
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         self.min
     }
 
     /// Returns the minimum extent of this keyframe relative to the model origin.
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         self.max
     }
 
     /// Returns the vertices defining this keyframe.
-    pub fn vertices(&self) -> &[Vector3<f32>] {
+    pub fn vertices(&self) -> &[Vec3] {
         &self.vertices
     }
 }
@@ -187,10 +186,10 @@ impl StaticKeyframe {
 #[derive(Clone, Debug)]
 pub struct AnimatedKeyframeFrame {
     name: String,
-    min: Vector3<f32>,
-    max: Vector3<f32>,
+    min: Vec3,
+    max: Vec3,
     duration: Duration,
-    vertices: Box<[Vector3<f32>]>,
+    vertices: Box<[Vec3]>,
 }
 
 impl AnimatedKeyframeFrame {
@@ -200,12 +199,12 @@ impl AnimatedKeyframeFrame {
     }
 
     /// Returns the minimum extent of this keyframe relative to the model origin.
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         self.min
     }
 
     /// Returns the minimum extent of this keyframe relative to the model origin.
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         self.max
     }
 
@@ -215,26 +214,26 @@ impl AnimatedKeyframeFrame {
     }
 
     /// Returns the vertices defining this subframe.
-    pub fn vertices(&self) -> &[Vector3<f32>] {
+    pub fn vertices(&self) -> &[Vec3] {
         &self.vertices
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct AnimatedKeyframe {
-    min: Vector3<f32>,
-    max: Vector3<f32>,
+    min: Vec3,
+    max: Vec3,
     frames: Box<[AnimatedKeyframeFrame]>,
 }
 
 impl AnimatedKeyframe {
     /// Returns the minimum extent of all subframes in this keyframe relative to the model origin.
-    pub fn min(&self) -> Vector3<f32> {
+    pub fn min(&self) -> Vec3 {
         self.min
     }
 
     /// Returns the maximum extent of all subframes in this keyframe relative to the model origin.
-    pub fn max(&self) -> Vector3<f32> {
+    pub fn max(&self) -> Vec3 {
         self.max
     }
 
@@ -252,7 +251,7 @@ pub enum Keyframe {
 
 #[derive(Debug, Clone)]
 pub struct AliasModel {
-    origin: Vector3<f32>,
+    origin: Vec3,
     radius: f32,
     texture_width: u32,
     texture_height: u32,
@@ -264,7 +263,7 @@ pub struct AliasModel {
 }
 
 impl AliasModel {
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
@@ -334,10 +333,10 @@ where
         Err(MdlFileError::UnrecognizedVersion(version))?;
     }
 
-    let scale: Vector3<f32> = read_f32_3(&mut reader)?.into();
-    let origin: Vector3<f32> = read_f32_3(&mut reader)?.into();
+    let scale: Vec3 = read_f32_3(&mut reader)?.into();
+    let origin: Vec3 = read_f32_3(&mut reader)?.into();
     let radius = reader.read_f32::<LittleEndian>()?;
-    let _eye_position: Vector3<f32> = read_f32_3(&mut reader)?.into();
+    let _eye_position: Vec3 = read_f32_3(&mut reader)?.into();
     let texture_count = reader.read_i32::<LittleEndian>()?;
     let texture_width = reader.read_i32::<LittleEndian>()?;
     if texture_width <= 0 {
@@ -494,7 +493,7 @@ where
 
                     debug!("Keyframe name: {}", name);
 
-                    let mut vertices: Vec<Vector3<f32>> = Vec::with_capacity(vertex_count as usize);
+                    let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
                     for _ in 0..vertex_count {
                         vertices.push(read_vertex(&mut reader, scale, origin)?);
                         reader.read_u8()?; // discard vertex normal
@@ -545,8 +544,7 @@ where
 
                         debug!("Frame name: {}", name);
 
-                        let mut vertices: Vec<Vector3<f32>> =
-                            Vec::with_capacity(vertex_count as usize);
+                        let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
                         for _ in 0..vertex_count {
                             vertices.push(read_vertex(&mut reader, scale, origin)?);
                             reader.read_u8()?; // discard vertex normal
@@ -590,19 +588,14 @@ where
     })
 }
 
-fn read_vertex<R>(
-    reader: &mut R,
-    scale: Vector3<f32>,
-    translate: Vector3<f32>,
-) -> Result<Vector3<f32>, io::Error>
+fn read_vertex<R>(reader: &mut R, scale: Vec3, translate: Vec3) -> Result<Vec3, io::Error>
 where
     R: ReadBytesExt,
 {
-    Ok(Vector3::new(
+    Ok(Vec3::new(
         reader.read_u8()? as f32,
         reader.read_u8()? as f32,
         reader.read_u8()? as f32,
     )
-    .mul_element_wise(scale)
-        + translate)
+    .mul_add(scale, translate))
 }

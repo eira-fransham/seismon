@@ -22,6 +22,7 @@ use std::cell::RefCell;
 
 use bevy::{
     core_pipeline::{core_3d::Camera3d, prepass::ViewPrepassTextures},
+    math::Rot2,
     render::{
         render_graph::{RenderLabel, ViewNode},
         render_phase::TrackedRenderPass,
@@ -31,7 +32,6 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-use cgmath::Deg;
 
 use crate::client::render::{
     GraphicsState, RenderConnectionKind, RenderResolution, RenderState, RenderVars,
@@ -149,10 +149,10 @@ impl ViewNode for InitPass {
                 // if client is fully connected, draw world
                 let camera = match kind {
                     RenderConnectionKind::Demo => {
-                        cl_state.demo_camera(width as f32 / height as f32, Deg(render_vars.fov))
+                        cl_state.demo_camera(width as f32 / height as f32, render_vars.fov)
                     }
                     RenderConnectionKind::Server => {
-                        cl_state.camera(width as f32 / height as f32, Deg(render_vars.fov))
+                        cl_state.camera(width as f32 / height as f32, render_vars.fov)
                     }
                 };
 

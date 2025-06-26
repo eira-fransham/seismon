@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-use cgmath::{InnerSpace as _, Vector3, Zero as _};
+use bevy::math::Vec3;
 use chrono::Duration;
 use rand::{
     SeedableRng as _,
@@ -128,8 +128,8 @@ pub const PARTICLE_GRAVITY_FACTOR: f32 = 0.05;
 #[derive(Copy, Clone, Debug)]
 pub struct Particle {
     kind: ParticleKind,
-    origin: Vector3<f32>,
-    velocity: Vector3<f32>,
+    origin: Vec3,
+    velocity: Vec3,
     color: u8,
     spawned: Duration,
     expire: Duration,
@@ -186,7 +186,7 @@ impl Particle {
 
             Blob { has_z_velocity } => {
                 if !has_z_velocity {
-                    let xy_velocity = Vector3::new(self.velocity.x, self.velocity.y, 0.0);
+                    let xy_velocity = Vec3::new(self.velocity.x, self.velocity.y, 0.0);
                     self.origin += xy_velocity * velocity_factor;
                 } else {
                     self.origin += self.velocity * velocity_factor;
@@ -198,7 +198,7 @@ impl Particle {
         }
     }
 
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.origin
     }
 
@@ -229,7 +229,7 @@ pub struct Particles {
     // random number generator
     rng: SmallRng,
 
-    angle_velocities: [Vector3<f32>; VERTEX_NORMAL_COUNT],
+    angle_velocities: [Vec3; VERTEX_NORMAL_COUNT],
 }
 
 impl Particles {
@@ -243,7 +243,7 @@ impl Particles {
             LazyLock::new(|| Uniform::new(0.0, 2.56).unwrap());
 
         let rng = SmallRng::from_rng(&mut rand::rng());
-        let angle_velocities = [Vector3::zero(); VERTEX_NORMAL_COUNT];
+        let angle_velocities = [Vec3::ZERO; VERTEX_NORMAL_COUNT];
 
         let mut particles = Particles {
             particles: Default::default(),
@@ -299,17 +299,17 @@ impl Particles {
             .collect();
     }
 
-    fn scatter(&mut self, origin: Vector3<f32>, scatter_distr: &Uniform<f32>) -> Vector3<f32> {
+    fn scatter(&mut self, origin: Vec3, scatter_distr: &Uniform<f32>) -> Vec3 {
         origin
-            + Vector3::new(
+            + Vec3::new(
                 scatter_distr.sample(&mut self.rng),
                 scatter_distr.sample(&mut self.rng),
                 scatter_distr.sample(&mut self.rng),
             )
     }
 
-    fn random_vector3(&mut self, velocity_distr: &Uniform<f32>) -> Vector3<f32> {
-        Vector3::new(
+    fn random_vector3(&mut self, velocity_distr: &Uniform<f32>) -> Vec3 {
+        Vec3::new(
             velocity_distr.sample(&mut self.rng),
             velocity_distr.sample(&mut self.rng),
             velocity_distr.sample(&mut self.rng),
@@ -331,7 +331,7 @@ impl Particles {
             let sin_pitch = angles[1].sin();
             let cos_pitch = angles[1].cos();
 
-            let forward = Vector3::new(cos_pitch * cos_yaw, cos_pitch * sin_yaw, -sin_pitch);
+            let forward = Vec3::new(cos_pitch * cos_yaw, cos_pitch * sin_yaw, -sin_pitch);
             let ttl = Duration::try_milliseconds(10).unwrap();
 
             let origin = entity.origin + dist * math::VERTEX_NORMALS[i] + beam_length * forward;
@@ -342,7 +342,7 @@ impl Particles {
                     frame_skip: 0,
                 },
                 origin,
-                velocity: Vector3::zero(),
+                velocity: Vec3::ZERO,
                 color: COLOR_RAMP_EXPLOSION_FAST.ramp[0],
                 spawned: time,
                 expire: time + ttl,
@@ -366,7 +366,7 @@ impl Particles {
         kind: ParticleKind,
         time: Duration,
         ttl: Duration,
-        origin: Vector3<f32>,
+        origin: Vec3,
         scatter_distr: &Uniform<f32>,
         velocity_distr: &Uniform<f32>,
     ) {
@@ -391,7 +391,7 @@ impl Particles {
     }
 
     /// Creates a rocket explosion.
-    pub fn create_explosion(&mut self, time: Duration, origin: Vector3<f32>) {
+    pub fn create_explosion(&mut self, time: Duration, origin: Vec3) {
         static FRAME_SKIP_DISTRIBUTION: LazyLock<Uniform<usize>> =
             LazyLock::new(|| Uniform::new(0, 4).unwrap());
 
@@ -415,7 +415,7 @@ impl Particles {
     pub fn create_color_explosion(
         &mut self,
         time: Duration,
-        origin: Vector3<f32>,
+        origin: Vec3,
         colors: RangeInclusive<u8>,
     ) {
         self.create_random_cloud(
@@ -433,7 +433,7 @@ impl Particles {
     }
 
     /// Creates a death explosion for the Spawn.
-    pub fn create_spawn_explosion(&mut self, time: Duration, origin: Vector3<f32>) {
+    pub fn create_spawn_explosion(&mut self, time: Duration, origin: Vec3) {
         // R_BlobExplosion picks a random ttl with 1 + (rand() & 8) * 0.05
         // which gives a value of either 1 or 1.4 seconds.
         // (it's possible it was supposed to be 1 + (rand() & 7) * 0.05, which
@@ -476,8 +476,8 @@ impl Particles {
     pub fn create_projectile_impact(
         &mut self,
         time: Duration,
-        origin: Vector3<f32>,
-        direction: Vector3<f32>,
+        origin: Vec3,
+        direction: Vec3,
         color: u8,
         count: usize,
     ) {
@@ -513,7 +513,7 @@ impl Particles {
     }
 
     /// Creates a lava splash effect.
-    pub fn create_lava_splash(&mut self, time: Duration, origin: Vector3<f32>) {
+    pub fn create_lava_splash(&mut self, time: Duration, origin: Vec3) {
         // ttl between 2 and 2.64 seconds
         static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
             LazyLock::new(|| Uniform::new(2000, 2640).unwrap());
@@ -531,13 +531,13 @@ impl Particles {
 
         for i in -16..16 {
             for j in -16..16 {
-                let direction = Vector3::new(
+                let direction = Vec3::new(
                     8.0 * i as f32 + DIR_OFFSET_DISTRIBUTION.sample(&mut self.rng),
                     8.0 * j as f32 + DIR_OFFSET_DISTRIBUTION.sample(&mut self.rng),
                     256.0,
                 );
 
-                let scatter = Vector3::new(
+                let scatter = Vec3::new(
                     direction.x,
                     direction.y,
                     SCATTER_Z_DISTRIBUTION.sample(&mut self.rng),
@@ -562,7 +562,7 @@ impl Particles {
     }
 
     /// Creates a teleporter warp effect.
-    pub fn create_teleporter_warp(&mut self, time: Duration, origin: Vector3<f32>) {
+    pub fn create_teleporter_warp(&mut self, time: Duration, origin: Vec3) {
         // ttl between 0.2 and 0.34 seconds
         static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
             LazyLock::new(|| Uniform::new(200, 340).unwrap());
@@ -579,8 +579,8 @@ impl Particles {
         for i in (-16..16).step_by(4) {
             for j in (-16..16).step_by(4) {
                 for k in (-24..32).step_by(4) {
-                    let direction = Vector3::new(j as f32, i as f32, k as f32) * 8.0;
-                    let scatter = Vector3::new(i as f32, j as f32, k as f32)
+                    let direction = Vec3::new(j as f32, i as f32, k as f32) * 8.0;
+                    let scatter = Vec3::new(i as f32, j as f32, k as f32)
                         + self.random_vector3(&SCATTER_DISTRIBUTION);
                     let velocity = VELOCITY_DISTRIBUTION.sample(&mut self.rng);
                     let color = COLOR_DISTRIBUTION.sample(&mut self.rng);
@@ -607,8 +607,8 @@ impl Particles {
     pub fn create_trail(
         &mut self,
         time: Duration,
-        start: Vector3<f32>,
-        end: Vector3<f32>,
+        start: Vec3,
+        end: Vec3,
         kind: TrailKind,
         sparse: bool,
     ) {
@@ -623,7 +623,7 @@ impl Particles {
         static VORE_COLOR_DISTRIBUTION: LazyLock<Uniform<u8>> =
             LazyLock::new(|| Uniform::new(152, 156).unwrap());
 
-        let distance = (end - start).magnitude();
+        let distance = (end - start).length();
         let direction = (end - start).normalize();
 
         // particle interval in units
@@ -660,13 +660,13 @@ impl Particles {
             let velocity = match kind {
                 TracerGreen | TracerRed => {
                     30.0 * if step & 1 == 1 {
-                        Vector3::new(direction.y, -direction.x, 0.0)
+                        Vec3::new(direction.y, -direction.x, 0.0)
                     } else {
-                        Vector3::new(-direction.y, direction.x, 0.0)
+                        Vec3::new(-direction.y, direction.x, 0.0)
                     }
                 }
 
-                _ => Vector3::zero(),
+                _ => Vec3::ZERO,
             };
 
             let color = match kind {
@@ -693,7 +693,6 @@ impl Particles {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::Zero;
 
     fn particles_eq(p1: &Particle, p2: &Particle) -> bool {
         p1.color == p2.color && p1.velocity == p2.velocity && p1.origin == p2.origin
@@ -701,13 +700,13 @@ mod tests {
 
     #[test]
     fn test_particle_list_update() {
-        let mut list = Particles::with_capacity(10);
+        let mut list = Particles::new();
         let exp_times = vec![10, 5, 2, 7, 3];
         for exp in exp_times.iter() {
             list.insert(Particle {
                 kind: ParticleKind::Static,
-                origin: Vector3::zero(),
-                velocity: Vector3::zero(),
+                origin: Vec3::ZERO,
+                velocity: Vec3::ZERO,
                 color: 0,
                 spawned: Duration::zero(),
                 expire: Duration::try_seconds(*exp).unwrap(),
@@ -719,8 +718,8 @@ mod tests {
             .filter(|t| **t > 5)
             .map(|t| Particle {
                 kind: ParticleKind::Static,
-                origin: Vector3::zero(),
-                velocity: Vector3::zero(),
+                origin: Vec3::ZERO,
+                velocity: Vec3::ZERO,
                 color: 0,
                 spawned: Duration::zero(),
                 expire: Duration::try_seconds(*t).unwrap(),

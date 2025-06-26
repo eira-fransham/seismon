@@ -12,15 +12,15 @@ use crate::{
     common::{math::Angles, util::any_slice_as_bytes},
 };
 
-use bevy::render::{
-    render_phase::TrackedRenderPass,
-    render_resource::{
-        BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, Texture,
+use bevy::{
+    math::Mat4,
+    render::{
+        render_phase::TrackedRenderPass,
+        render_resource::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, Texture},
+        renderer::{RenderDevice, RenderQueue},
     },
-    renderer::{RenderDevice, RenderQueue},
 };
 use bumpalo::Bump;
-use cgmath::Matrix4;
 
 static VERTEX_BUFFER_ATTRIBUTES: LazyLock<[Vec<wgpu::VertexAttribute>; 1]> = LazyLock::new(|| {
     [wgpu::vertex_attr_array![
@@ -200,8 +200,7 @@ impl ParticlePipeline {
 
         for particle in particles {
             let q_origin = particle.origin();
-            let translation =
-                Matrix4::from_translation([-q_origin.y, q_origin.z, -q_origin.x].into());
+            let translation = Mat4::from_translation([-q_origin.y, q_origin.z, -q_origin.x].into());
             Self::set_push_constants(
                 pass,
                 Update(bump.alloc(VertexPushConstants {
@@ -220,7 +219,7 @@ impl ParticlePipeline {
 
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
-    pub transform: Matrix4<f32>,
+    pub transform: Mat4,
 }
 
 #[derive(Copy, Clone, Debug)]

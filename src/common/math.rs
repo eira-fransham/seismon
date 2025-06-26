@@ -21,12 +21,11 @@
 use std::{cmp::Ordering, ops::Neg, sync::LazyLock};
 
 use bevy::prelude::*;
-use cgmath::{Angle, Deg, InnerSpace, Matrix3, Matrix4, Vector2, Vector3, Zero};
 use num_derive::FromPrimitive;
 
 pub const VERTEX_NORMAL_COUNT: usize = 162;
 /// Precomputed vertex normals used for alias models and particle effects
-pub static VERTEX_NORMALS: LazyLock<[Vector3<f32>; VERTEX_NORMAL_COUNT]> = LazyLock::new(|| {
+pub static VERTEX_NORMALS: LazyLock<[Vec3; VERTEX_NORMAL_COUNT]> = LazyLock::new(|| {
     [
         [-0.525731, 0.000000, 0.850651].into(),
         [-0.442863, 0.238856, 0.864188].into(),
@@ -195,9 +194,9 @@ pub static VERTEX_NORMALS: LazyLock<[Vector3<f32>; VERTEX_NORMAL_COUNT]> = LazyL
 
 #[derive(Clone, Copy, Debug)]
 pub struct Angles {
-    pub pitch: Deg<f32>,
-    pub roll: Deg<f32>,
-    pub yaw: Deg<f32>,
+    pub pitch: f32,
+    pub roll: f32,
+    pub yaw: f32,
 }
 
 impl Default for Angles {
@@ -209,34 +208,46 @@ impl Default for Angles {
 impl Angles {
     pub fn zero() -> Angles {
         Angles {
-            pitch: Deg(0.0),
-            roll: Deg(0.0),
-            yaw: Deg(0.0),
+            pitch: 0.,
+            roll: 0.,
+            yaw: 0.,
         }
     }
 
-    pub fn mat3_quake(&self) -> Matrix3<f32> {
-        Matrix3::from_angle_x(-self.roll)
-            * Matrix3::from_angle_y(-self.pitch)
-            * Matrix3::from_angle_z(self.yaw)
+    pub fn mat3_quake(&self) -> Mat3 {
+        Mat3::from_euler(
+            EulerRot::XYZ,
+            -self.roll.to_radians(),
+            -self.pitch.to_radians(),
+            self.yaw.to_radians(),
+        )
     }
 
-    pub fn mat4_quake(&self) -> Matrix4<f32> {
-        Matrix4::from_angle_x(-self.roll)
-            * Matrix4::from_angle_y(-self.pitch)
-            * Matrix4::from_angle_z(self.yaw)
+    pub fn mat4_quake(&self) -> Mat4 {
+        Mat4::from_euler(
+            EulerRot::XYZ,
+            -self.roll.to_radians(),
+            -self.pitch.to_radians(),
+            self.yaw.to_radians(),
+        )
     }
 
-    pub fn mat3_wgpu(&self) -> Matrix3<f32> {
-        Matrix3::from_angle_z(-self.roll)
-            * Matrix3::from_angle_x(self.pitch)
-            * Matrix3::from_angle_y(-self.yaw)
+    pub fn mat3_wgpu(&self) -> Mat3 {
+        Mat3::from_euler(
+            EulerRot::ZXY,
+            -self.roll.to_radians(),
+            self.pitch.to_radians(),
+            -self.yaw.to_radians(),
+        )
     }
 
-    pub fn mat4_wgpu(&self) -> Matrix4<f32> {
-        Matrix4::from_angle_z(-self.roll)
-            * Matrix4::from_angle_x(self.pitch)
-            * Matrix4::from_angle_y(-self.yaw)
+    pub fn mat4_wgpu(&self) -> Mat4 {
+        Mat4::from_euler(
+            EulerRot::ZXY,
+            -self.roll.to_radians(),
+            self.pitch.to_radians(),
+            -self.yaw.to_radians(),
+        )
     }
 }
 
@@ -264,16 +275,16 @@ impl std::ops::Mul<f32> for Angles {
     }
 }
 
-pub fn clamp_deg(val: Deg<f32>, min: Deg<f32>, max: Deg<f32>) -> Deg<f32> {
+pub fn clamp_deg(val: f32, min: f32, max: f32) -> f32 {
     assert!(min <= max);
 
-    return if val < min {
+    if val < min {
         min
     } else if val > max {
         max
     } else {
         val
-    };
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -322,7 +333,7 @@ impl PointIntersection {
         self.ratio
     }
 
-    pub fn point(&self) -> Vector3<f32> {
+    pub fn point(&self) -> Vec3 {
         self.point.into()
     }
 
@@ -370,11 +381,11 @@ impl Neg for Hyperplane {
     fn neg(self) -> Self::Output {
         let normal = match self.alignment {
             Alignment::Axis(a) => {
-                let mut n = Vector3::zero();
+                let mut n = Vec3::ZERO;
                 n[a as usize] = -1.0;
                 n
             }
-            Alignment::Normal(n) => -Vector3::from(n),
+            Alignment::Normal(n) => -Vec3::from(n),
         };
 
         Hyperplane::new(normal, -self.dist)
@@ -386,11 +397,11 @@ impl Hyperplane {
     ///
     /// If the given normal is equivalent to one of the axis normals, the hyperplane will be optimized
     /// to only consider that axis when performing point comparisons.
-    pub fn new(normal: Vector3<f32>, dist: f32) -> Hyperplane {
+    pub fn new(normal: Vec3, dist: f32) -> Hyperplane {
         match normal {
-            n if n == Vector3::unit_x() => Self::axis_x(dist),
-            n if n == Vector3::unit_y() => Self::axis_y(dist),
-            n if n == Vector3::unit_z() => Self::axis_z(dist),
+            n if n == Vec3::X => Self::axis_x(dist),
+            n if n == Vec3::Y => Self::axis_y(dist),
+            n if n == Vec3::Z => Self::axis_z(dist),
             _ => Self::from_normal(normal.normalize(), dist),
         }
     }
@@ -429,7 +440,7 @@ impl Hyperplane {
     ///
     /// This function will force the hyperplane alignment to be represented as a normal even if it
     /// is aligned along an axis.
-    pub fn from_normal(normal: Vector3<f32>, dist: f32) -> Hyperplane {
+    pub fn from_normal(normal: Vec3, dist: f32) -> Hyperplane {
         Hyperplane {
             alignment: Alignment::Normal(normal.normalize().into()),
             dist,
@@ -437,19 +448,19 @@ impl Hyperplane {
     }
 
     /// Returns the surface normal of this plane.
-    pub fn normal(&self) -> Vector3<f32> {
+    pub fn normal(&self) -> Vec3 {
         match self.alignment {
             Alignment::Axis(ax) => match ax {
-                Axis::X => Vector3::unit_x(),
-                Axis::Y => Vector3::unit_y(),
-                Axis::Z => Vector3::unit_z(),
+                Axis::X => Vec3::X,
+                Axis::Y => Vec3::Y,
+                Axis::Z => Vec3::Z,
             },
             Alignment::Normal(normal) => normal.into(),
         }
     }
 
     /// Calculates the shortest distance between this hyperplane and the given point.
-    pub fn point_dist(&self, point: Vector3<f32>) -> f32 {
+    pub fn point_dist(&self, point: Vec3) -> f32 {
         match self.alignment {
             Alignment::Axis(a) => point[a as usize] - self.dist,
             Alignment::Normal(n) => point.dot(n.into()) - self.dist,
@@ -459,7 +470,7 @@ impl Hyperplane {
     /// Calculates which side of this hyperplane the given point belongs to.
     ///
     /// Points with a distance of 0.0 are considered to be on the positive side.
-    pub fn point_side(&self, point: Vector3<f32>) -> HyperplaneSide {
+    pub fn point_side(&self, point: Vec3) -> HyperplaneSide {
         let point_dist_greater = match self.alignment {
             Alignment::Axis(a) => point[a as usize] >= self.dist,
             Alignment::Normal(n) => point.dot(n.into()) - self.dist >= 0.0,
@@ -472,11 +483,7 @@ impl Hyperplane {
     }
 
     /// Calculates the intersection of a line segment with this hyperplane.
-    pub fn line_segment_intersection(
-        &self,
-        start: Vector3<f32>,
-        end: Vector3<f32>,
-    ) -> LinePlaneIntersect {
+    pub fn line_segment_intersection(&self, start: Vec3, end: Vec3) -> LinePlaneIntersect {
         let start_dist = self.point_dist(start);
         let end_dist = self.point_dist(end);
 
@@ -511,16 +518,15 @@ impl Hyperplane {
     }
 }
 
-pub fn fov_x_to_fov_y(fov_x: Deg<f32>, aspect: f32) -> Option<Deg<f32>> {
+pub fn fov_x_to_fov_y(fov_x: f32, aspect: f32) -> Option<f32> {
     // aspect = tan(fov_x / 2) / tan(fov_y / 2)
     // tan(fov_y / 2) = tan(fov_x / 2) / aspect
     // fov_y / 2 = atan(tan(fov_x / 2) / aspect)
     // fov_y = 2 * atan(tan(fov_x / 2) / aspect)
     match fov_x {
-        // TODO: genericize over cgmath::Angle
-        f if f < Deg(0.0) => None,
-        f if f > Deg(360.0) => None,
-        f => Some(Deg::atan((f / 2.0).tan() / aspect) * 2.0),
+        f if f < 0. => None,
+        f if f > 360.0 => None,
+        f => Some(f32::atan((f / 2.0).tan() / aspect) * 2.0),
     }
 }
 
@@ -538,7 +544,7 @@ const COLLINEAR_EPSILON: f32 = 0.001;
 /// Special cases:
 /// - If `vs.len() < 2`, always returns `false`.
 /// - If `vs.len() == 2`, always returns `true`.
-pub fn collinear(vs: &[Vector3<f32>]) -> bool {
+pub fn collinear(vs: &[Vec3]) -> bool {
     match vs.len() {
         l if l < 2 => false,
         2 => true,
@@ -559,7 +565,7 @@ pub fn collinear(vs: &[Vector3<f32>]) -> bool {
     }
 }
 
-pub fn remove_collinear(vs: Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
+pub fn remove_collinear(vs: Vec<Vec3>) -> Vec<Vec3> {
     assert!(vs.len() >= 3);
 
     let mut out = Vec::new();
@@ -587,12 +593,12 @@ pub fn remove_collinear(vs: Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
     out
 }
 
-pub fn bounds<'a, I>(points: I) -> (Vector3<f32>, Vector3<f32>)
+pub fn bounds<'a, I>(points: I) -> (Vec3, Vec3)
 where
-    I: IntoIterator<Item = &'a Vector3<f32>>,
+    I: IntoIterator<Item = &'a Vec3>,
 {
-    let mut min = Vector3::new(32767.0, 32767.0, 32767.0);
-    let mut max = Vector3::new(-32768.0, -32768.0, -32768.0);
+    let mut min = Vec3::new(32767.0, 32767.0, 32767.0);
+    let mut max = Vec3::new(-32768.0, -32768.0, -32768.0);
     for p in points.into_iter() {
         for c in 0..3 {
             min[c] = p[c].min(min[c]);
@@ -602,7 +608,7 @@ where
     (min, max)
 }
 
-pub fn vec2_extend_n(v: Vector2<f32>, n: usize, val: f32) -> Vector3<f32> {
+pub fn vec2_extend_n(v: Vec2, n: usize, val: f32) -> Vec3 {
     let mut ar = [0.0; 3];
     for i in 0..3 {
         match i.cmp(&n) {
@@ -615,7 +621,7 @@ pub fn vec2_extend_n(v: Vector2<f32>, n: usize, val: f32) -> Vector3<f32> {
     ar.into()
 }
 
-pub fn vec3_truncate_n(v: Vector3<f32>, n: usize) -> Vector2<f32> {
+pub fn vec3_truncate_n(v: Vec3, n: usize) -> Vec2 {
     let mut ar = [0.0; 2];
     for i in 0..3 {
         match i.cmp(&n) {
@@ -634,40 +640,22 @@ mod test {
     #[test]
     fn test_hyperplane_side_x() {
         let plane = Hyperplane::axis_x(1.0);
-        assert_eq!(
-            plane.point_side(Vector3::unit_x() * 2.0),
-            HyperplaneSide::Positive
-        );
-        assert_eq!(
-            plane.point_side(Vector3::unit_x() * -2.0),
-            HyperplaneSide::Negative
-        );
+        assert_eq!(plane.point_side(Vec3::X * 2.0), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::X * -2.0), HyperplaneSide::Negative);
     }
 
     #[test]
     fn test_hyperplane_side_y() {
         let plane = Hyperplane::axis_y(1.0);
-        assert_eq!(
-            plane.point_side(Vector3::unit_y() * 2.0),
-            HyperplaneSide::Positive
-        );
-        assert_eq!(
-            plane.point_side(Vector3::unit_y() * -2.0),
-            HyperplaneSide::Negative
-        );
+        assert_eq!(plane.point_side(Vec3::Y * 2.0), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::Y * -2.0), HyperplaneSide::Negative);
     }
 
     #[test]
     fn test_hyperplane_side_z() {
         let plane = Hyperplane::axis_z(1.0);
-        assert_eq!(
-            plane.point_side(Vector3::unit_z() * 2.0),
-            HyperplaneSide::Positive
-        );
-        assert_eq!(
-            plane.point_side(Vector3::unit_z() * -2.0),
-            HyperplaneSide::Negative
-        );
+        assert_eq!(plane.point_side(Vec3::Z * 2.0), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::Z * -2.0), HyperplaneSide::Negative);
     }
 
     #[test]
@@ -677,19 +665,19 @@ mod test {
             for y_comp in [1.0, -1.0].into_iter() {
                 for z_comp in [1.0, -1.0].into_iter() {
                     for dist in [1, -1].into_iter() {
-                        let base_vector = Vector3::new(*x_comp, *y_comp, *z_comp);
-                        let plane = Hyperplane::new(base_vector, *dist as f32);
+                        let base_vector = Vec3::new(x_comp, y_comp, z_comp);
+                        let plane = Hyperplane::new(base_vector, dist as f32);
                         assert_eq!(
-                            plane.point_side(Vector3::zero()),
-                            match *dist {
+                            plane.point_side(Vec3::ZERO),
+                            match dist {
                                 1 => HyperplaneSide::Negative,
                                 -1 => HyperplaneSide::Positive,
                                 _ => unreachable!(),
                             }
                         );
                         assert_eq!(
-                            plane.point_side(base_vector * 2.0 * *dist as f32),
-                            match *dist {
+                            plane.point_side(base_vector * 2.0 * dist as f32),
+                            match dist {
                                 1 => HyperplaneSide::Positive,
                                 -1 => HyperplaneSide::Negative,
                                 _ => unreachable!(),
@@ -704,55 +692,55 @@ mod test {
     #[test]
     fn test_hyperplane_point_dist_x() {
         let plane = Hyperplane::axis_x(1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_x() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        assert_eq!(plane.point_dist(Vec3::X * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_point_dist_y() {
         let plane = Hyperplane::axis_y(1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_y() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        assert_eq!(plane.point_dist(Vec3::Y * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_point_dist_z() {
         let plane = Hyperplane::axis_z(1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_z() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        assert_eq!(plane.point_dist(Vec3::Z * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_point_dist_x_no_axis() {
-        let plane = Hyperplane::from_normal(Vector3::unit_x(), 1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_x() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::X, 1.0);
+        assert_eq!(plane.point_dist(Vec3::X * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_point_dist_y_no_axis() {
-        let plane = Hyperplane::from_normal(Vector3::unit_y(), 1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_y() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::Y, 1.0);
+        assert_eq!(plane.point_dist(Vec3::Y * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_point_dist_z_no_axis() {
-        let plane = Hyperplane::from_normal(Vector3::unit_z(), 1.0);
-        assert_eq!(plane.point_dist(Vector3::unit_z() * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vector3::zero()), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::Z, 1.0);
+        assert_eq!(plane.point_dist(Vec3::Z * 2.0), 1.0);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
     }
 
     #[test]
     fn test_hyperplane_line_segment_intersection_x() {
         let plane = Hyperplane::axis_x(1.0);
-        let start = Vector3::new(0.0, 0.5, 0.5);
-        let end = Vector3::new(2.0, 0.5, 0.5);
+        let start = Vec3::new(0.0, 0.5, 0.5);
+        let end = Vec3::new(2.0, 0.5, 0.5);
 
         match plane.line_segment_intersection(start, end) {
             LinePlaneIntersect::PointIntersection(p_i) => {
                 assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vector3::new(1.0, 0.5, 0.5));
+                assert_eq!(p_i.point(), Vec3::new(1.0, 0.5, 0.5));
             }
             _ => panic!(),
         }
@@ -761,13 +749,13 @@ mod test {
     #[test]
     fn test_hyperplane_line_segment_intersection_y() {
         let plane = Hyperplane::axis_y(1.0);
-        let start = Vector3::new(0.5, 0.0, 0.5);
-        let end = Vector3::new(0.5, 2.0, 0.5);
+        let start = Vec3::new(0.5, 0.0, 0.5);
+        let end = Vec3::new(0.5, 2.0, 0.5);
 
         match plane.line_segment_intersection(start, end) {
             LinePlaneIntersect::PointIntersection(p_i) => {
                 assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vector3::new(0.5, 1.0, 0.5));
+                assert_eq!(p_i.point(), Vec3::new(0.5, 1.0, 0.5));
             }
             _ => panic!(),
         }
@@ -776,13 +764,13 @@ mod test {
     #[test]
     fn test_hyperplane_line_segment_intersection_z() {
         let plane = Hyperplane::axis_z(1.0);
-        let start = Vector3::new(0.5, 0.5, 0.0);
-        let end = Vector3::new(0.5, 0.5, 2.0);
+        let start = Vec3::new(0.5, 0.5, 0.0);
+        let end = Vec3::new(0.5, 0.5, 2.0);
 
         match plane.line_segment_intersection(start, end) {
             LinePlaneIntersect::PointIntersection(p_i) => {
                 assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vector3::new(0.5, 0.5, 1.0));
+                assert_eq!(p_i.point(), Vec3::new(0.5, 0.5, 1.0));
             }
             _ => panic!(),
         }
@@ -791,18 +779,8 @@ mod test {
     #[test]
     fn test_collinear() {
         let cases = vec![
-            (
-                vec![Vector3::unit_x(), Vector3::unit_y(), Vector3::unit_z()],
-                false,
-            ),
-            (
-                vec![
-                    Vector3::unit_x(),
-                    Vector3::unit_x() * 2.0,
-                    Vector3::unit_x() * 3.0,
-                ],
-                true,
-            ),
+            (vec![Vec3::X, Vec3::Y, Vec3::Z], false),
+            (vec![Vec3::X, Vec3::X * 2.0, Vec3::X * 3.0], true),
             (
                 vec![
                     [1400.0, 848.0, -456.0].into(),

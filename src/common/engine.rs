@@ -15,7 +15,6 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use cgmath::{Deg, Vector3};
 use chrono::Duration;
 
 // TODO: handle this unwrap? i64 can handle ~200,000 years in microseconds
@@ -27,14 +26,4 @@ pub fn duration_to_f32(d: Duration) -> f32 {
 #[inline]
 pub fn duration_from_f32(f: f32) -> Duration {
     Duration::microseconds((f * 1_000_000.0) as i64)
-}
-
-#[inline]
-pub fn deg_vector_to_f32_vector(av: Vector3<Deg<f32>>) -> Vector3<f32> {
-    Vector3::new(av[0].0, av[1].0, av[2].0)
-}
-
-#[inline]
-pub fn deg_vector_from_f32_vector(v: Vector3<f32>) -> Vector3<Deg<f32>> {
-    Vector3::new(Deg(v[0]), Deg(v[1]), Deg(v[2]))
 }

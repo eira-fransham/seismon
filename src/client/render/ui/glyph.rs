@@ -12,15 +12,17 @@ use crate::{
     common::util::any_slice_as_bytes,
 };
 
-use bevy::render::{
-    render_phase::TrackedRenderPass,
-    render_resource::{
-        BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, Texture,
-        TextureView,
+use bevy::{
+    math::Vec2,
+    render::{
+        render_phase::TrackedRenderPass,
+        render_resource::{
+            BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, Texture,
+            TextureView,
+        },
+        renderer::{RenderDevice, RenderQueue},
     },
-    renderer::{RenderDevice, RenderQueue},
 };
-use cgmath::Vector2;
 
 pub const GLYPH_WIDTH: usize = 8;
 pub const GLYPH_HEIGHT: usize = 8;
@@ -178,8 +180,8 @@ impl Pipeline for GlyphPipeline {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphInstance {
-    pub position: Vector2<f32>,
-    pub scale: Vector2<f32>,
+    pub position: Vec2,
+    pub scale: Vec2,
     pub layer: u32,
 }
 

@@ -32,7 +32,6 @@ use arrayvec::ArrayString;
 use bevy::prelude::*;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cgmath::{Deg, Vector3};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
@@ -560,8 +559,7 @@ impl Entity {
                 .ok()?,
         );
 
-        let angles: Vector3<f32> = angles.into();
-        let angles = angles.map(Deg);
+        let angles: Vec3 = angles.into();
 
         Some(EntityState {
             model_id,
@@ -803,7 +801,7 @@ impl Entity {
         max: V,
     ) -> Result<(), EntityError>
     where
-        V: Into<Vector3<f32>>,
+        V: Into<Vec3>,
     {
         let min = min.into();
         let max = max.into();
@@ -832,13 +830,13 @@ impl Entity {
         }
     }
 
-    pub fn abs_min(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn abs_min(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::AbsMin as i16)?
             .into())
     }
 
-    pub fn abs_max(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn abs_max(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::AbsMax as i16)?
             .into())
@@ -855,31 +853,31 @@ impl Entity {
         }
     }
 
-    pub fn origin(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn origin(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::Origin as i16)?
             .into())
     }
 
-    pub fn min(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn min(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::Mins as i16)?
             .into())
     }
 
-    pub fn max(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn max(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::Maxs as i16)?
             .into())
     }
 
-    pub fn size(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn size(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::Size as i16)?
             .into())
     }
 
-    pub fn velocity(&self, type_def: &EntityTypeDef) -> Result<Vector3<f32>, EntityError> {
+    pub fn velocity(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
         Ok(self
             .get_vector(type_def, FieldAddrVector::Velocity as i16)?
             .into())
@@ -888,7 +886,7 @@ impl Entity {
     pub fn set_velocity(
         &mut self,
         type_def: &EntityTypeDef,
-        velocity: Vector3<f32>,
+        velocity: Vec3,
     ) -> Result<(), EntityError> {
         Ok(self.store(type_def, FieldAddrVector::Velocity, velocity.into())?)
     }
@@ -925,7 +923,7 @@ impl Entity {
         sv_maxvelocity: f32,
     ) -> Result<(), EntityError> {
         let mut vel = self.velocity(type_def)?;
-        for c in &mut vel[..] {
+        for c in &mut vel.to_array()[..] {
             *c = c.clamp(-sv_maxvelocity, sv_maxvelocity);
         }
         self.put_vector(type_def, vel.into(), FieldAddrVector::Velocity as i16)?;

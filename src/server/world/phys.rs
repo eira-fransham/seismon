@@ -24,7 +24,6 @@ use crate::{
 
 use bevy::prelude::*;
 use bitflags::bitflags;
-use cgmath::{InnerSpace, Vector3, Zero};
 use num_derive::FromPrimitive;
 
 /// Velocity in units/second under which a *component* (not the entire
@@ -65,28 +64,28 @@ pub struct Collide {
     pub e_id: Option<EntityId>,
 
     /// The minimum extent of the entire move.
-    pub move_min: Vector3<f32>,
+    pub move_min: Vec3,
 
     /// The maximum extent of the entire move.
-    pub move_max: Vector3<f32>,
+    pub move_max: Vec3,
 
     /// The minimum extent of the moving object.
-    pub min: Vector3<f32>,
+    pub min: Vec3,
 
     /// The maximum extent of the moving object.
-    pub max: Vector3<f32>,
+    pub max: Vec3,
 
     /// The minimum extent of the moving object when colliding with a monster.
-    pub monster_min: Vector3<f32>,
+    pub monster_min: Vec3,
 
     /// The maximum extent of the moving object when colliding with a monster.
-    pub monster_max: Vector3<f32>,
+    pub monster_max: Vec3,
 
     /// The start point of the move.
-    pub start: Vector3<f32>,
+    pub start: Vec3,
 
     /// The end point of the move.
-    pub end: Vector3<f32>,
+    pub end: Vec3,
 
     /// How this move collides with other entities.
     pub kind: CollideKind,
@@ -99,10 +98,10 @@ pub struct Collide {
 /// while a value of `2` reflects that component to be parallel to
 /// `surface_normal`.
 pub fn velocity_after_collision(
-    initial: Vector3<f32>,
-    surface_normal: Vector3<f32>,
+    initial: Vec3,
+    surface_normal: Vec3,
     overbounce: f32,
-) -> (Vector3<f32>, CollisionFlags) {
+) -> (Vec3, CollisionFlags) {
     let mut flags = CollisionFlags::empty();
 
     if surface_normal.z > 0.0 {
@@ -125,10 +124,10 @@ pub fn velocity_after_collision(
 
 /// Calculates a new velocity after collision with multiple surfaces.
 pub fn velocity_after_multi_collision(
-    initial: Vector3<f32>,
+    initial: Vec3,
     planes: &[Hyperplane],
     overbounce: f32,
-) -> Option<Vector3<f32>> {
+) -> Option<Vec3> {
     // Try to find a plane which produces a post-collision velocity that will
     // not cause a subsequent collision with any of the other planes.
     'outer: for (a, plane_a) in planes.iter().enumerate() {
@@ -167,14 +166,14 @@ pub fn velocity_after_multi_collision(
 /// Represents the start of a collision trace.
 #[derive(Clone, Debug)]
 pub struct TraceStart {
-    point: Vector3<f32>,
+    point: Vec3,
     /// The ratio along the original trace length at which this (sub)trace
     /// begins.
     ratio: f32,
 }
 
 impl TraceStart {
-    pub fn new(point: Vector3<f32>, ratio: f32) -> TraceStart {
+    pub fn new(point: Vec3, ratio: f32) -> TraceStart {
         TraceStart { point, ratio }
     }
 }
@@ -199,19 +198,19 @@ pub enum TraceEndKind {
 /// Represents the end of a trace.
 #[derive(Clone, Debug)]
 pub struct TraceEnd {
-    point: Vector3<f32>,
+    point: Vec3,
     kind: TraceEndKind,
 }
 
 impl TraceEnd {
-    pub fn terminal(point: Vector3<f32>) -> TraceEnd {
+    pub fn terminal(point: Vec3) -> TraceEnd {
         TraceEnd {
             point,
             kind: TraceEndKind::Terminal,
         }
     }
 
-    pub fn boundary(point: Vector3<f32>, ratio: f32, plane: Hyperplane) -> TraceEnd {
+    pub fn boundary(point: Vec3, ratio: f32, plane: Hyperplane) -> TraceEnd {
         TraceEnd {
             point,
             kind: TraceEndKind::Boundary(TraceEndBoundary { ratio, plane }),
@@ -307,7 +306,7 @@ impl Trace {
     }
 
     /// Adjusts the start and end points of the trace by an offset.
-    pub fn adjust(self, offset: Vector3<f32>) -> Trace {
+    pub fn adjust(self, offset: Vec3) -> Trace {
         Trace {
             start: TraceStart {
                 point: self.start.point + offset,
@@ -323,7 +322,7 @@ impl Trace {
     }
 
     /// Returns the point at which the trace began.
-    pub fn start_point(&self) -> Vector3<f32> {
+    pub fn start_point(&self) -> Vec3 {
         self.start.point
     }
 
@@ -333,7 +332,7 @@ impl Trace {
     }
 
     /// Returns the point at which the trace ended.
-    pub fn end_point(&self) -> Vector3<f32> {
+    pub fn end_point(&self) -> Vec3 {
         self.end.point
     }
 
@@ -384,14 +383,9 @@ bitflags! {
     }
 }
 
-pub fn bounds_for_move(
-    start: Vector3<f32>,
-    min: Vector3<f32>,
-    max: Vector3<f32>,
-    end: Vector3<f32>,
-) -> (Vector3<f32>, Vector3<f32>) {
-    let mut box_min = Vector3::zero();
-    let mut box_max = Vector3::zero();
+pub fn bounds_for_move(start: Vec3, min: Vec3, max: Vec3, end: Vec3) -> (Vec3, Vec3) {
+    let mut box_min = Vec3::ZERO;
+    let mut box_max = Vec3::ZERO;
 
     for i in 0..3 {
         if end[i] > start[i] {

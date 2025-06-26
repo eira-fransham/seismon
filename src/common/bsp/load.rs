@@ -36,7 +36,6 @@ use crate::common::{
 use super::{BspTextureFrame, BspTextureKind};
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use cgmath::{InnerSpace, Vector3};
 use failure::{ResultExt as _, bail, ensure};
 use hashbrown::HashMap;
 use num::FromPrimitive;
@@ -223,7 +222,7 @@ fn read_hyperplane<R>(reader: &mut R) -> Result<Hyperplane, failure::Error>
 where
     R: ReadBytesExt,
 {
-    let normal: Vector3<f32> = read_f32_3(reader)?.into();
+    let normal: Vec3 = read_f32_3(reader)?.into();
     let dist = reader.read_f32::<LittleEndian>()?;
     let plane = match Axis::from_i32(reader.read_i32::<LittleEndian>()?) {
         Some(ax) => match ax {
@@ -809,16 +808,16 @@ where
         planes: planes_rc.clone(),
         nodes: collision_nodes_rc.clone(),
         node_id: 0,
-        mins: Vector3::new(-16.0, -16.0, -24.0),
-        maxs: Vector3::new(16.0, 16.0, 32.0),
+        mins: Vec3::new(-16.0, -16.0, -24.0),
+        maxs: Vec3::new(16.0, 16.0, 32.0),
     };
 
     let hull_2 = BspCollisionHull {
         planes: planes_rc.clone(),
         nodes: collision_nodes_rc.clone(),
         node_id: 0,
-        mins: Vector3::new(-32.0, -32.0, -24.0),
-        maxs: Vector3::new(32.0, 32.0, 64.0),
+        mins: Vec3::new(-32.0, -32.0, -24.0),
+        maxs: Vec3::new(32.0, 32.0, 64.0),
     };
 
     if reader.seek(SeekFrom::Current(0))?
@@ -998,8 +997,8 @@ where
         planes: planes_rc.clone(),
         nodes: render_as_collision_nodes_rc.clone(),
         node_id: 0,
-        mins: Vector3::new(0.0, 0.0, 0.0),
-        maxs: Vector3::new(0.0, 0.0, 0.0),
+        mins: Vec3::new(0.0, 0.0, 0.0),
+        maxs: Vec3::new(0.0, 0.0, 0.0),
     };
 
     let bsp_data = Arc::new(BspData {
@@ -1024,8 +1023,8 @@ where
     let mut brush_models = Vec::with_capacity(model_count);
     for i in 0..model_count {
         // pad the bounding box by one unit in all directions
-        let min = Vector3::from(read_f32_3(&mut reader)?) - Vector3::new(1.0, 1.0, 1.0);
-        let max = Vector3::from(read_f32_3(&mut reader)?) + Vector3::new(1.0, 1.0, 1.0);
+        let min = Vec3::from(read_f32_3(&mut reader)?) - Vec3::new(1.0, 1.0, 1.0);
+        let max = Vec3::from(read_f32_3(&mut reader)?) + Vec3::new(1.0, 1.0, 1.0);
         let origin = read_f32_3(&mut reader)?.into();
 
         debug!("model[{i}].min = {min:?}");

@@ -286,6 +286,7 @@ where
         length.map(|l| l.max(2)),
         data.format(),
     ));
+    dbg!(data.data().len());
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &texture,
@@ -297,7 +298,7 @@ where
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * data.stride()),
-            rows_per_image: if length.is_some() { Some(height) } else { None },
+            rows_per_image: Some(height),
         },
         wgpu::Extent3d {
             width,
@@ -822,7 +823,7 @@ impl GraphicsState {
             lightmap.image.width(),
             lightmap.image.height(),
             None,
-            &TextureData::Lightmap(fullbright.image.data.clone().unwrap_or_default().into()),
+            &TextureData::Lightmap(lightmap.image.data.clone().unwrap_or_default().into()),
         );
 
         self.world_bind_groups[world::BindGroupLayoutId::PerEntity as usize] = device

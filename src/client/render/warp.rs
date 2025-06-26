@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
-use crate::common::math;
+use bevy::math::Vec3;
 
-use cgmath::Vector3;
+use crate::common::math;
 
 // TODO: make this a cvar
 const SUBDIVIDE_SIZE: f32 = 32.0;
@@ -19,13 +19,13 @@ const SUBDIVIDE_SIZE: f32 = 32.0;
 ///       the next axis.
 ///    1. For each vertex *v*...
 /// TODO...
-pub fn subdivide(verts: Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
+pub fn subdivide(verts: Vec<Vec3>) -> Vec<Vec3> {
     let mut out = Vec::new();
     subdivide_impl(verts, &mut out);
     out
 }
 
-fn subdivide_impl(mut verts: Vec<Vector3<f32>>, output: &mut Vec<Vector3<f32>>) {
+fn subdivide_impl(mut verts: Vec<Vec3>, output: &mut Vec<Vec3>) {
     let (min, max) = math::bounds(&verts);
 
     let mut front = Vec::new();

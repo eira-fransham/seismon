@@ -70,7 +70,9 @@ impl MusicPlayer {
         let name = name.as_ref();
 
         // don't replay the same track
-        if let Some((playing, _)) = &self.playing && playing == name {
+        if let Some((playing, _)) = &self.playing
+            && playing == name
+        {
             return Ok(());
         }
 
@@ -112,7 +114,8 @@ impl MusicPlayer {
         )?;
 
         let source =
-            SamplePlayer::new(asset_server.add(Sample::new(DecodedAudioF32::from(decoded)))).looping();
+            SamplePlayer::new(asset_server.add(Sample::new(DecodedAudioF32::from(decoded))))
+                .looping();
 
         self.stop(commands);
 

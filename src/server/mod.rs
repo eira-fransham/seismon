@@ -60,7 +60,6 @@ use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, WriteBytesExt as _};
-use cgmath::{Array, Deg, InnerSpace, Matrix3, Vector3, Zero};
 use chrono::Duration;
 use failure::bail;
 use hashbrown::{HashMap, HashSet};
@@ -919,7 +918,7 @@ impl LevelState {
     pub fn set_entity_origin(
         &mut self,
         ent_id: EntityId,
-        origin: Vector3<f32>,
+        origin: Vec3,
         registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<(), ProgsError> {
@@ -1179,10 +1178,10 @@ impl LevelState {
 
         let frame_time_f = duration_to_f32(frame_time);
 
-        let angles: Vector3<f32> = ent
+        let angles: Vec3 = ent
             .load(&self.world.type_def, FieldAddrVector::Angles)?
             .into();
-        let angle_vel: Vector3<f32> = ent
+        let angle_vel: Vec3 = ent
             .load(&self.world.type_def, FieldAddrVector::AngularVelocity)?
             .into();
         let new_angles = angles + frame_time_f * angle_vel;
@@ -1192,10 +1191,10 @@ impl LevelState {
             new_angles.into(),
         )?;
 
-        let orig: Vector3<f32> = ent
+        let orig: Vec3 = ent
             .load(&self.world.type_def, FieldAddrVector::Origin)?
             .into();
-        let vel: Vector3<f32> = ent
+        let vel: Vec3 = ent
             .load(&self.world.type_def, FieldAddrVector::Velocity)?
             .into();
         let new_orig = orig + frame_time_f * vel;
@@ -1256,7 +1255,7 @@ impl LevelState {
             .intersects(EntityFlags::ON_GROUND | EntityFlags::FLY | EntityFlags::IN_WATER);
 
         if in_freefall {
-            let vel: Vector3<f32> = self
+            let vel: Vec3 = self
                 .world
                 .entities
                 .try_get(ent_id)?
@@ -1311,10 +1310,10 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let ent = self.world.entities.get_mut(ent_id)?;
 
-        let vel: Vector3<f32> = ent
+        let vel: Vec3 = ent
             .load(&self.world.type_def, FieldAddrVector::Velocity)?
             .into();
-        if vel.is_zero() {
+        if vel == Vec3::ZERO {
             // Entity doesn't need to move.
             let local_time = ent.load(&self.world.type_def, FieldAddrFloat::LocalTime)?;
             let new_local_time = local_time + duration_to_f32(move_time);
@@ -1367,7 +1366,7 @@ impl LevelState {
                 .try_get(ent_id)?
                 .velocity(&self.world.type_def)?;
 
-            if velocity.is_zero() {
+            if velocity == Vec3::ZERO {
                 // Not moving.
                 break;
             }
@@ -1398,7 +1397,7 @@ impl LevelState {
                 self.world.entities.get_mut(ent_id)?.store(
                     &self.world.type_def,
                     FieldAddrVector::Velocity,
-                    Vector3::zero().into(),
+                    Vec3::ZERO.into(),
                 )?;
 
                 return Ok((CollisionFlags::HORIZONTAL | CollisionFlags::VERTICAL, None));
@@ -1471,7 +1470,7 @@ impl LevelState {
                 self.world.entities.get_mut(ent_id)?.store(
                     &self.world.type_def,
                     FieldAddrVector::Velocity,
-                    Vector3::zero().into(),
+                    Vec3::ZERO.into(),
                 )?;
                 return Ok((CollisionFlags::HORIZONTAL | CollisionFlags::VERTICAL, None));
             }
@@ -1484,7 +1483,7 @@ impl LevelState {
                         self.world.entities.get_mut(ent_id)?.store(
                             &self.world.type_def,
                             FieldAddrVector::Velocity,
-                            Vector3::zero().into(),
+                            Vec3::ZERO.into(),
                         )?;
 
                         return Ok((
@@ -1501,7 +1500,7 @@ impl LevelState {
                 self.world.entities.get_mut(ent_id)?.store(
                     &self.world.type_def,
                     FieldAddrVector::Velocity,
-                    Vector3::zero().into(),
+                    Vec3::ZERO.into(),
                 )?;
                 return Ok((flags, out_trace));
             }
@@ -1538,7 +1537,7 @@ impl LevelState {
             .try_get(ent_id)?
             .origin(&self.world.type_def)?;
 
-        let end = Vector3::new(origin.x, origin.y, origin.z - Self::DROP_TO_FLOOR_DIST);
+        let end = Vec3::new(origin.x, origin.y, origin.z - Self::DROP_TO_FLOOR_DIST);
         let min = self
             .world
             .entities
@@ -1556,7 +1555,7 @@ impl LevelState {
         debug!("End position after drop: {:?}", trace.end_point());
 
         let drop_dist = 256.0;
-        let actual_dist = (trace.end_point() - origin).magnitude();
+        let actual_dist = (trace.end_point() - origin).length();
 
         if collide_entity.is_none() || actual_dist == drop_dist || trace.all_solid() {
             // Entity didn't hit the floor or is stuck.
@@ -2032,7 +2031,7 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let e_id = self.globals.entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let origin = self.globals.get_vector(GLOBAL_ADDR_ARG_1 as i16)?;
-        self.set_entity_origin(e_id, Vector3::from(origin), registry, vfs)?;
+        self.set_entity_origin(e_id, Vec3::from(origin), registry, vfs)?;
 
         Ok(())
     }
@@ -2307,7 +2306,7 @@ impl LevelState {
             .unwrap();
         self.world.entities.get_mut(this).unwrap().set_velocity(
             &self.world.type_def,
-            Matrix3::from_angle_y(Deg(yaw)) * Vector3::unit_x() * dist,
+            Mat3::from_rotation_y(yaw.to_radians()) * Vec3::X * dist,
         )?;
         self.physics_step(this, Duration::try_seconds(1).unwrap(), vfs, registry)?;
         self.world
@@ -2361,7 +2360,7 @@ impl LevelState {
             colormap,
             skin_id,
             origin: origin.into(),
-            angles: angles.map(Deg).into(),
+            angles: angles.into(),
         }
         .serialize(&mut self.broadcast)?;
 
@@ -2500,8 +2499,8 @@ impl LevelState {
         let (trace, hit_ent) = self.world.trace_entity_move(
             ent,
             v1.into(),
-            Vector3::zero(),
-            Vector3::zero(),
+            Vec3::ZERO,
+            Vec3::ZERO,
             v2.into(),
             CollideKind::from_f32(kind).unwrap_or_default(),
         )?;
@@ -2530,7 +2529,7 @@ impl LevelState {
             trace
                 .plane()
                 .map(|plane| plane.normal())
-                .unwrap_or(Vector3::zero())
+                .unwrap_or(Vec3::ZERO)
                 .into(),
             GlobalAddrVector::TracePlaneNormal as _,
         )?;
@@ -2549,11 +2548,11 @@ impl LevelState {
     #[inline]
     pub fn builtin_normalize(&mut self) -> Result<(), ProgsError> {
         let vec = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
-        let normalized = Vector3::from(vec).normalize();
+        let normalized = Vec3::from(vec).normalize();
         let normalized = if normalized.is_finite() {
             normalized
         } else {
-            Vector3::zero()
+            Vec3::ZERO
         };
 
         self.globals
@@ -2895,7 +2894,6 @@ pub mod systems {
                             angles: entity
                                 .get_vector(&level.world.type_def, FieldAddrVector::Angles as i16)
                                 .unwrap()
-                                .map(Deg)
                                 .into(),
                         }
                         .serialize(&mut packet)

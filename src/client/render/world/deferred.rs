@@ -3,20 +3,18 @@ use std::{mem::size_of, num::NonZeroU64, slice};
 use bevy::{
     core_pipeline::prepass::ViewPrepassTextures,
     ecs::resource::Resource,
+    math::{Mat4, Vec3},
     prelude::default,
     render::{
         camera::ExtractedCamera,
         render_graph::{RenderLabel, ViewNode},
         render_phase::TrackedRenderPass,
-        render_resource::{
-            BindGroup, BindGroupLayout, BindGroupLayoutEntry, Buffer, RenderPipeline, TextureView,
-        },
+        render_resource::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, TextureView},
         renderer::{RenderDevice, RenderQueue},
         texture::{CachedTexture, ColorAttachment},
         view::{PostProcessWrite, ViewTarget},
     },
 };
-use cgmath::{Deg, Matrix4, SquareMatrix as _, Vector3};
 
 use crate::client::{
     entity::MAX_LIGHTS,
@@ -62,7 +60,7 @@ impl DeferredPipeline {
         let uniform_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[DeferredUniforms {
-                inv_projection: Matrix4::identity().into(),
+                inv_projection: Mat4::IDENTITY.to_cols_array_2d(),
                 light_count: 0,
                 exposure: 0.,
                 _pad: default(),
@@ -408,10 +406,10 @@ impl ViewNode for DeferredPass {
         // if client is fully connected, draw world
         let camera = match kind {
             RenderConnectionKind::Demo => {
-                cl_state.demo_camera(width as f32 / height as f32, Deg(render_vars.fov as _))
+                cl_state.demo_camera(width as f32 / height as f32, render_vars.fov as _)
             }
             RenderConnectionKind::Server => {
-                cl_state.camera(width as f32 / height as f32, Deg(render_vars.fov as _))
+                cl_state.camera(width as f32 / height as f32, render_vars.fov as _)
             }
         };
 
@@ -440,7 +438,7 @@ impl ViewNode for DeferredPass {
         for (light_id, light) in cl_state.iter_lights().enumerate().take(MAX_LIGHTS) {
             light_count += 1;
             let light_origin = light.origin();
-            let converted_origin = Vector3::new(-light_origin.y, light_origin.z, -light_origin.x);
+            let converted_origin = Vec3::new(-light_origin.y, light_origin.z, -light_origin.x);
             lights[light_id].origin = (camera.view() * converted_origin.extend(1.0))
                 .truncate()
                 .into();
@@ -448,7 +446,7 @@ impl ViewNode for DeferredPass {
         }
 
         let uniforms = DeferredUniforms {
-            inv_projection: camera.inverse_projection().into(),
+            inv_projection: camera.inverse_projection().to_cols_array_2d(),
             light_count,
             exposure: EXPOSURE_MULTIPLIER * extracted_camera.exposure,
             _pad: default(),

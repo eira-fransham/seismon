@@ -26,6 +26,7 @@ mod menu;
 use std::{path::PathBuf, process::ExitCode};
 
 use bevy::{
+    audio::AudioPlugin,
     core_pipeline::{
         bloom::Bloom,
         experimental::taa::TemporalAntiAliasing,
@@ -294,6 +295,7 @@ fn main() -> ExitCode {
         .set(ImagePlugin::default_nearest());
 
     let default_plugins = default_plugins
+        .disable::<AudioPlugin>()
         .add(bevy_seedling::SeedlingPlugin::default());
 
     app

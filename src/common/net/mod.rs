@@ -34,7 +34,6 @@ use crate::common::{engine, util};
 use bevy::prelude::*;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use cgmath::{Deg, Vector3, Zero};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
@@ -366,13 +365,13 @@ pub enum BeamEntityKind {
 pub enum TempEntity {
     Point {
         kind: PointEntityKind,
-        origin: Vector3<f32>,
+        origin: Vec3,
     },
     Beam {
         kind: BeamEntityKind,
         entity_id: i16,
-        start: Vector3<f32>,
-        end: Vector3<f32>,
+        start: Vec3,
+        end: Vec3,
     },
 }
 
@@ -551,8 +550,8 @@ bitflags! {
 
 #[derive(Clone, Debug)]
 pub struct EntityState {
-    pub origin: Vector3<f32>,
-    pub angles: Vector3<Deg<f32>>,
+    pub origin: Vec3,
+    pub angles: Vec3,
     pub model_id: usize,
     pub frame_id: usize,
 
@@ -565,8 +564,8 @@ pub struct EntityState {
 impl EntityState {
     pub fn uninitialized() -> EntityState {
         EntityState {
-            origin: Vector3::new(0.0, 0.0, 0.0),
-            angles: Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0)),
+            origin: Vec3::new(0.0, 0.0, 0.0),
+            angles: Vec3::new(0.0, 0.0, 0.0),
             model_id: 0,
             frame_id: 0,
             colormap: 0,
@@ -616,11 +615,11 @@ pub struct EntityUpdate {
     pub skin_id: Option<u8>,
     pub effects: Option<EntityEffects>,
     pub origin_x: Option<f32>,
-    pub pitch: Option<Deg<f32>>,
+    pub pitch: Option<f32>,
     pub origin_y: Option<f32>,
-    pub yaw: Option<Deg<f32>>,
+    pub yaw: Option<f32>,
     pub origin_z: Option<f32>,
-    pub roll: Option<Deg<f32>>,
+    pub roll: Option<f32>,
     pub no_lerp: bool,
 }
 
@@ -822,12 +821,12 @@ impl EntityUpdate {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerData {
     pub view_height: Option<f32>,
-    pub ideal_pitch: Option<Deg<f32>>,
-    pub punch_pitch: Option<Deg<f32>>,
+    pub ideal_pitch: Option<f32>,
+    pub punch_pitch: Option<f32>,
     pub velocity_x: Option<f32>,
-    pub punch_yaw: Option<Deg<f32>>,
+    pub punch_yaw: Option<f32>,
     pub velocity_y: Option<f32>,
-    pub punch_roll: Option<Deg<f32>>,
+    pub punch_roll: Option<f32>,
     pub velocity_z: Option<f32>,
     pub items: ItemFlags,
     pub on_ground: bool,
@@ -849,12 +848,12 @@ impl EntityUpdate {
     /// from the specified baseline state.
     pub fn to_entity_state(&self, baseline: &EntityState) -> EntityState {
         EntityState {
-            origin: Vector3::new(
+            origin: Vec3::new(
                 self.origin_x.unwrap_or(baseline.origin.x),
                 self.origin_y.unwrap_or(baseline.origin.y),
                 self.origin_z.unwrap_or(baseline.origin.z),
             ),
-            angles: Vector3::new(
+            angles: Vec3::new(
                 self.pitch.unwrap_or(baseline.angles[0]),
                 self.yaw.unwrap_or(baseline.angles[1]),
                 self.roll.unwrap_or(baseline.angles[2]),
@@ -1011,7 +1010,7 @@ pub enum ServerCmd {
         entity_id: u16,
         channel: i8,
         sound_id: u8,
-        position: Vector3<f32>,
+        position: Vec3,
     },
     Time {
         time: f32,
@@ -1023,7 +1022,7 @@ pub enum ServerCmd {
         text: QString,
     },
     SetAngle {
-        angles: Vector3<Deg<f32>>,
+        angles: Vec3,
     },
     ServerInfo {
         protocol_version: i32,
@@ -1055,23 +1054,23 @@ pub enum ServerCmd {
         new_colors: PlayerColor,
     },
     Particle {
-        origin: Vector3<f32>,
-        direction: Vector3<f32>,
+        origin: Vec3,
+        direction: Vec3,
         count: u8,
         color: u8,
     },
     Damage {
         armor: u8,
         blood: u8,
-        source: Vector3<f32>,
+        source: Vec3,
     },
     SpawnStatic {
         model_id: u8,
         frame_id: u8,
         colormap: u8,
         skin_id: u8,
-        origin: Vector3<f32>,
-        angles: Vector3<Deg<f32>>,
+        origin: Vec3,
+        angles: Vec3,
     },
     // SpawnBinary, // unused
     SpawnBaseline {
@@ -1080,8 +1079,8 @@ pub enum ServerCmd {
         frame_id: u8,
         colormap: u8,
         skin_id: u8,
-        origin: Vector3<f32>,
-        angles: Vector3<Deg<f32>>,
+        origin: Vec3,
+        angles: Vec3,
     },
     TempEntity {
         temp_entity: TempEntity,
@@ -1098,7 +1097,7 @@ pub enum ServerCmd {
     KilledMonster,
     FoundSecret,
     SpawnStaticSound {
-        origin: Vector3<f32>,
+        origin: Vec3,
         sound_id: u8,
         volume: u8,
         attenuation: u8,
@@ -1242,7 +1241,7 @@ impl ServerCmd {
                 let entity_id = (entity_channel >> 3) as u16;
                 let channel = (entity_channel & 0b111) as i8;
                 let sound_id = reader.read_u8()?;
-                let position = Vector3::new(
+                let position = Vec3::new(
                     read_coord(reader)?,
                     read_coord(reader)?,
                     read_coord(reader)?,
@@ -1276,7 +1275,7 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::SetAngle => {
-                let angles = Vector3::new(
+                let angles = Vec3::new(
                     read_angle(reader)?,
                     read_angle(reader)?,
                     read_angle(reader)?,
@@ -1375,12 +1374,12 @@ impl ServerCmd {
                 };
 
                 let ideal_pitch = match flags.contains(ClientUpdateFlags::IDEAL_PITCH) {
-                    true => Some(Deg(reader.read_i8()? as f32)),
+                    true => Some(reader.read_i8()? as f32),
                     false => None,
                 };
 
                 let punch_pitch = match flags.contains(ClientUpdateFlags::PUNCH_PITCH) {
-                    true => Some(Deg(reader.read_i8()? as f32)),
+                    true => Some(reader.read_i8()? as f32),
                     false => None,
                 };
 
@@ -1390,7 +1389,7 @@ impl ServerCmd {
                 };
 
                 let punch_yaw = match flags.contains(ClientUpdateFlags::PUNCH_YAW) {
-                    true => Some(Deg(reader.read_i8()? as f32)),
+                    true => Some(reader.read_i8()? as f32),
                     false => None,
                 };
 
@@ -1400,7 +1399,7 @@ impl ServerCmd {
                 };
 
                 let punch_roll = match flags.contains(ClientUpdateFlags::PUNCH_ROLL) {
-                    true => Some(Deg(reader.read_i8()? as f32)),
+                    true => Some(reader.read_i8()? as f32),
                     false => None,
                 };
 
@@ -1493,7 +1492,7 @@ impl ServerCmd {
             BasicServerCmdCode::Particle => {
                 let origin = read_coord_vector3(reader)?;
 
-                let mut direction = Vector3::zero();
+                let mut direction = Vec3::ZERO;
                 for i in 0..3 {
                     direction[i] = reader.read_i8()? as f32 * PARTICLE_DIRECTION_READ_FACTOR;
                 }
@@ -1527,8 +1526,8 @@ impl ServerCmd {
                 let colormap = reader.read_u8()?;
                 let skin_id = reader.read_u8()?;
 
-                let mut origin = Vector3::zero();
-                let mut angles = Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0));
+                let mut origin = Vec3::ZERO;
+                let mut angles = Vec3::new(0.0, 0.0, 0.0);
                 for i in 0..3 {
                     origin[i] = read_coord(reader)?;
                     angles[i] = read_angle(reader)?;
@@ -1551,8 +1550,8 @@ impl ServerCmd {
                 let colormap = reader.read_u8()?;
                 let skin_id = reader.read_u8()?;
 
-                let mut origin = Vector3::zero();
-                let mut angles = Vector3::new(Deg(0.0), Deg(0.0), Deg(0.0));
+                let mut origin = Vec3::ZERO;
+                let mut angles = Vec3::new(0.0, 0.0, 0.0);
                 for i in 0..3 {
                     origin[i] = read_coord(reader)?;
                     angles[i] = read_angle(reader)?;
@@ -1851,22 +1850,22 @@ impl ServerCmd {
                     writer.write_u8(vh as i32 as u8)?;
                 }
                 if let Some(ip) = ideal_pitch {
-                    writer.write_u8(ip.0 as i32 as u8)?;
+                    writer.write_u8(ip as i32 as u8)?;
                 }
                 if let Some(pp) = punch_pitch {
-                    writer.write_u8(pp.0 as i32 as u8)?;
+                    writer.write_u8(pp as i32 as u8)?;
                 }
                 if let Some(vx) = velocity_x {
                     writer.write_u8((vx * VELOCITY_WRITE_FACTOR) as i32 as u8)?;
                 }
                 if let Some(py) = punch_yaw {
-                    writer.write_u8(py.0 as i32 as u8)?;
+                    writer.write_u8(py as i32 as u8)?;
                 }
                 if let Some(vy) = velocity_y {
                     writer.write_u8((vy * VELOCITY_WRITE_FACTOR) as i32 as u8)?;
                 }
                 if let Some(pr) = punch_roll {
-                    writer.write_u8(pr.0 as i32 as u8)?;
+                    writer.write_u8(pr as i32 as u8)?;
                 }
                 if let Some(vz) = velocity_z {
                     writer.write_u8((vz * VELOCITY_WRITE_FACTOR) as i32 as u8)?;
@@ -2051,7 +2050,7 @@ pub enum ClientCmd {
     Disconnect,
     Move {
         send_time: Duration,
-        angles: Vector3<Deg<f32>>,
+        angles: Vec3,
         fwd_move: i16,
         side_move: i16,
         up_move: i16,
@@ -2099,7 +2098,7 @@ impl ClientCmd {
             ClientCmdCode::Disconnect => ClientCmd::Disconnect,
             ClientCmdCode::Move => {
                 let send_time = engine::duration_from_f32(reader.read_f32::<LittleEndian>()?);
-                let angles = Vector3::new(
+                let angles = Vec3::new(
                     read_angle(reader)?,
                     read_angle(reader)?,
                     read_angle(reader)?,
@@ -2518,11 +2517,11 @@ where
     Ok(reader.read_i16::<LittleEndian>()? as f32 / 8.0)
 }
 
-fn read_coord_vector3<R>(reader: &mut R) -> io::Result<Vector3<f32>>
+fn read_coord_vector3<R>(reader: &mut R) -> io::Result<Vec3>
 where
     R: Read,
 {
-    Ok(Vector3::new(
+    Ok(Vec3::new(
         read_coord(reader)?,
         read_coord(reader)?,
         read_coord(reader)?,
@@ -2537,37 +2536,37 @@ where
     Ok(())
 }
 
-fn write_coord_vector3<W>(writer: &mut W, coords: Vector3<f32>) -> io::Result<()>
+fn write_coord_vector3<W>(writer: &mut W, coords: Vec3) -> io::Result<()>
 where
     W: Write,
 {
-    for coord in &coords[..] {
+    for coord in &coords.to_array()[..] {
         write_coord(writer, *coord)?;
     }
 
     Ok(())
 }
 
-fn read_angle<R>(reader: &mut R) -> io::Result<Deg<f32>>
+fn read_angle<R>(reader: &mut R) -> io::Result<f32>
 where
     R: Read,
 {
-    Ok(Deg(reader.read_i8()? as f32 * (360.0 / 256.0)))
+    Ok(reader.read_i8()? as f32 * (360.0 / 256.0))
 }
 
-fn write_angle<W>(writer: &mut W, angle: Deg<f32>) -> io::Result<()>
+fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
 where
     W: Write,
 {
-    writer.write_u8(((angle.0 as i32 * 256 / 360) & 0xFF) as u8)?;
+    writer.write_u8(((angle as i32 * 256 / 360) & 0xFF) as u8)?;
     Ok(())
 }
 
-fn write_angle_vector3<W>(writer: &mut W, angles: Vector3<Deg<f32>>) -> io::Result<()>
+fn write_angle_vector3<W>(writer: &mut W, angles: Vec3) -> io::Result<()>
 where
     W: Write,
 {
-    for angle in &angles[..] {
+    for angle in &angles.to_array()[..] {
         write_angle(writer, *angle)?;
     }
 
@@ -2664,8 +2663,8 @@ mod test {
             max_clients: 16,
             game_type: GameType::Deathmatch,
             message: QString::from("Test message"),
-            model_precache: vec![QString::from("test1.bsp"), QString::from("test2.bsp")],
-            sound_precache: vec![QString::from("test1.wav"), QString::from("test2.wav")],
+            model_precache: vec![format!("test1.bsp"), format!("test2.bsp")],
+            sound_precache: vec![format!("test1.wav"), format!("test2.wav")],
         };
 
         let mut packet = Vec::new();
@@ -2833,7 +2832,7 @@ mod test {
         let mut packet = Vec::new();
         src.serialize(&mut packet).unwrap();
         let mut reader = BufReader::new(packet.as_slice());
-        let dst = ClientCmd::deserialize(&mut reader).unwrap();
+        let dst = ClientCmd::deserialize(&mut reader).unwrap().unwrap();
 
         assert_eq!(src, dst);
     }
@@ -2843,7 +2842,7 @@ mod test {
         let src = ClientCmd::Move {
             send_time: Duration::try_milliseconds(1234).unwrap(),
             // have to use angles that won't lose precision from write_angle
-            angles: Vector3::new(Deg(90.0), Deg(-90.0), Deg(0.0)),
+            angles: Vec3::new(90.0, -90.0, 0.0),
             fwd_move: 27,
             side_move: 85,
             up_move: 76,
@@ -2854,7 +2853,7 @@ mod test {
         let mut packet = Vec::new();
         src.serialize(&mut packet).unwrap();
         let mut reader = BufReader::new(packet.as_slice());
-        let dst = ClientCmd::deserialize(&mut reader).unwrap();
+        let dst = ClientCmd::deserialize(&mut reader).unwrap().unwrap();
 
         assert_eq!(src, dst);
     }
