@@ -212,9 +212,9 @@ impl View {
         bob_vars: BobVars,
     ) {
         // offset the view by 1/32 unit to keep it from intersecting liquid planes
-        let plane_offset = Vec3::new(1.0 / 32.0, 1.0 / 32.0, 1.0 / 32.0);
-        let height_offset = Vec3::new(0.0, 0.0, self.view_height);
-        let bob_offset = Vec3::new(0.0, 0.0, bob(time, velocity, bob_vars));
+        let plane_offset = Vec3::splat(1.0 / 32.0);
+        let height_offset = Vec3::Z * self.view_height;
+        let bob_offset = Vec3::Z * bob(time, velocity, bob_vars);
         self.final_origin = origin + plane_offset + height_offset + bob_offset;
     }
 

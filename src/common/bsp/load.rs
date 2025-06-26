@@ -972,17 +972,17 @@ where
     //
     // This essentially duplicates the render nodes into a tree of collision nodes.
     let mut render_as_collision_nodes = Vec::with_capacity(render_nodes.len());
-    for i in 0..render_nodes.len() {
+    for node in &render_nodes {
         render_as_collision_nodes.push(BspCollisionNode {
-            plane_id: render_nodes[i].plane_id,
+            plane_id: node.plane_id,
             children: [
-                match render_nodes[i].children[0] {
+                match node.children[0] {
                     BspRenderNodeChild::Node(n) => BspCollisionNodeChild::Node(n),
                     BspRenderNodeChild::Leaf(l) => {
                         BspCollisionNodeChild::Contents(leaves[l].contents)
                     }
                 },
-                match render_nodes[i].children[1] {
+                match node.children[1] {
                     BspRenderNodeChild::Node(n) => BspCollisionNodeChild::Node(n),
                     BspRenderNodeChild::Leaf(l) => {
                         BspCollisionNodeChild::Contents(leaves[l].contents)
@@ -997,8 +997,8 @@ where
         planes: planes_rc.clone(),
         nodes: render_as_collision_nodes_rc.clone(),
         node_id: 0,
-        mins: Vec3::new(0.0, 0.0, 0.0),
-        maxs: Vec3::new(0.0, 0.0, 0.0),
+        mins: default(),
+        maxs: default(),
     };
 
     let bsp_data = Arc::new(BspData {

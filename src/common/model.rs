@@ -161,7 +161,7 @@ impl Model {
 
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vec3::new(-16.0, -16.0, -16.0),
+            ModelKind::Alias(_) => Vec3::splat(-16.0),
         }
     }
 
@@ -175,7 +175,7 @@ impl Model {
 
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vec3::new(16.0, 16.0, 16.0),
+            ModelKind::Alias(_) => Vec3::splat(16.0),
         }
     }
 

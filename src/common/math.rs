@@ -597,8 +597,8 @@ pub fn bounds<'a, I>(points: I) -> (Vec3, Vec3)
 where
     I: IntoIterator<Item = &'a Vec3>,
 {
-    let mut min = Vec3::new(32767.0, 32767.0, 32767.0);
-    let mut max = Vec3::new(-32768.0, -32768.0, -32768.0);
+    let mut min = Vec3::splat(32767.0);
+    let mut max = Vec3::splat(-32768.0);
     for p in points.into_iter() {
         for c in 0..3 {
             min[c] = p[c].min(min[c]);

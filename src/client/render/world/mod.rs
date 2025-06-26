@@ -644,9 +644,8 @@ impl WorldRenderer {
             -viewmodel_orig.y,
             viewmodel_orig.z,
             -viewmodel_orig.x,
-        )) * Mat4::from_rotation_y(cam_angles.yaw.to_radians())
-            * Mat4::from_rotation_x(-cam_angles.pitch.to_radians())
-            * Mat4::from_rotation_z(cam_angles.roll.to_radians());
+        )) * Mat4::from_euler(
+        EulerRot::YXZ, cam_angles.yaw.to_radians(), -cam_angles.pitch.to_radians(), cam_angles.roll.to_radians());
         match viewmodel_id.and_then(|vid| self.entity_renderers.get(vid)) {
             Some(EntityRenderer::Alias(alias)) => {
                 pass.set_render_pipeline(state.alias_pipeline().pipeline());

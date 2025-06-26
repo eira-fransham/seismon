@@ -564,8 +564,8 @@ pub struct EntityState {
 impl EntityState {
     pub fn uninitialized() -> EntityState {
         EntityState {
-            origin: Vec3::new(0.0, 0.0, 0.0),
-            angles: Vec3::new(0.0, 0.0, 0.0),
+            origin: default(),
+            angles: default(),
             model_id: 0,
             frame_id: 0,
             colormap: 0,
@@ -1527,7 +1527,7 @@ impl ServerCmd {
                 let skin_id = reader.read_u8()?;
 
                 let mut origin = Vec3::ZERO;
-                let mut angles = Vec3::new(0.0, 0.0, 0.0);
+                let mut angles = Vec3::ZERO;
                 for i in 0..3 {
                     origin[i] = read_coord(reader)?;
                     angles[i] = read_angle(reader)?;
@@ -1551,7 +1551,7 @@ impl ServerCmd {
                 let skin_id = reader.read_u8()?;
 
                 let mut origin = Vec3::ZERO;
-                let mut angles = Vec3::new(0.0, 0.0, 0.0);
+                let mut angles = Vec3::ZERO;
                 for i in 0..3 {
                     origin[i] = read_coord(reader)?;
                     angles[i] = read_angle(reader)?;

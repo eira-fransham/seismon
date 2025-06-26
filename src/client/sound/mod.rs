@@ -273,7 +273,7 @@ mod systems {
                             && e_chan.map(|e| e.id) == ent_id
                             && let Ok(mut e) = commands.get_entity(e)
                         {
-                            e.despawn();
+                            e.try_despawn();
                         }
                     }
                 }

@@ -380,7 +380,7 @@ impl ConnectionKind {
             }
             Self::Demo(demo_srv) => {
                 let track_override = demo_srv.track_override();
-                let msg_view = match demo_srv.next() {
+                let msg_view = match demo_srv.next_msg() {
                     Some(v) => v,
                     None => {
                         // if there are no commands left in the demo, play

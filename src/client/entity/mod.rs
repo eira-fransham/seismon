@@ -27,7 +27,7 @@ use crate::common::{
     net::{EntityEffects, EntityState, EntityUpdate},
 };
 
-use bevy::{ecs::component::Component, math::Vec3};
+use bevy::prelude::*;
 use chrono::Duration;
 
 // if this is changed, it must also be changed in deferred.frag
@@ -93,9 +93,9 @@ impl ClientEntity {
             force_link: false,
             baseline: baseline.clone(),
             msg_time: Duration::zero(),
-            msg_origins: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
+            msg_origins: [baseline.origin, baseline.origin],
             origin: baseline.origin,
-            msg_angles: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
+            msg_angles: [baseline.angles, baseline.angles],
             angles: baseline.angles,
             model_id: baseline.model_id,
             model_changed: false,
@@ -114,10 +114,10 @@ impl ClientEntity {
             force_link: false,
             baseline: EntityState::uninitialized(),
             msg_time: Duration::zero(),
-            msg_origins: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
-            origin: Vec3::new(0.0, 0.0, 0.0),
-            msg_angles: [Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)],
-            angles: Vec3::new(0.0, 0.0, 0.0),
+            msg_origins: default(),
+            origin: default(),
+            msg_angles: default(),
+            angles: default(),
             model_id: 0,
             model_changed: false,
             frame_id: 0,

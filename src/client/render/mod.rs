@@ -286,7 +286,6 @@ where
         length.map(|l| l.max(2)),
         data.format(),
     ));
-    dbg!(data.data().len());
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &texture,

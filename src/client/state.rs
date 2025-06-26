@@ -1,8 +1,5 @@
 use std::{
-    io::{Cursor, Read},
-    iter,
-    path::Path,
-    sync::LazyLock,
+    io::{Cursor, Read}, iter, num::NonZeroU32, path::Path, sync::LazyLock
 };
 
 use super::{sound::MixerEvent, view::BobVars};
@@ -226,7 +223,7 @@ impl ClientState {
             .chain(sound_precache.iter().map(AsRef::as_ref))
             .enumerate()
             .map(|(i, snd_name)| {
-                debug!("Loading sound {}: {}", i, snd_name);
+                info!("Loading sound {}: {}", i, snd_name);
 
                 let mut data = Vec::new();
                 vfs.open(format!("sound/{snd_name}"))?
@@ -245,15 +242,15 @@ impl ClientState {
                     decode_hint.with_extension(ext);
                 }
 
-                let decoded = sound_loader.load_f32_from_source(
+                let decoded = firewheel::load_audio_file_from_source(
+                    &mut  sound_loader,
                     Box::new(cursor),
                     Some(decode_hint),
-                    Some(44100),
+                    NonZeroU32::new(44100).unwrap(),
                     default(),
-                    None,
                 )?;
 
-                Ok(asset_server.add(Sample::new(DecodedAudioF32::from(decoded))))
+                Ok(asset_server.add(Sample::new(decoded)))
                 // TODO: send keepalive message?
             })
             .collect::<Result<_, ClientError>>()?;
@@ -279,17 +276,17 @@ impl ClientState {
                     decode_hint.with_extension(ext);
                 }
 
-                let decoded = sound_loader.load_f32_from_source(
+                let decoded = firewheel::load_audio_file_from_source(
+                    &mut  sound_loader,
                     Box::new(cursor),
                     Some(decode_hint),
-                    Some(44100),
+                    NonZeroU32::new(44100).unwrap(),
                     default(),
-                    None,
                 )?;
 
                 Ok((
                     snd_name.into(),
-                    asset_server.add(Sample::new(DecodedAudioF32::from(decoded))),
+                    asset_server.add(Sample::new(decoded)),
                 ))
             })
             .collect::<Result<_, ClientError>>()?;
@@ -435,7 +432,7 @@ impl ClientState {
                     if angle_delta > 180.0 {
                         angle_delta = 360.0 - angle_delta;
                     } else if angle_delta < -180.0 {
-                        angle_delta = 360.0 + angle_delta;
+                        angle_delta += angle_delta;
                     }
 
                     ent.angles[i] =

@@ -122,8 +122,7 @@ impl DemoServer {
         // read all messages
         while let Ok(msg_len) = dem_reader.read_u32::<LittleEndian>() {
             // get view angles
-            let view_angles_f32 = read_f32_3(&mut dem_reader)?;
-            let view_angles = Vec3::new(view_angles_f32[0], view_angles_f32[1], view_angles_f32[2]);
+            let view_angles = read_f32_3(&mut dem_reader)?.into();
 
             // read next message
             let msg_start = message_data.len();
@@ -149,7 +148,7 @@ impl DemoServer {
     /// Retrieve the next server message from the currently playing demo.
     ///
     /// If this returns `None`, the demo is complete.
-    pub fn next(&mut self) -> Option<DemoMessageView> {
+    pub fn next_msg(&mut self) -> Option<DemoMessageView> {
         if self.message_id >= self.messages.len() {
             return None;
         }
