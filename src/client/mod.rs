@@ -1303,16 +1303,16 @@ mod systems {
         };
 
         let status = match conn.as_deref_mut() {
-            Some(ref mut conn) => conn.frame(
+            Some(conn) => conn.frame(
                 conn_state.reborrow(),
                 if cvars.read_cvar::<u8>("sv_paused").unwrap() != 0 {
                     default()
                 } else {
                     time.as_generic()
                 },
-                &*vfs,
-                &*asset_server,
-                &*from_server,
+                &vfs,
+                &asset_server,
+                &from_server,
                 &mut to_server,
                 &mut mixer_events,
                 &mut console_commands,
