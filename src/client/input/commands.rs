@@ -17,7 +17,7 @@ pub fn register_commands(app: &mut App) {
         |In(Bind { from, to }), mut game_input: ResMut<GameInput>| match to {
             None => match game_input.binding(&from[..]) {
                 Ok(Some(t)) => format!("\"{}\" = \"{}\"", from.to_string(), t.to_string()).into(),
-                _ => format!("\"{}\" is not bound", from).into(),
+                _ => format!("\"{from}\" is not bound").into(),
             },
             // bind (key) [command]
             Some(to) => match game_input.bind(&from[..], &to[..]) {
@@ -25,7 +25,7 @@ pub fn register_commands(app: &mut App) {
                     debug!("Bound {:?} to {:?}", from, to);
                     default()
                 }
-                Err(e) => format!("Bind failed: {}", e).into(),
+                Err(e) => format!("Bind failed: {e}").into(),
             },
         },
     );
@@ -57,7 +57,7 @@ pub fn register_commands(app: &mut App) {
     // TODO: Add "extended help" for cases like this
     app.command(
         move |In(Impulse { number }), mut impulse: EventWriter<client::Impulse>| {
-            impulse.send(client::Impulse(number));
+            impulse.write(client::Impulse(number));
             default()
         },
     );

@@ -128,62 +128,6 @@ fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
     }
 }
 
-#[cfg(feature = "auto-exposure")]
-fn cmd_autoexposure(
-    In(autoexposure): In<Value>,
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    mut cameras: Query<
-        (
-            Entity,
-            Option<&mut bevy::core_pipeline::auto_exposure::AutoExposure>,
-        ),
-        With<Camera3d>,
-    >,
-) {
-    use bevy::{
-        core_pipeline::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
-        math::cubic_splines::LinearSpline,
-    };
-
-    let enabled: bool = match autoexposure.as_name() {
-        Some("on") => true,
-        Some("off") => false,
-        _ => match serde_lexpr::from_value(&autoexposure) {
-            Ok(autoexposure) => autoexposure,
-            Err(_) => {
-                // TODO: Error handling
-                return;
-            }
-        },
-    };
-
-    for (e, autoexposure) in &mut cameras {
-        match (autoexposure, enabled) {
-            (Some(mut autoexposure), false) => {
-                autoexposure.range = 0f32..=0f32;
-            }
-            (None, true) => {
-                commands.entity(e).insert(AutoExposure {
-                    metering_mask: assets.load("autoexposure-mask.png"),
-                    compensation_curve: assets.add(
-                        AutoExposureCompensationCurve::from_curve(LinearSpline::new([
-                            [-8.0, -8.0].into(),
-                            [8.0, -8.0].into(),
-                        ]))
-                        .unwrap(),
-                    ),
-                    ..default()
-                });
-            }
-            (Some(mut autoexposure), true) => {
-                autoexposure.range = -8f32..=8f32;
-            }
-            _ => {}
-        }
-    }
-}
-
 fn cmd_tonemapping(In(new_tonemapping): In<Value>, mut tonemapping: Query<&mut Tonemapping>) {
     let new_tonemapping = match new_tonemapping.as_name() {
         Some("tmmf") => Tonemapping::TonyMcMapface,
@@ -346,15 +290,6 @@ fn main() -> ExitCode {
 
     #[cfg(feature = "screenrecord")]
     app.add_plugins(CapturePlugin);
-
-    #[cfg(feature = "auto-exposure")]
-    app.add_plugins(bevy::core_pipeline::auto_exposure::AutoExposurePlugin)
-        .cvar_on_set(
-            "r_autoexposure",
-            "on",
-            cmd_autoexposure,
-            "Enable/disable automatic exposure compensation",
-        );
 
     app.run();
 

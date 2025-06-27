@@ -877,7 +877,7 @@ impl Connection {
 
                 ServerCmd::StuffText { text } => match text.to_str().parse() {
                     Ok(parsed) => {
-                        console_commands.send(parsed);
+                        console_commands.write(parsed);
                     }
                     Err(err) => console_output.println(format!("{}", err), self.state.msg_times[0]),
                 },
@@ -1054,7 +1054,7 @@ impl Connection {
         if let ConnectionKind::Server { compose, .. } = &mut self.kind {
             // respond to the server
             if !compose.is_empty() {
-                to_server.send(ClientMessage {
+                to_server.write(ClientMessage {
                     packet: mem::take(compose),
                     ..default()
                 });
