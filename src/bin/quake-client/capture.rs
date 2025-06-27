@@ -46,7 +46,7 @@ impl Plugin for CapturePlugin {
             ),
         )
         // .command(|In(Screenshot { path }), windows: Res<Entity, With<PrimaryWindow>>, mut commands: Commands| {
-        //         let Ok(window) = window.get_single() else {
+        //         let Ok(window) = window.single() else {
         //             return "Can't find primary window".to_owned().into();
         //         };
         //         let path = match path {
@@ -93,7 +93,7 @@ impl Plugin for CapturePlugin {
                 }
 
                 let aspect_ratio = window
-                    .get_single()
+                    .single()
                     .map(|w| w.width() / w.height())
                     .unwrap_or(4. / 3.);
                 let size = match (width, height) {
@@ -189,7 +189,7 @@ mod systems {
         time: Res<Time>,
     ) {
         /*
-            let Ok(window) = window.get_single() else {
+            let Ok(window) = window.single() else {
                 commands.remove_resource::<VideoCtx>();
                 return;
             };

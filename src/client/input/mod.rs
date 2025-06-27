@@ -76,7 +76,7 @@ pub mod systems {
     use super::game::{AnyInput, Binding, BindingValidState, GameInput, Trigger};
 
     pub fn window_is_focused(windows: Query<&Window, With<PrimaryWindow>>) -> bool {
-        let Ok(window) = windows.get_single() else {
+        let Ok(window) = windows.single() else {
             return false;
         };
         if !window.focused {
@@ -150,7 +150,7 @@ pub mod systems {
                 valid: BindingValidState::Any,
             })) = input.binding(logical_key.clone())
             {
-                run_cmds.send_batch(commands.iter().filter_map(|cmd| {
+                run_cmds.write_batch(commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, state) {
                         (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
                         (Some(Trigger::Positive) | None, ButtonState::Released) => {
@@ -225,7 +225,7 @@ pub mod systems {
                 valid: BindingValidState::Any,
             })) = input.binding(logical_key.clone())
             {
-                run_cmds.send_batch(commands.iter().filter_map(|cmd| {
+                run_cmds.write_batch(commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, state) {
                         (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
                         (Some(Trigger::Positive) | None, ButtonState::Released) => {

@@ -39,6 +39,7 @@ use bevy::{
 };
 use bevy_seedling::sample::Sample;
 use chrono::Duration;
+use firewheel::sample_resource::DecodedAudioF32;
 use hashbrown::HashMap;
 use net::{ClientCmd, ClientStat, EntityState, EntityUpdate, PlayerColor};
 use rand::{
@@ -427,12 +428,8 @@ impl ClientState {
                 // where small turns between 0 <-> 359 cause the demo camera to
                 // face backwards for one frame.
                 for i in 0..3 {
-                    let mut angle_delta = ent.msg_angles[0][i] - ent.msg_angles[1][i];
-                    if angle_delta > 180.0 {
-                        angle_delta = 360.0 - angle_delta;
-                    } else if angle_delta < -180.0 {
-                        angle_delta += angle_delta;
-                    }
+                    let angle_delta = ent.msg_angles[0][i] - ent.msg_angles[1][i];
+                    let angle_delta = (angle_delta + 180.).rem_euclid(360.) - 180.;
 
                     ent.angles[i] =
                         (ent.msg_angles[1][i] + angle_delta * ent_lerp_factor).rem_euclid(360.);

@@ -1016,7 +1016,7 @@ mod systems {
     ) {
         let sample_count = render_vars.msaa_samples;
 
-        if let Ok(view_target) = targets.get_single() {
+        if let Ok(view_target) = targets.single() {
             match GraphicsState::new(&device, &queue, view_target, sample_count, &vfs) {
                 Ok(state) => {
                     commands.insert_resource(state);

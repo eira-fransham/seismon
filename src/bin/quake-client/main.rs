@@ -203,7 +203,7 @@ fn cmd_tonemapping(In(new_tonemapping): In<Value>, mut tonemapping: Query<&mut T
 }
 
 fn cmd_gametitle(In(new_name): In<Value>, mut window: Query<&mut Window, With<PrimaryWindow>>) {
-    if let (Some(new_name), Ok(mut window)) = (new_name.as_name(), window.get_single_mut()) {
+    if let (Some(new_name), Ok(mut window)) = (new_name.as_name(), window.single_mut()) {
         window.title = new_name.to_owned();
     }
 }
