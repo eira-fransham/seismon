@@ -191,7 +191,7 @@ impl TextureAtlasConfig {
     pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
             format,
-            padding: UVec2 { x: 2, y: 2 },
+            padding: UVec2 { x: 1, y: 1 },
         }
     }
 }

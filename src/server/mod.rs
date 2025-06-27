@@ -667,6 +667,7 @@ impl LevelState {
                     macro_rules! todo_builtin {
                         ($id:ident) => {{
                             self.cx.print_backtrace(&self.string_table);
+                            #[cfg(debug_assertions)]
                             panic!(concat!("TODO: ", stringify!($id)))
                         }};
                     }

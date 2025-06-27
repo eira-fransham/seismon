@@ -148,7 +148,7 @@ impl DemoServer {
     /// Retrieve the next server message from the currently playing demo.
     ///
     /// If this returns `None`, the demo is complete.
-    pub fn next_msg(&mut self) -> Option<DemoMessageView> {
+    pub fn next_msg(&mut self) -> Option<DemoMessageView<'_>> {
         if self.message_id >= self.messages.len() {
             return None;
         }

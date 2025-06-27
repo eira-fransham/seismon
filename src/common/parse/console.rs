@@ -125,7 +125,7 @@ pub fn trigger(input: &str) -> nom::IResult<&str, Trigger> {
     ))(input)
 }
 
-pub fn command_name(input: &str) -> nom::IResult<&str, CmdName> {
+pub fn command_name(input: &str) -> nom::IResult<&str, CmdName<'_>> {
     tuple((opt(trigger), arg))
         .map(|(trigger, name)| CmdName {
             name: name.into(),
