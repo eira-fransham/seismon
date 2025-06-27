@@ -22,7 +22,8 @@ pub fn register_commands(app: &mut App) {
         } else {
             default()
         }
-    })).command(cmd_tickrate);
+    }))
+    .command(cmd_tickrate);
 }
 
 #[derive(Parser)]

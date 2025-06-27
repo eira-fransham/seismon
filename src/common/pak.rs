@@ -26,7 +26,7 @@ use std::{
 
 use bevy::{
     asset::{
-        Asset, 
+        Asset,
         io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
     },
     prelude::*,

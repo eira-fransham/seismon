@@ -378,10 +378,11 @@ where
 {
     let mut reader = BufReader::new(data);
 
-    let _version = match reader.read_i32::<LittleEndian>()? {
-        VERSION => Ok(VERSION),
-        other => Err(BspFileError::UnsupportedVersion(other)),
-    }?;
+    let version = reader.read_i32::<LittleEndian>()?;
+
+    if version != VERSION {
+        return Err(BspFileError::UnsupportedVersion(version).into());
+    }
 
     let table = BspFileTable::read_from(&mut reader)?;
 

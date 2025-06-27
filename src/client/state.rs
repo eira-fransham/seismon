@@ -197,6 +197,8 @@ impl ClientState {
     ) -> Result<ClientState, ClientError> {
         let mut sound_loader = SymphoniumLoader::new();
 
+        info!("Model precache: {model_precache:?}");
+
         // TODO: validate submodel names
         let mut models: im::Vector<_> = iter::once(Model::none()).collect();
         let mut model_names = im::HashMap::new();

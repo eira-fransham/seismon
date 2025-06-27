@@ -1440,14 +1440,8 @@ impl Registry {
             }
         }
 
-        V::deserialize(CvarDeserializer {
-            inner: self,
-        })
-        .or_else(|_| {
-            V::deserialize(CvarDeserializer {
-                inner: self,
-            })
-        })
+        V::deserialize(CvarDeserializer { inner: self })
+            .or_else(|_| V::deserialize(CvarDeserializer { inner: self }))
     }
 
     pub fn cmd_names(&self) -> impl Iterator<Item = &str> + Clone + '_ {
@@ -2517,10 +2511,9 @@ mod systems {
                                     OutputType::Console,
                                 ),
                             },
-                            (Some(_), CmdKind::Cvar { .. }) => (
-                                Cow::from(format!("{name} is a cvar")),
-                                OutputType::Console,
-                            ),
+                            (Some(_), CmdKind::Cvar { .. }) => {
+                                (Cow::from(format!("{name} is a cvar")), OutputType::Console)
+                            }
                             // Currently this allows action aliases - do we want that?
                             (_, CmdKind::Alias(alias)) => {
                                 name = alias.clone();

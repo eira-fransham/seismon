@@ -354,7 +354,7 @@ impl SpriteRenderer {
         pass.set_vertex_buffer(0, state.sprite_pipeline().vertex_buffer().slice(..));
         pass.set_bind_group(
             BindGroupLayoutId::PerTexture as usize,
-            self.frames[frame_id].animate(time),
+            self.frames[frame_id % self.frames.len()].animate(time),
             &[],
         );
         pass.draw(0..VERTICES.len() as u32, 0..1);

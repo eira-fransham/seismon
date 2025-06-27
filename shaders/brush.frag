@@ -127,7 +127,7 @@ void main() {
     ).rgb, 0.25);
 #elif INPUT_TEXTURE_KIND == TEXTURE_KIND_SKY
     // TODO: Convert these into cvars?
-    const float sky_height = 13000.;
+    const float sky_height = 8000.;
     const float cloud_height = 3000.;
     const float sky_size = 60.;
 

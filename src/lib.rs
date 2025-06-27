@@ -19,7 +19,7 @@
     type_alias_impl_trait,
     buf_read_has_data_left,
     error_generic_member_access,
-    f16,
+    array_try_map,
     never_type
 )]
 // TODO: Is this necessary?

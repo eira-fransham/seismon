@@ -116,18 +116,12 @@ where
 
     let magic = reader.read_u32::<LittleEndian>().unwrap();
     if magic != MAGIC {
-        panic!(
-            "Bad magic number for sprite model (got {}, should be {})",
-            magic, MAGIC
-        );
+        panic!("Bad magic number for sprite model (got {magic}, should be {MAGIC})");
     }
 
     let version = reader.read_u32::<LittleEndian>().unwrap();
     if version != VERSION {
-        panic!(
-            "Bad version number for sprite model (got {}, should be {})",
-            version, VERSION
-        );
+        panic!("Bad version number for sprite model (got {version}, should be {VERSION})");
     }
 
     // TODO: use an enum for this

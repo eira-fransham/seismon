@@ -29,8 +29,7 @@ use chrono::Duration;
 use num::FromPrimitive;
 use thiserror::Error;
 
-pub const MAGIC: i32 =
-    ('I' as i32) << 0 | ('D' as i32) << 8 | ('P' as i32) << 16 | ('O' as i32) << 24;
+pub const MAGIC: i32 = 'I' as i32 | ('D' as i32) << 8 | ('P' as i32) << 16 | ('O' as i32) << 24;
 pub const VERSION: i32 = 6;
 
 const HEADER_SIZE: u64 = 84;
@@ -457,13 +456,17 @@ where
             let faces_front = match reader.read_i32::<LittleEndian>()? {
                 0 => false,
                 1 => true,
-                x => Err(MdlFileError::InvalidFrontFacing(x))?,
+                // Some models in MALICE have this set to `9`, we report the error
+                // and assume x != 0 means front-facing.
+                x => {
+                    error!("{}", MdlFileError::InvalidFrontFacing(x));
+                    true
+                }
             };
 
-            let mut indices = [0; 3];
-            for i in 0..3 {
-                indices[i] = reader.read_i32::<LittleEndian>()? as u32;
-            }
+            let indices = [(); 3]
+                .try_map(|()| reader.read_i32::<LittleEndian>())?
+                .map(|x| x as u32);
 
             Ok(IndexedPolygon {
                 faces_front,
