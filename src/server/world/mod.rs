@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-mod entity;
+pub mod entity;
 pub mod phys;
 
 use std::{
@@ -404,8 +404,7 @@ impl Entities {
     fn free(&mut self, entity_id: EntityId) -> Result<(), ProgsError> {
         if entity_id.0 > self.slots.len() {
             return Err(ProgsError::with_msg(format!(
-                "Invalid entity ID ({:?})",
-                entity_id
+                "Invalid entity ID ({entity_id:?})"
             )));
         }
 
@@ -692,7 +691,7 @@ impl World {
                             ));
                         }
                         Type::QFunction => {
-                            error!("TODO: Implement set field function ({})", val);
+                            error!("TODO: Implement set field function ({val})");
                         }
                     }
                 }
@@ -774,9 +773,9 @@ impl World {
         };
 
         if self.area_nodes[area_id].triggers.remove(&e_id) {
-            debug!("Unlinking entity {} from area triggers", e_id.0);
+            debug!("Unlinking entity {e_id} from area triggers");
         } else if self.area_nodes[area_id].solids.remove(&e_id) {
-            debug!("Unlinking entity {} from area solids", e_id.0);
+            debug!("Unlinking entity {e_id} from area solids");
         }
 
         self.entities.area_entity_mut(e_id)?.area_id = None;
@@ -801,6 +800,8 @@ impl World {
         let mut abs_max;
         let solid;
         {
+            const BOUNDS_OFFSET_MAGNITUDE: f32 = 15.;
+
             let ent = self.entities.get_mut(e_id)?;
 
             let origin =
@@ -813,34 +814,22 @@ impl World {
 
             let flags_f = ent.get_float(&self.type_def, FieldAddrFloat::Flags as i16)?;
             let flags = EntityFlags::from_bits(flags_f as u16).unwrap();
-            if flags.contains(EntityFlags::ITEM) {
-                abs_min.x -= 15.0;
-                abs_min.y -= 15.0;
-                abs_max.x += 15.0;
-                abs_max.y += 15.0;
-            } else {
-                abs_min.x -= 1.0;
-                abs_min.y -= 1.0;
-                abs_min.z -= 1.0;
-                abs_max.x += 1.0;
-                abs_max.y += 1.0;
-                abs_max.z += 1.0;
-            }
 
-            ent.put_vector(
-                &self.type_def,
-                abs_min.into(),
-                FieldAddrVector::AbsMin as i16,
-            )?;
-            ent.put_vector(
-                &self.type_def,
-                abs_max.into(),
-                FieldAddrVector::AbsMax as i16,
-            )?;
+            let bounds_offset = if flags.contains(EntityFlags::ITEM) {
+                (Vec3::X + Vec3::Y) * BOUNDS_OFFSET_MAGNITUDE
+            } else {
+                Vec3::splat(BOUNDS_OFFSET_MAGNITUDE)
+            };
+
+            abs_min -= bounds_offset;
+            abs_max += bounds_offset;
+
+            ent.set_abs_min(&self.type_def, abs_min)?;
+            ent.set_abs_max(&self.type_def, abs_max)?;
 
             // Mark leaves containing entity for PVS.
             ent.leaf_count = 0;
-            let model_index = ent.get_float(&self.type_def, FieldAddrFloat::ModelIndex as i16)?;
+            let model_index = ent.model_index(&self.type_def)?;
             if model_index != 0.0 {
                 // TODO: SV_FindTouchedLeafs
                 debug!("TODO: SV_FindTouchedLeafs");
@@ -856,10 +845,8 @@ impl World {
 
         let mut node_id = 0;
         while let AreaNodeKind::Branch(b) = &self.area_nodes[node_id].kind {
-            debug!(
-                "abs_min = {:?} | abs_max = {:?} | dist = {}",
-                abs_min, abs_max, b.dist
-            );
+            let dist = b.dist;
+            debug!("abs_min = {abs_min} | abs_max = {abs_max} | dist = {dist}",);
             if abs_min[b.axis as usize] > b.dist {
                 node_id = b.front;
             } else if abs_max[b.axis as usize] < b.dist {
@@ -871,11 +858,11 @@ impl World {
         }
 
         if solid == EntitySolid::Trigger {
-            debug!("Linking entity {} into area {} triggers", e_id.0, node_id);
+            debug!("Linking entity {e_id} into area {node_id} triggers");
             self.area_nodes[node_id].triggers.insert(e_id);
             self.entities.area_entity_mut(e_id)?.area_id = Some(node_id);
         } else {
-            debug!("Linking entity {} into area {} solids", e_id.0, node_id);
+            debug!("Linking entity {e_id} into area {node_id} solids");
             self.area_nodes[node_id].solids.insert(e_id);
             self.entities.area_entity_mut(e_id)?.area_id = Some(node_id);
         }
@@ -937,8 +924,8 @@ impl World {
                     .entities
                     .get(e_id)
                     .unwrap()
-                    .model_index(&self.type_def)?]
-                .kind()
+                    .model_index(&self.type_def)? as usize]
+                    .kind()
                 {
                     ModelKind::Brush(bmodel) => {
                         let hull_index;
@@ -989,12 +976,9 @@ impl World {
         end: Vec3,
         kind: CollideKind,
     ) -> Result<(Trace, Option<EntityId>), ProgsError> {
-        debug!(
-            "start={:?} min={:?} max={:?} end={:?}",
-            start, min, max, end
-        );
+        debug!("start={start} min={min} max={max} end={end}",);
 
-        debug!("Collision test: Entity {} with world entity", e_id.0);
+        debug!("Collision test: Entity {e_id} with world entity");
         let world_trace = self.trace(start, min, max, end)?;
 
         debug!(

@@ -650,7 +650,7 @@ impl ClientState {
         self.stats[ClientStat::WeaponFrame as usize] =
             update.weapon_frame.unwrap_or_default() as i32;
         self.stats[ClientStat::Armor as usize] = update.armor.unwrap_or_default() as i32;
-        self.stats[ClientStat::Weapon as usize] = update.weapon.unwrap_or_default() as i32;
+        self.stats[ClientStat::Weapon as usize] = update.weapon_model_id.unwrap_or_default() as i32;
         self.stats[ClientStat::Health as usize] = update.health as i32;
         self.stats[ClientStat::Ammo as usize] = update.ammo as i32;
         self.stats[ClientStat::Shells as usize] = update.ammo_shells as i32;

@@ -28,6 +28,7 @@ use bevy::{
 use bevy_seedling::{prelude::*, sample::Sample};
 use firewheel::sample_resource::DecodedAudioF32;
 
+use limiter::{LimiterConfig, LimiterNode};
 pub use music::MusicPlayer;
 use symphonium::symphonia::core::probe::Hint;
 
@@ -93,13 +94,6 @@ impl Listener {
     pub fn set_right_ear(&mut self, new_origin: Vec3) {
         self.right_ear = new_origin;
     }
-
-    pub fn attenuate(&self, emitter_origin: Vec3, base_volume: f32, attenuation: f32) -> f32 {
-        let decay =
-            (emitter_origin - self.origin).length() * attenuation * DISTANCE_ATTENUATION_FACTOR;
-        let volume = ((1.0 - decay) * base_volume).max(0.0);
-        volume
-    }
 }
 
 pub fn load<S>(
@@ -139,31 +133,57 @@ where
 
 pub struct SeismonSoundPlugin;
 
-#[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct ReverbBus;
 
-#[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
+pub struct MasterOut;
+
+#[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct MainPool;
 
-#[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct MusicPool;
 
 impl Plugin for SeismonSoundPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
+        app.register_node::<LimiterNode>();
+
         let mut commands = app.world_mut().commands();
 
         commands
             .spawn((
                 VolumeNode {
-                    volume: Volume::Decibels(-12.),
+                    volume: Volume::Decibels(-40.),
                 },
                 ReverbBus,
             ))
-            .chain_node(FreeverbNode::default());
+            .chain_node(FreeverbNode::default())
+            .connect(MasterOut);
+
+        commands
+            .spawn((VolumeNode::default(), MasterOut))
+            .chain_node((
+                LimiterConfig {
+                    lookahead: Some(0.08),
+                    ..default()
+                },
+                LimiterNode::default(),
+            ));
 
         commands.spawn(SpatialListener3D);
 
-        commands.spawn(SamplerPool(MusicPool));
+        commands.spawn((SamplerPool(MusicPool), PoolSize(1..=1)));
+        commands
+            .spawn((
+                SamplerPool(MainPool),
+                PoolSize(256..=256),
+                sample_effects![
+                    (SpatialBasicNode::default(), SpatialScale::default()),
+                    SendNode::new(Volume::default(), ReverbBus)
+                ],
+            ))
+            .connect(MasterOut);
 
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
@@ -180,7 +200,7 @@ impl Plugin for SeismonSoundPlugin {
 }
 
 #[derive(Component)]
-#[require(Transform, SamplePlayer)]
+#[require(Transform, SamplePlayer, MainPool)]
 pub struct Sound;
 
 #[derive(Debug, Clone)]
@@ -282,6 +302,11 @@ mod systems {
 
             match event {
                 MixerEvent::StartSound(start) => {
+                    let attenuation = if start.attenuation.is_finite() {
+                        start.attenuation
+                    } else {
+                        1.
+                    };
                     let mut new_sound = commands.spawn((
                         Sound,
                         Channel {
@@ -296,9 +321,9 @@ mod systems {
                                     volume: Volume::Linear(start.volume),
                                     ..Default::default()
                                 },
-                                SpatialScale(attenuation_factor(start.attenuation))
+                                SpatialScale(attenuation_factor(attenuation))
                             ),
-                            SendNode::new(Volume::Decibels(-12.), ReverbBus)
+                            SendNode::new(Volume::Linear(attenuation), ReverbBus)
                         ],
                     ));
 
@@ -310,6 +335,11 @@ mod systems {
                     // Handled by previous match
                 }
                 MixerEvent::StartStaticSound(static_sound) => {
+                    let attenuation = if static_sound.attenuation.is_finite() {
+                        static_sound.attenuation
+                    } else {
+                        1.
+                    };
                     commands.spawn((
                         Sound,
                         SamplePlayer::new(static_sound.src.clone()).looping(),
@@ -317,12 +347,16 @@ mod systems {
                         sample_effects![
                             (
                                 SpatialBasicNode {
-                                    volume: Volume::Linear(static_sound.volume),
+                                    // TODO: Fudge factor - ambient sounds are REALLY loud for some reason
+                                    volume: Volume::Linear(
+                                        static_sound.volume
+                                            * (1. - static_sound.attenuation).max(0.5)
+                                    ),
                                     ..Default::default()
                                 },
                                 SpatialScale(attenuation_factor(static_sound.attenuation))
                             ),
-                            SendNode::new(Volume::Decibels(-12.), ReverbBus)
+                            SendNode::new(Volume::Linear(attenuation), ReverbBus)
                         ],
                     ));
                 }

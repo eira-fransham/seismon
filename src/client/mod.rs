@@ -879,7 +879,7 @@ impl Connection {
                     Ok(parsed) => {
                         console_commands.write(parsed);
                     }
-                    Err(err) => console_output.println(format!("{}", err), self.state.msg_times[0]),
+                    Err(err) => console_output.println(format!("{err}"), self.state.msg_times[0]),
                 },
 
                 ServerCmd::Time { time } => {
@@ -1343,13 +1343,13 @@ mod systems {
                             Some(demo) => {
                                 // TODO: Extract this to a separate function so we don't duplicate the logic to find the demos in different places
                                 let mut demo_file = match vfs
-                                    .open(format!("{}.dem", demo))
-                                    .or_else(|_| vfs.open(format!("demos/{}.dem", demo)))
+                                    .open(format!("{demo}.dem"))
+                                    .or_else(|_| vfs.open(format!("demos/{demo}.dem")))
                                 {
                                     Ok(f) => Some(f),
                                     Err(e) => {
                                         // log the error, dump the demo queue and disconnect
-                                        console.println(format!("{}", e), time);
+                                        console.println(format!("{e}"), time);
 
                                         match demo_queue.index() {
                                             Some(0) => break None,

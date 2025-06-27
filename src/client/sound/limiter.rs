@@ -1,127 +1,225 @@
-use fundsp::hacker::*;
+use core::f32;
+use std::num::NonZeroU32;
 
-pub fn limiter_stereo(lookahead: f64, attack_time: f32, release_time: f32) -> An<Limiter<U2>> {
-    An(Limiter::new(
-        DEFAULT_SR,
-        lookahead,
-        attack_time,
-        release_time,
-    ))
+use bevy::ecs::component::Component;
+use firewheel::{
+    SilenceMask, Volume,
+    channel_config::{ChannelConfig, NonZeroChannelCount},
+    diff::{Diff, Patch},
+    event::NodeEventList,
+    node::{
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
+    },
+};
+use fundsp::hacker::{AFollow, AudioNode as _, Maximum, ReduceBuffer};
+
+#[derive(Debug, Clone, Component)]
+pub struct LimiterConfig {
+    /// The limiter lookahead - how much latency will be introduced in order to ensure that the
+    /// limiter will reduce volum in time for high peaks to be reduced. By default, it will set
+    /// the lookahead to the same as the `attack` of the limiter.
+    pub lookahead: Option<f32>,
+    pub headroom: Volume,
+    pub channels: NonZeroChannelCount,
+}
+
+impl Default for LimiterConfig {
+    fn default() -> Self {
+        Self {
+            lookahead: None,
+            headroom: Volume::Decibels(1.),
+            channels: NonZeroChannelCount::STEREO,
+        }
+    }
+}
+
+#[derive(Diff, Patch, Debug, Clone, Component)]
+pub struct LimiterNode {
+    pub attack: f32,
+    pub release: f32,
+}
+
+impl LimiterNode {
+    pub fn new(attack: f32, release: f32) -> Self {
+        Self { attack, release }
+    }
+}
+
+impl Default for LimiterNode {
+    fn default() -> Self {
+        Self::new(0.2, 0.05)
+    }
 }
 
 /// Look-ahead limiter.
 #[derive(Clone)]
-pub struct Limiter<N>
-where
-    N: Size<f32>,
-{
-    lookahead: f64,
+struct Limiter {
+    lookahead: f32,
+    headroom: Volume,
     #[allow(dead_code)]
-    release: f64,
-    sample_rate: f64,
+    release: f32,
+    sample_rate: NonZeroU32,
     reducer: ReduceBuffer<f32, Maximum<f32>>,
     follower: AFollow<f32>,
-    buffer: Vec<Frame<f32, N>>,
+    buffer: Box<[f32]>,
+    num_channels: u32,
+    max_buffer_length: NonZeroU32,
     index: usize,
 }
 
-impl<N> Limiter<N>
-where
-    N: Size<f32>,
-{
-    #[inline]
+const DEFAULT_MAX_BUFFER_LENGTH: NonZeroU32 = NonZeroU32::new(1024).unwrap();
+
+impl AudioNode for LimiterNode {
+    type Configuration = LimiterConfig;
+
+    fn info(&self, config: &Self::Configuration) -> firewheel::node::AudioNodeInfo {
+        AudioNodeInfo::new()
+            .debug_name("limiter")
+            .channel_config(ChannelConfig {
+                num_inputs: config.channels.get(),
+                num_outputs: config.channels.get(),
+            })
+    }
+
+    fn construct_processor(
+        &self,
+        config: &Self::Configuration,
+        _cx: ConstructProcessorContext,
+    ) -> impl AudioNodeProcessor {
+        Limiter::new(
+            NonZeroU32::new(44100).unwrap(),
+            config.lookahead.unwrap_or(self.attack),
+            self.attack,
+            self.release,
+            config.headroom,
+            config.channels.get().get(),
+            DEFAULT_MAX_BUFFER_LENGTH,
+        )
+    }
+}
+
+impl Limiter {
     fn advance(&mut self) {
-        self.index += 1;
-        if self.index >= self.reducer.length() {
-            self.index = 0;
-        }
+        self.index = (self.index + 1) % self.reducer.length();
     }
 
-    fn buffer_length(sample_rate: f64, lookahead: f64) -> usize {
-        max(1, round(sample_rate * lookahead) as usize)
+    fn reducer_buf_size(sample_rate: NonZeroU32, lookahead: f32) -> usize {
+        (sample_rate.get() as f32 * lookahead).round().max(1.) as usize
     }
 
-    fn new_buffer(sample_rate: f64, lookahead: f64) -> ReduceBuffer<f32, Maximum<f32>> {
-        ReduceBuffer::new(Self::buffer_length(sample_rate, lookahead), Maximum::new())
+    fn new_reducer(sample_rate: NonZeroU32, lookahead: f32) -> ReduceBuffer<f32, Maximum<f32>> {
+        ReduceBuffer::new(
+            Self::reducer_buf_size(sample_rate, lookahead),
+            Maximum::new(),
+        )
     }
 
-    pub fn new(sample_rate: f64, lookahead: f64, attack_time: f32, release_time: f32) -> Self {
-        let mut follower = AFollow::new(attack_time * 0.4, release_time * 0.4);
-        follower.set_sample_rate(sample_rate);
+    fn new(
+        sample_rate: NonZeroU32,
+        lookahead: f32,
+        attack: f32,
+        release: f32,
+        headroom: Volume,
+        num_channels: u32,
+        max_buffer_length: NonZeroU32,
+    ) -> Self {
+        let mut follower = AFollow::new(attack, release);
+        follower.set_sample_rate(sample_rate.get() as _);
+        let reducer = Self::new_reducer(sample_rate, lookahead);
+        let buffer = vec![0.; reducer.length() * num_channels as usize].into();
+
         Limiter {
-            lookahead,
-            release: release_time as f64,
+            // Updated when given a new stream
             sample_rate,
-            follower,
-            buffer: Vec::new(),
-            reducer: Self::new_buffer(sample_rate, lookahead),
+            buffer,
+            num_channels,
+            max_buffer_length,
+            reducer,
             index: 0,
+
+            // Static
+            lookahead,
+            headroom,
+            release,
+            follower,
         }
     }
 }
 
-impl<N> AudioNode for Limiter<N>
-where
-    N: Size<f32>,
-{
-    const ID: u64 = 25;
-    type Inputs = N;
-    type Outputs = N;
-
-    fn reset(&mut self) {
-        self.set_sample_rate(self.sample_rate);
-    }
-
-    fn set_sample_rate(&mut self, sample_rate: f64) {
-        self.index = 0;
-        self.sample_rate = sample_rate;
-        let length = Self::buffer_length(sample_rate, self.lookahead);
-        if length != self.reducer.length() {
-            self.reducer = Self::new_buffer(sample_rate, self.lookahead);
+impl AudioNodeProcessor for Limiter {
+    fn process(
+        &mut self,
+        buffers: ProcBuffers,
+        proc_info: &ProcInfo,
+        _events: NodeEventList,
+    ) -> ProcessStatus {
+        if proc_info
+            .in_silence_mask
+            .all_channels_silent(buffers.inputs.len())
+            && self.buffer.iter().all(|s| *s == 0.)
+        {
+            return ProcessStatus::ClearAllOutputs;
         }
-        self.follower.set_sample_rate(sample_rate);
-        self.reducer.clear();
-        self.buffer.clear();
-    }
 
-    #[inline]
-    fn tick(&mut self, input: &Frame<f32, Self::Inputs>) -> Frame<f32, Self::Outputs> {
-        let amplitude = input.iter().fold(0.0, |amp, &x| max(amp, abs(x)));
-        self.reducer.set(self.index, amplitude);
-        if self.buffer.len() < self.reducer.length() {
-            // We are filling up the initial buffer.
-            self.buffer.push(input.clone());
-            if self.buffer.len() == self.reducer.length() {
-                // When the buffer is full, start following from its total peak.
-                self.follower.set_value(self.reducer.total());
-            }
-            self.advance();
-            Frame::default()
-        } else {
-            let output = self.buffer[self.index].clone();
-            self.buffer[self.index] = input.clone();
+        let frame_size = proc_info.frames;
+
+        for i in 0..frame_size {
+            let amplitude = buffers
+                .inputs
+                .iter()
+                .map(|input| input[i])
+                .filter(|x| x.is_finite())
+                .fold(0f32, |amp, x| amp.max(x.abs()));
+
+            self.reducer.set(self.index, amplitude);
+            let total = self.reducer.total();
+
             // Leave some headroom.
             self.follower
-                .filter_mono(max(1.0, self.reducer.total() * 1.10));
-            self.advance();
+                .filter_mono((total * self.headroom.amp()).max(1.));
+
             let limit = self.follower.value();
-            output * Frame::splat(1.0 / limit)
+
+            for ((current_chan, out_chan), input_chan) in self
+                .buffer
+                .chunks_exact_mut(self.num_channels as usize)
+                .nth(self.index)
+                .unwrap()
+                .iter_mut()
+                .zip(&mut *buffers.outputs)
+                .zip(buffers.inputs)
+            {
+                out_chan[i] = *current_chan / limit;
+                *current_chan = input_chan[i];
+            }
+
+            self.advance();
+        }
+
+        ProcessStatus::OutputsModified {
+            out_silence_mask: SilenceMask::NONE_SILENT,
         }
     }
 
-    fn route(&mut self, input: &SignalFrame, _frequency: f64) -> SignalFrame {
-        let mut output = SignalFrame::new(self.outputs());
-        for i in 0..N::USIZE {
-            // We pretend that the limiter does not alter the frequency response.
-            output.set(i, input.at(i).delay(self.reducer.length() as f64));
-        }
-        output
-    }
+    fn new_stream(&mut self, stream_info: &firewheel::StreamInfo) {
+        self.index = 0;
+        self.sample_rate = stream_info.sample_rate;
+        self.num_channels = stream_info.num_stream_in_channels;
+        self.max_buffer_length = stream_info.max_block_frames;
 
-    fn allocate(&mut self) {
-        if self.buffer.capacity() < self.reducer.length() {
-            self.buffer
-                .reserve(self.reducer.length() - self.buffer.capacity());
+        self.reducer = Self::new_reducer(self.sample_rate, self.lookahead);
+
+        self.follower.reset();
+        self.follower
+            .set_sample_rate(stream_info.sample_rate.get() as _);
+
+        let new_buffer_size = self.reducer.length() * self.num_channels as usize;
+
+        if self.buffer.len() == new_buffer_size {
+            self.buffer.fill(0.);
+        } else {
+            self.buffer = vec![0.; new_buffer_size].into();
         }
     }
 }

@@ -17,11 +17,14 @@ use bevy::{
 };
 
 use bevy_seedling::{
+    edge::Connect as _,
     prelude::{PoolLabel, SamplerNode},
     sample::{Sample, SamplePlayer},
 };
 use firewheel::sample_resource::DecodedAudioF32;
 use symphonium::{SymphoniumLoader, symphonia::core::probe::Hint};
+
+use super::MasterOut;
 
 /// Plays music tracks.
 #[derive(Resource)]
@@ -118,8 +121,10 @@ impl MusicPlayer {
 
         self.stop(commands);
 
-        let entity = commands.spawn((source, pool)).id();
-        self.playing = Some((name.to_string(), entity));
+        let entity = commands.spawn((source, pool));
+        let ent_id = entity.id();
+        entity.connect(MasterOut);
+        self.playing = Some((name.to_string(), ent_id));
 
         Ok(())
     }

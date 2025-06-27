@@ -206,6 +206,12 @@ impl ProgsError {
 #[repr(C)]
 pub struct StringId(pub usize);
 
+impl StringId {
+    pub fn is_none(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 impl TryInto<i32> for StringId {
     type Error = ProgsError;
 
@@ -227,6 +233,18 @@ impl StringId {
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[repr(C)]
 pub struct EntityId(pub usize);
+
+impl fmt::Display for EntityId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "e{}", self.0)
+    }
+}
+
+impl EntityId {
+    pub fn is_none(&self) -> bool {
+        self.0 == 0
+    }
+}
 
 impl From<EntityId> for u16 {
     fn from(other: EntityId) -> Self {

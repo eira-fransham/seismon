@@ -820,6 +820,8 @@ impl EntityUpdate {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerData {
+    pub on_ground: bool,
+    pub in_water: bool,
     pub view_height: Option<f32>,
     pub ideal_pitch: Option<f32>,
     pub punch_pitch: Option<f32>,
@@ -829,12 +831,10 @@ pub struct PlayerData {
     pub punch_roll: Option<f32>,
     pub velocity_z: Option<f32>,
     pub items: ItemFlags,
-    pub on_ground: bool,
-    pub in_water: bool,
     pub weapon_frame: Option<u8>,
     pub armor: Option<u8>,
-    pub weapon: Option<u8>,
-    pub health: i16,
+    pub weapon_model_id: Option<u8>,
+    pub health: u16,
     pub ammo: u8,
     pub ammo_shells: u8,
     pub ammo_nails: u8,
@@ -1432,12 +1432,12 @@ impl ServerCmd {
                     false => None,
                 };
 
-                let weapon = match flags.contains(ClientUpdateFlags::WEAPON) {
-                    true => Some(reader.read_u8()?),
+                let weapon_model_id = match flags.contains(ClientUpdateFlags::WEAPON) {
+                    true => Some(reader.read_u8()? as _),
                     false => None,
                 };
 
-                let health = reader.read_i16::<LittleEndian>()?;
+                let health = reader.read_i16::<LittleEndian>()? as _;
                 let ammo = reader.read_u8()?;
                 let ammo_shells = reader.read_u8()?;
                 let ammo_nails = reader.read_u8()?;
@@ -1446,6 +1446,8 @@ impl ServerCmd {
                 let active_weapon = reader.read_u8()?;
 
                 ServerCmd::PlayerData(PlayerData {
+                    on_ground,
+                    in_water,
                     view_height,
                     ideal_pitch,
                     punch_pitch,
@@ -1455,11 +1457,9 @@ impl ServerCmd {
                     punch_roll,
                     velocity_z,
                     items,
-                    on_ground,
-                    in_water,
                     weapon_frame,
                     armor,
-                    weapon,
+                    weapon_model_id,
                     health,
                     ammo,
                     ammo_shells,
@@ -1776,6 +1776,8 @@ impl ServerCmd {
             }
 
             ServerCmd::PlayerData(PlayerData {
+                on_ground,
+                in_water,
                 view_height,
                 ideal_pitch,
                 punch_pitch,
@@ -1785,11 +1787,9 @@ impl ServerCmd {
                 punch_roll,
                 velocity_z,
                 items,
-                on_ground,
-                in_water,
                 weapon_frame,
                 armor,
-                weapon,
+                weapon_model_id,
                 health,
                 ammo,
                 ammo_shells,
@@ -1839,7 +1839,7 @@ impl ServerCmd {
                 if armor.is_some() {
                     flags |= ClientUpdateFlags::ARMOR;
                 }
-                if weapon.is_some() {
+                if weapon_model_id.is_some() {
                     flags |= ClientUpdateFlags::WEAPON;
                 }
 
@@ -1877,10 +1877,10 @@ impl ServerCmd {
                 if let Some(a) = armor {
                     writer.write_u8(a)?;
                 }
-                if let Some(w) = weapon {
+                if let Some(w) = weapon_model_id {
                     writer.write_u8(w)?;
                 }
-                writer.write_i16::<LittleEndian>(health)?;
+                writer.write_i16::<LittleEndian>(health as _)?;
                 writer.write_u8(ammo)?;
                 writer.write_u8(ammo_shells)?;
                 writer.write_u8(ammo_nails)?;

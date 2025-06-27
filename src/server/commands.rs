@@ -18,11 +18,25 @@ pub fn register_commands(app: &mut App) {
     // TODO: Implement `changelevel` (move to new level without resetting persistant state
     app.command(cmd_map.map(|res| -> ExecResult {
         if let Err(e) = res {
-            format!("{}", e).into()
+            format!("{e}").into()
         } else {
             default()
         }
-    }));
+    })).command(cmd_tickrate);
+}
+
+#[derive(Parser)]
+#[command(name = "sys_ticrate", about = "Set the frame time for the server")]
+struct Tickrate {
+    tick_rate: f32,
+}
+
+fn cmd_tickrate(
+    In(Tickrate { tick_rate }): In<Tickrate>,
+    mut time: ResMut<Time<Fixed>>,
+) -> ExecResult {
+    *time = Time::from_seconds(tick_rate as _);
+    default()
 }
 
 #[derive(Parser)]

@@ -1702,7 +1702,7 @@ where
 
 #[derive(Resource)]
 pub struct ConsoleInput {
-    editor: Editor<ConsoleInputContext>,
+    editor: Option<Editor<ConsoleInputContext>>,
     keymap: Emacs,
     pub stuffcmds: Vec<RunCmd<'static>>,
 }
@@ -1727,17 +1727,23 @@ impl ConsoleInput {
     pub fn new(history: liner::History) -> io::Result<ConsoleInput> {
         let mut keymap = Emacs::new();
 
-        let mut editor = Editor::new(
+        let editor = match Editor::new(
             Prompt::from(Self::PROMPT.to_owned()),
             None,
             ConsoleInputContext {
                 history,
                 ..default()
             },
-        )
-        .unwrap();
-        // TODO: Error handling
-        keymap.init(&mut editor)?;
+        ) {
+            Ok(mut editor) => {
+                keymap.init(&mut editor)?;
+                Some(editor)
+            }
+            Err(e) => {
+                error!("{e}");
+                None
+            }
+        };
 
         Ok(ConsoleInput {
             editor,
@@ -1747,7 +1753,6 @@ impl ConsoleInput {
     }
 
     /// Send characters to the inner editor
-    #[must_use]
     pub fn update<'a, I, C>(
         &'a mut self,
         keys: I,
@@ -1761,24 +1766,23 @@ impl ConsoleInput {
     {
         let mut completer = IterCompleter { iter: candidates };
         keys.into_iter().filter_map(move |key| {
-            // TODO: Completion
-            match self
-                .keymap
-                .handle_key(key, &mut self.editor, &mut completer)
-            {
-                Ok(true) => {
-                    let out = self.editor.take_exec_buffer();
+            let editor = self.editor.as_mut()?;
 
-                    if let Err(e) = self.editor.move_to_end_of_history() {
-                        warn!("{}", e);
+            // TODO: Completion
+            match self.keymap.handle_key(key, editor, &mut completer) {
+                Ok(true) => {
+                    let out = editor.take_exec_buffer();
+
+                    if let Err(e) = editor.move_to_end_of_history() {
+                        warn!("{e}");
                     }
 
                     Some(
-                        self.editor
+                        editor
                             .context_mut()
                             .history
                             .push(out.clone().into())
-                            .and_then(|()| self.editor.move_cursor_to_start_of_line())
+                            .and_then(|()| editor.move_cursor_to_start_of_line())
                             .map(|()| out),
                     )
                 }
@@ -1790,9 +1794,11 @@ impl ConsoleInput {
 
     /// Returns the text currently being edited
     pub fn get_text(&self) -> impl Iterator<Item = char> + '_ {
-        Self::PROMPT
-            .chars()
-            .chain(self.editor.current_buffer().chars().copied())
+        Self::PROMPT.chars().chain(
+            self.editor
+                .iter()
+                .flat_map(|e| e.current_buffer().chars().copied()),
+        )
     }
 }
 

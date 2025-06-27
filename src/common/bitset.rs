@@ -13,7 +13,6 @@ impl<const N_64: usize> BitSet<N_64> {
         }
     }
 
-    #[inline]
     fn bit_location(bit: u64) -> (u64, u64) {
         (
             bit >> 6,        // divide by 64
@@ -21,7 +20,6 @@ impl<const N_64: usize> BitSet<N_64> {
         )
     }
 
-    #[inline]
     pub fn count(&self) -> usize {
         let mut count = 0;
 
@@ -32,31 +30,26 @@ impl<const N_64: usize> BitSet<N_64> {
         count
     }
 
-    #[inline]
     pub fn contains(&self, bit: u64) -> bool {
         let (index, mask) = Self::bit_location(bit);
         self.blocks[index as usize] & mask != 0
     }
 
-    #[inline]
     pub fn set(&mut self, bit: u64) {
         let (index, mask) = Self::bit_location(bit);
         self.blocks[index as usize] |= mask;
     }
 
-    #[inline]
     pub fn clear(&mut self, bit: u64) {
         let (index, mask) = Self::bit_location(bit);
         self.blocks[index as usize] &= !mask;
     }
 
-    #[inline]
     pub fn toggle(&mut self, bit: u64) {
         let (index, mask) = Self::bit_location(bit);
         self.blocks[index as usize] ^= mask;
     }
 
-    #[inline]
     pub fn iter(&self) -> BitSetIter<'_, N_64> {
         BitSetIter::new(&self.blocks)
     }

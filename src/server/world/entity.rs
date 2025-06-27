@@ -206,12 +206,10 @@ pub enum FieldAddrFloat {
 impl FieldAddr for FieldAddrFloat {
     type Value = f32;
 
-    #[inline]
     fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
         ent.get_float(type_def, *self as i16)
     }
 
-    #[inline]
     fn store(
         &self,
         type_def: &EntityTypeDef,
@@ -241,21 +239,19 @@ pub enum FieldAddrVector {
 }
 
 impl FieldAddr for FieldAddrVector {
-    type Value = [f32; 3];
+    type Value = Vec3;
 
-    #[inline]
     fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
-        ent.get_vector(type_def, *self as i16)
+        ent.get_vector(type_def, *self as i16).map(Into::into)
     }
 
-    #[inline]
     fn store(
         &self,
         type_def: &EntityTypeDef,
         ent: &mut Entity,
         value: Self::Value,
     ) -> Result<(), EntityError> {
-        ent.put_vector(type_def, value, *self as i16)
+        ent.put_vector(type_def, value.into(), *self as i16)
     }
 }
 
@@ -350,12 +346,10 @@ pub enum FieldAddrFunctionId {
 impl FieldAddr for FieldAddrFunctionId {
     type Value = FunctionId;
 
-    #[inline]
     fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
         ent.function_id(type_def, *self as i16)
     }
 
-    #[inline]
     fn store(
         &self,
         type_def: &EntityTypeDef,
@@ -497,6 +491,22 @@ pub struct Entity {
     pub baseline: EntityState,
 }
 
+macro_rules! field_accessors {
+    ($($name:ident, $set_name:ident => $kind:ident :: $field:ident;)*) => {
+        $(
+            pub fn $name(&self, type_def: &EntityTypeDef) -> Result<<$kind as FieldAddr>::Value, EntityError> {
+                self
+                    .load(type_def, $kind::$field)
+            }
+
+            pub fn $set_name(&mut self, type_def: &EntityTypeDef, value: <$kind as FieldAddr>::Value) -> Result<(), EntityError> {
+                self
+                    .store(type_def, $kind::$field, value)
+            }
+        )*
+    };
+}
+
 impl Entity {
     pub fn new(type_def: &EntityTypeDef) -> Entity {
         let addrs = iter::repeat_n([0; 4], type_def.addr_count).collect();
@@ -636,7 +646,6 @@ impl Entity {
         Ok(())
     }
 
-    #[inline]
     pub fn load<F>(&self, type_def: &EntityTypeDef, field: F) -> Result<F::Value, EntityError>
     where
         F: FieldAddr,
@@ -644,7 +653,6 @@ impl Entity {
         field.load(type_def, self)
     }
 
-    #[inline]
     pub fn store<F>(
         &mut self,
         type_def: &EntityTypeDef,
@@ -818,32 +826,8 @@ impl Entity {
         Ok(())
     }
 
-    pub fn model_index(&self, type_def: &EntityTypeDef) -> Result<usize, EntityError> {
-        let model_index = self.get_float(type_def, FieldAddrFloat::ModelIndex as i16)?;
-        if model_index < 0.0 || model_index > ::std::usize::MAX as f32 {
-            Err(EntityError::with_msg(format!(
-                "Invalid value for entity.model_index ({})",
-                model_index,
-            )))
-        } else {
-            Ok(model_index as usize)
-        }
-    }
-
-    pub fn abs_min(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::AbsMin as i16)?
-            .into())
-    }
-
-    pub fn abs_max(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::AbsMax as i16)?
-            .into())
-    }
-
     pub fn solid(&self, type_def: &EntityTypeDef) -> Result<EntitySolid, EntityError> {
-        let solid_i = self.get_float(type_def, FieldAddrFloat::Solid as i16)? as i32;
+        let solid_i = self.load(type_def, FieldAddrFloat::Solid)? as i32;
         match EntitySolid::from_i32(solid_i) {
             Some(s) => Ok(s),
             None => Err(EntityError::with_msg(format!(
@@ -853,42 +837,34 @@ impl Entity {
         }
     }
 
-    pub fn origin(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::Origin as i16)?
-            .into())
-    }
-
-    pub fn min(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::Mins as i16)?
-            .into())
-    }
-
-    pub fn max(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::Maxs as i16)?
-            .into())
-    }
-
-    pub fn size(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::Size as i16)?
-            .into())
-    }
-
-    pub fn velocity(&self, type_def: &EntityTypeDef) -> Result<Vec3, EntityError> {
-        Ok(self
-            .get_vector(type_def, FieldAddrVector::Velocity as i16)?
-            .into())
-    }
-
-    pub fn set_velocity(
-        &mut self,
-        type_def: &EntityTypeDef,
-        velocity: Vec3,
-    ) -> Result<(), EntityError> {
-        Ok(self.store(type_def, FieldAddrVector::Velocity, velocity.into())?)
+    field_accessors! {
+        origin, set_origin => FieldAddrVector::Origin;
+        angles, set_angles => FieldAddrVector::Angles;
+        view_ofs, set_view_ofs => FieldAddrVector::ViewOffset;
+        abs_min, set_abs_min => FieldAddrVector::AbsMin;
+        abs_max, set_abs_max => FieldAddrVector::AbsMax;
+        model_index, set_model_index => FieldAddrFloat::ModelIndex;
+        ideal_pitch, set_ideal_pitch => FieldAddrFloat::IdealPitch;
+        punch_angle, set_punch_angle => FieldAddrVector::PunchAngle;
+        items, set_items => FieldAddrFloat::Items;
+        ground, set_ground => FieldAddrEntityId::Ground;
+        owner, set_owner => FieldAddrEntityId::Owner;
+        weapon_frame, set_weapon_frame => FieldAddrFloat::WeaponFrame;
+        armor, set_armor => FieldAddrFloat::ArmorStrength;
+        weapon_model_name, set_weapon_model_name => FieldAddrStringId::WeaponModelName;
+        active_weapon, set_active_weapon => FieldAddrFloat::Weapon;
+        health, set_health => FieldAddrFloat::Health;
+        ammo, set_ammo => FieldAddrFloat::CurrentAmmo;
+        ammo_shells, set_ammo_shells => FieldAddrFloat::AmmoShells;
+        ammo_cells, set_ammo_cells => FieldAddrFloat::AmmoCells;
+        ammo_nails, set_ammo_nails => FieldAddrFloat::AmmoNails;
+        ammo_rockets, set_ammo_rockets => FieldAddrFloat::AmmoRockets;
+        water_level, set_water_level => FieldAddrFloat::WaterLevel;
+        view_angle, set_view_angle => FieldAddrVector::ViewAngle;
+        min, set_min => FieldAddrVector::Mins;
+        max, set_max => FieldAddrVector::Maxs;
+        size, set_size => FieldAddrVector::Size;
+        velocity, set_velocity => FieldAddrVector::Velocity;
     }
 
     /// Applies gravity to the entity.
@@ -964,7 +940,13 @@ impl Entity {
         Ok(())
     }
 
-    pub fn owner(&self, type_def: &EntityTypeDef) -> Result<EntityId, EntityError> {
-        Ok(self.entity_id(type_def, FieldAddrEntityId::Owner as i16)?)
+    pub fn remove_flags(
+        &mut self,
+        type_def: &EntityTypeDef,
+        flags: EntityFlags,
+    ) -> Result<(), EntityError> {
+        let result = self.flags(type_def)? | !flags;
+        self.put_float(type_def, result.bits() as f32, FieldAddrFloat::Flags as i16)?;
+        Ok(())
     }
 }

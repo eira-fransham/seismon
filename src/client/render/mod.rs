@@ -273,9 +273,9 @@ where
     let count = COUNT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
     if let Some(length) = length {
-        info!("Creating texture {count} (label: {label:?}) {width}x{height}x{length}");
+        trace!("Creating texture {count} (label: {label:?}) {width}x{height}x{length}");
     } else {
-        info!("Creating texture {count} (label: {label:?}) {width}x{height}");
+        trace!("Creating texture {count} (label: {label:?}) {width}x{height}");
     }
 
     // It looks like sometimes quake includes textures with at least one zero aspect?
