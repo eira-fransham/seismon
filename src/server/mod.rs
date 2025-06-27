@@ -1333,7 +1333,7 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         vfs: &Vfs,
-        mut registry: Mut<Registry>,
+        registry: Mut<Registry>,
         has_gravity: bool,
     ) -> Result<(), ProgsError> {
         let ServerVars {
