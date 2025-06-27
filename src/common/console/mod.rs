@@ -2504,7 +2504,7 @@ mod systems {
                                     if cvar.value() != &new_value {
                                         if let Some(on_set) = on_set {
                                             changed_cvars
-                                                .push((EqHack(on_set.clone()), new_value.clone()));
+                                                .push((EqHack(*on_set), new_value.clone()));
                                         }
 
                                         cvar.value = Some(new_value);
@@ -2518,7 +2518,7 @@ mod systems {
                                 ),
                             },
                             (Some(_), CmdKind::Cvar { .. }) => (
-                                Cow::from(format!("{} is a cvar", name)),
+                                Cow::from(format!("{name} is a cvar")),
                                 OutputType::Console,
                             ),
                             // Currently this allows action aliases - do we want that?
@@ -2586,8 +2586,7 @@ mod systems {
                             }
                             (None, CmdKind::Action { .. }) => (
                                 Cow::from(format!(
-                                    "{} is an action, and must be invoked with +/-",
-                                    name
+                                    "{name} is an action, and must be invoked with +/-",
                                 )),
                                 OutputType::Console,
                             ),
