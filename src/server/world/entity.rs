@@ -922,7 +922,7 @@ impl Entity {
         type_def: &EntityTypeDef,
         sv_maxvelocity: f32,
     ) -> Result<(), EntityError> {
-        let mut vel = self.velocity(type_def)?;
+        let vel = self.velocity(type_def)?;
         for c in &mut vel.to_array()[..] {
             *c = c.clamp(-sv_maxvelocity, sv_maxvelocity);
         }

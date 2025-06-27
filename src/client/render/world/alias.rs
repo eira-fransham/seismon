@@ -2,8 +2,7 @@ use std::{mem::size_of, ops::Range, sync::LazyLock};
 
 use crate::{
     client::render::{
-        CompiledAtlases, GraphicsState, Pipeline, TextureData,
-        mapped::Mapped,
+        GraphicsState, Pipeline, TextureData,
         world::{BindGroupLayoutId, WorldPipelineBase},
     },
     common::{

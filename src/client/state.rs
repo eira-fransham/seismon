@@ -39,7 +39,6 @@ use bevy::{
 };
 use bevy_seedling::sample::Sample;
 use chrono::Duration;
-use firewheel::sample_resource::DecodedAudioF32;
 use hashbrown::HashMap;
 use net::{ClientCmd, ClientStat, EntityState, EntityUpdate, PlayerColor};
 use rand::{

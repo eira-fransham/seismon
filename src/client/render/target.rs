@@ -22,7 +22,6 @@ use std::cell::RefCell;
 
 use bevy::{
     core_pipeline::{core_3d::Camera3d, prepass::ViewPrepassTextures},
-    math::Rot2,
     render::{
         render_graph::{RenderLabel, ViewNode},
         render_phase::TrackedRenderPass,

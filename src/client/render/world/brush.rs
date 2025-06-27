@@ -60,7 +60,6 @@ use bumpalo::Bump;
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
-use num::Zero;
 use wgpu::Extent3d;
 
 pub struct BrushPipeline {

@@ -1,6 +1,5 @@
 use std::{
     io::{Cursor, Read},
-    num::NonZeroU32,
     path::Path,
 };
 

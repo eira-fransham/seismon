@@ -7,7 +7,7 @@ use crate::common::{
 };
 
 use super::IntermissionKind;
-use bevy::math::{Rot2, Vec3};
+use bevy::math::Vec3;
 use chrono::Duration;
 use serde::Deserialize;
 
