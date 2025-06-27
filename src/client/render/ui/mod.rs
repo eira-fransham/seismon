@@ -234,7 +234,7 @@ impl ViewNode for UiPass {
 
                 let elapsed = conn.as_ref().map(|c| c.state.time).unwrap_or_default();
                 ui_renderer.render_pass(
-                    &*gfx_state,
+                    &gfx_state,
                     queue,
                     &mut final_pass,
                     Extent2d { width, height },

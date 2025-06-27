@@ -238,12 +238,7 @@ fn calculate_lightmap_texcoords(position: Vec3, face: &BspFace, texinfo: &BspTex
 type Position = [f32; 3];
 type Normal = [f32; 3];
 type Texcoord = [f32; 2];
-type CompressedTexcoord = [u16; 2];
 type LightmapAnim = [u8; 4];
-
-fn compress<const N: usize>(input: [f32; N]) -> [u16; N] {
-    input.map(|f| (f.clamp(0., 1.) * u16::MAX as f32) as u16)
-}
 
 #[repr(C)]
 #[derive(Clone, Debug)]

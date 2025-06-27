@@ -34,7 +34,6 @@ use wgpu::{BindGroupLayoutEntry, PipelineCompilationOptions};
 use crate::common::util::{Pod, any_as_bytes};
 
 /// The `Pipeline` trait, which allows render pipelines to be defined more-or-less declaratively.
-
 fn create_shader<'a, S, K, V, I>(
     device: &RenderDevice,
     compiler: &mut shaderc::Compiler,

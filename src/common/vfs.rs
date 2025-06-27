@@ -155,7 +155,7 @@ impl Vfs {
         Ok(())
     }
 
-    pub fn open<S>(&self, virtual_path: S) -> Result<VirtualFile, VfsError>
+    pub fn open<S>(&self, virtual_path: S) -> Result<VirtualFile<'_>, VfsError>
     where
         S: AsRef<str>,
     {

@@ -44,7 +44,7 @@ pub struct RenderPassBuilder<'a> {
 }
 
 impl<'a> RenderPassBuilder<'a> {
-    pub fn descriptor(&self) -> wgpu::RenderPassDescriptor {
+    pub fn descriptor(&self) -> wgpu::RenderPassDescriptor<'_> {
         wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &self.color_attachments,

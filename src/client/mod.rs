@@ -1105,7 +1105,7 @@ impl DemoQueue {
         }
     }
 
-    pub fn next(&mut self) -> Option<&str> {
+    pub fn next_demo(&mut self) -> Option<&str> {
         self.indices.next().map(|i| &self.values[i][..])
     }
 
@@ -1169,7 +1169,7 @@ where
     let port = match response.ok_or(ClientError::NoResponse)? {
         Response::Accept(accept) => {
             // validate port number
-            if accept.port < 0 || accept.port >= std::u16::MAX as i32 {
+            if accept.port < 0 || accept.port >= u16::MAX as i32 {
                 Err(ClientError::InvalidConnectPort(accept.port))?;
             }
 
@@ -1339,7 +1339,7 @@ mod systems {
 
                     // get the next demo from the queue
                     NextDemo => loop {
-                        match demo_queue.next() {
+                        match demo_queue.next_demo() {
                             Some(demo) => {
                                 // TODO: Extract this to a separate function so we don't duplicate the logic to find the demos in different places
                                 let mut demo_file = match vfs

@@ -120,7 +120,7 @@ fn build_menu_options(builder: MenuBuilder) -> Result<Menu, Error> {
         .add_action(
             "Go to console",
             |mut commands: EventWriter<RunCmd<'static>>| {
-                commands.send("toggleconsole".into());
+                commands.write("toggleconsole".into());
             },
         )
         // TODO

@@ -1040,7 +1040,6 @@ impl Registry {
     pub fn read_cvars<'a, V: serde::Deserialize<'a>>(&'a self) -> Result<V, ConsoleError> {
         struct CvarDeserializer<'a> {
             inner: &'a Registry,
-            get_value: fn(&Cvar) -> &Value,
         }
 
         struct LexprArrayDeserializer<T, V> {
@@ -1443,12 +1442,10 @@ impl Registry {
 
         V::deserialize(CvarDeserializer {
             inner: self,
-            get_value: |c| c.value(),
         })
         .or_else(|_| {
             V::deserialize(CvarDeserializer {
                 inner: self,
-                get_value: |c| &c.default,
             })
         })
     }
@@ -1944,7 +1941,7 @@ impl RenderConsoleOutput {
             .map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
     }
 
-    pub fn center_print(&self, since: Duration) -> Option<QStr> {
+    pub fn center_print(&self, since: Duration) -> Option<QStr<'_>> {
         if self.center_print.0.timestamp >= since.num_milliseconds() {
             Some(self.center_print.1.reborrow())
         } else {

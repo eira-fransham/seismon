@@ -201,7 +201,7 @@ pub fn register_commands(app: &mut App) {
             // Only actually start playing the demos if we aren't already running a server
             // (this appears to be Quake's expected behaviour?)
             if server.is_none() {
-                let (new_conn, new_state) = match demo_queue.next() {
+                let (new_conn, new_state) = match demo_queue.next_demo() {
                     Some(demo) => {
                         let mut demo_file = match vfs
                             .open(format!("{}.dem", demo))

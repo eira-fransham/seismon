@@ -483,10 +483,6 @@ pub struct GraphicsState {
 
     frame_uniform_buffer: Buffer,
 
-    diffuse_format: wgpu::TextureFormat,
-    normal_format: wgpu::TextureFormat,
-    sample_count: u32,
-
     // TODO: This probably doesn't need to be a rwlock
     entity_uniform_buffer: RwLock<DynamicUniformBuffer<EntityUniforms>>,
 
@@ -734,10 +730,6 @@ impl GraphicsState {
         Ok(GraphicsState {
             frame_uniform_buffer,
             entity_uniform_buffer: entity_uniform_buffer.into(),
-
-            diffuse_format,
-            normal_format,
-            sample_count,
 
             world_bind_group_layouts,
             world_bind_groups,

@@ -20,7 +20,6 @@
 
 #![recursion_limit = "256"]
 
-mod capture;
 mod menu;
 
 use std::{path::PathBuf, process::ExitCode};
@@ -41,8 +40,6 @@ use bevy::{
     },
     window::{PresentMode, PrimaryWindow},
 };
-#[cfg(feature = "screenrecord")]
-use capture::CapturePlugin;
 use clap::Parser;
 use seismon::{
     client::SeismonClientPlugin,
@@ -180,7 +177,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
             NormalPrepass,
         ));
 
-        console_cmds.send(RunCmd::parse("exec quake.rc").unwrap());
+        console_cmds.write(RunCmd::parse("exec quake.rc").unwrap());
 
         let mut commands = opt.commands.iter();
         let mut next = commands.next();
@@ -287,9 +284,6 @@ fn main() -> ExitCode {
             "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
         ).insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
-
-    #[cfg(feature = "screenrecord")]
-    app.add_plugins(CapturePlugin);
 
     app.run();
 

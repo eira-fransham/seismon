@@ -26,12 +26,11 @@ use std::{
 
 use bevy::{
     asset::{
-        Asset, AssetLoader, LoadContext,
+        Asset, 
         io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
     },
     prelude::*,
     reflect::TypePath,
-    tasks::ConditionalSendFuture,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use hashbrown::HashMap;
@@ -105,34 +104,6 @@ pub struct Pak {
     entries: HashMap<PathBuf, PakEntry>,
 }
 
-#[derive(Default)]
-struct PakLoader;
-
-impl AssetLoader for PakLoader {
-    type Asset = Pak;
-    type Settings = ();
-    type Error = PakError;
-
-    fn load(
-        &self,
-        reader: &mut dyn Reader,
-        _settings: &(),
-        _load_context: &mut LoadContext,
-    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
-        async move {
-            let mut data = Vec::new();
-
-            reader.read_to_end(&mut data).await?;
-
-            Pak::read(data.into_boxed_slice())
-        }
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &["pak", "PAK"]
-    }
-}
-
 impl AssetReader for Pak {
     async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
         match self.entries.get(path) {
@@ -164,8 +135,7 @@ impl AssetReader for Pak {
         };
         let iter = dir_entries
             .into_iter()
-            .map(AsRef::as_ref)
-            .flatten()
+            .flat_map(AsRef::as_ref)
             .cloned()
             .collect::<Vec<_>>()
             .into_iter();

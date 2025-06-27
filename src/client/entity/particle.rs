@@ -78,7 +78,7 @@ impl ColorRamp {
     /// If the animation has already completed by `elapsed`, returns `None`.
     pub fn color(&self, elapsed: Duration, frame_skip: usize) -> Option<u8> {
         let frame = (engine::duration_to_f32(elapsed) * self.fps) as usize + frame_skip;
-        self.ramp.get(frame).map(|c| *c)
+        self.ramp.get(frame).copied()
     }
 }
 
@@ -230,6 +230,12 @@ pub struct Particles {
     rng: SmallRng,
 
     angle_velocities: [Vec3; VERTEX_NORMAL_COUNT],
+}
+
+impl Default for Particles {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Particles {

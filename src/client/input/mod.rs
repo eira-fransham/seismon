@@ -177,7 +177,7 @@ pub mod systems {
                          ..
                      }| {
                         if *state == ButtonState::Pressed {
-                            Some(to_terminal_key(key, &*button_state))
+                            Some(to_terminal_key(key, &button_state))
                         } else {
                             None
                         }

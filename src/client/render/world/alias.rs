@@ -169,14 +169,6 @@ type DiffuseTexcoord = [f32; 2];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-struct AliasVertexInput {
-    position: Position,
-    normal: Normal,
-    diffuse_texcoord: DiffuseTexcoord,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
 struct AliasVertex {
     position: Position,
     normal: Normal,

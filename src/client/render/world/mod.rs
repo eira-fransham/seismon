@@ -364,31 +364,6 @@ pub fn extract_world_renderer(
     }
 }
 
-fn to_mat4_compressed(mat4: Mat4) -> [[u16; 4]; 4] {
-    fn compress<const N: usize>(input: [f32; N]) -> [u16; N] {
-        input.map(|f| (f.clamp(0., 1.) * u16::MAX as f32) as u16)
-    }
-
-    [
-        compress(mat4.x_axis.into()),
-        compress(mat4.y_axis.into()),
-        compress(mat4.z_axis.into()),
-        compress(mat4.w_axis.into()),
-    ]
-}
-
-fn to_mat3_f16(mat4: Mat4) -> [[f16; 3]; 3] {
-    let x: [f32; 3] = mat4.x_axis.truncate().into();
-    let y: [f32; 3] = mat4.y_axis.truncate().into();
-    let z: [f32; 3] = mat4.z_axis.truncate().into();
-
-    [
-        x.map(|v| v as f16).into(),
-        y.map(|v| v as f16).into(),
-        z.map(|v| v as f16).into(),
-    ]
-}
-
 impl WorldRenderer {
     pub fn new<'a, M: Iterator<Item = &'a Model>>(
         state: &'a mut GraphicsState,

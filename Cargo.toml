@@ -59,11 +59,8 @@ uuid = "1.12"
 wgpu = { version = "24.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
-video-rs = { version = "0.6", features = ["ndarray"], optional = true }
-
 [features]
-default = ["screenrecord", "fast-compile"]
-screenrecord = ["video-rs"]
+default = ["fast-compile"]
 fast-compile = ["bevy/dynamic_linking"]
 
 [profile.release-lto]

@@ -744,7 +744,7 @@ impl BspData {
         &self.texinfo[self.faces[face_id].texinfo_id]
     }
 
-    pub fn face_lightmaps(&self, face_id: usize) -> Vec<BspLightmap> {
+    pub fn face_lightmaps(&self, face_id: usize) -> Vec<BspLightmap<'_>> {
         let face = &self.faces[face_id];
         match face.lightmap_id {
             Some(lightmap_id) => {

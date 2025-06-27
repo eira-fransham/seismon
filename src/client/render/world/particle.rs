@@ -1,4 +1,4 @@
-use std::{mem::size_of, num::NonZeroU32, sync::LazyLock};
+use std::{mem::size_of, num::NonZeroU32};
 
 use crate::{
     client::{
@@ -21,16 +21,6 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
-
-static VERTEX_BUFFER_ATTRIBUTES: LazyLock<[Vec<wgpu::VertexAttribute>; 1]> = LazyLock::new(|| {
-    [wgpu::vertex_attr_array![
-        // position
-        0 => Float32x3,
-        // texcoord
-        1 => Float32x2,
-    ]
-    .to_vec()]
-});
 
 #[rustfmt::skip]
 const PARTICLE_TEXTURE_PIXELS: [u8; 64] = [

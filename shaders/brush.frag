@@ -1,9 +1,9 @@
 #version 450
 #define LIGHTMAP_ANIM_END (255)
 
-const uint TEXTURE_KIND_REGULAR = 0;
-const uint TEXTURE_KIND_WARP = 1;
-const uint TEXTURE_KIND_SKY = 2;
+#define TEXTURE_KIND_REGULAR 0
+#define TEXTURE_KIND_WARP 1
+#define TEXTURE_KIND_SKY 2
 
 const float WARP_AMPLITUDE = 0.15;
 const float WARP_FREQUENCY = 0.25;
@@ -100,83 +100,71 @@ void main() {
     float tex_index_fullbright = float(push_constants.texture_kind_and_diffuse_index >> 16);
     float tex_index_diffuse = float(push_constants.texture_kind_and_diffuse_index & 0x0000FFFF);
 
-    // TODO: Switch to making this a compile option.
-    switch (INPUT_TEXTURE_KIND) {
-        case TEXTURE_KIND_REGULAR:
-            float fullbright = texture(
-                sampler2DArray(u_fullbright_textures, u_diffuse_sampler),
-                vec3(f_diffuse.xy, tex_index_fullbright)
-            ).r;
+#if INPUT_TEXTURE_KIND == TEXTURE_KIND_REGULAR
+    float fullbright = texture(
+        sampler2DArray(u_fullbright_textures, u_diffuse_sampler),
+        vec3(f_diffuse.xy, tex_index_fullbright)
+    ).r;
 
-            float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.4;
+    float light = fullbright < 0.01 ? dot(calc_light(), vec4(1.)) : 0.4;
 
-            diffuse_attachment = vec4(texture(
-                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
-                vec3(f_diffuse.xy, tex_index_diffuse)
-            ).rgb, light);
+    diffuse_attachment = vec4(texture(
+        sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+        vec3(f_diffuse.xy, tex_index_diffuse)
+    ).rgb, light);
+#elif INPUT_TEXTURE_KIND == TEXTURE_KIND_WARP
+    // note the texcoord transpose here
+    vec2 wave1 = 3.14159265359
+        * (WARP_SCALE * f_diffuse.ts
+            + WARP_FREQUENCY * frame_uniforms.time);
 
-            break;
+    vec2 warp_uv = f_diffuse.st + WARP_AMPLITUDE
+        * vec2(sin(wave1.s), sin(wave1.t));
 
-        case TEXTURE_KIND_WARP:
-            // note the texcoord transpose here
-            vec2 wave1 = 3.14159265359
-                * (WARP_SCALE * f_diffuse.ts
-                    + WARP_FREQUENCY * frame_uniforms.time);
+    diffuse_attachment = vec4(texture(
+        sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+        vec3(warp_uv, tex_index_diffuse)
+    ).rgb, 0.25);
+#elif INPUT_TEXTURE_KIND == TEXTURE_KIND_SKY
+    // TODO: Convert these into cvars?
+    const float sky_height = 13000.;
+    const float cloud_height = 3000.;
+    const float sky_size = 60.;
 
-            vec2 warp_uv = f_diffuse.st + WARP_AMPLITUDE
-                * vec2(sin(wave1.s), sin(wave1.t));
+    const vec3 sky_plane_pos = vec3(0., 0., sky_height);
+    const vec3 cloud_plane_pos = vec3(0., 0., cloud_height);
+    const vec3 plane_norm = vec3(0., 0., -1);
 
-            diffuse_attachment = vec4(texture(
-                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
-                vec3(warp_uv, tex_index_diffuse)
-            ).rgb, 0.25);
-            break;
+    // We calculate the diffuse coords here instead of in the vertex shader to prevent incorrect
+    // interpolation when the skybox is not parallel to the sky plane (e.g. for sky-textured walls)
+    vec3 dir = normalize(f_diffuse - frame_uniforms.camera_pos.xyz / frame_uniforms.camera_pos.w);
 
-        case TEXTURE_KIND_SKY:
-            // TODO: Convert these into cvars?
-            const float sky_height = 13000.;
-            const float cloud_height = 3000.;
-            const float sky_size = 60.;
+    // vec2 size = vec2(textureSize(sampler2DArray(u_diffuse_textures, u_diffuse_sampler), tex_index_diffuse));
+    // Hard-coding for now as moving to texture arrays makes this awkward.
+    vec2 size = vec2(256., 128.);
 
-            const vec3 sky_plane_pos = vec3(0., 0., sky_height);
-            const vec3 cloud_plane_pos = vec3(0., 0., cloud_height);
-            const vec3 plane_norm = vec3(0., 0., -1);
+    vec2 scroll = vec2(frame_uniforms.sky_time * 10.);
 
-            // We calculate the diffuse coords here instead of in the vertex shader to prevent incorrect
-            // interpolation when the skybox is not parallel to the sky plane (e.g. for sky-textured walls)
-            vec3 dir = normalize(f_diffuse - frame_uniforms.camera_pos.xyz / frame_uniforms.camera_pos.w);
+    vec2 sky_coord = intersection(dir, sky_plane_pos, plane_norm).xy;
+    vec2 cloud_coord = intersection(dir, cloud_plane_pos, plane_norm).xy;
 
-            // vec2 size = vec2(textureSize(sampler2DArray(u_diffuse_textures, u_diffuse_sampler), tex_index_diffuse));
-            // Hard-coding for now as moving to texture arrays makes this awkward.
-            vec2 size = vec2(256., 128.);
+    sky_coord = mod((sky_coord + scroll) / size.y / sky_size, 1.) * vec2(0.5, 1.) + vec2(0.5, 0.);
+    cloud_coord = mod((cloud_coord + scroll) / size.y / sky_size, 1.) * vec2(0.5, 1.);
 
-            vec2 scroll = vec2(frame_uniforms.sky_time * 10.);
+    vec4 sky_color = texture(
+        sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+        vec3(sky_coord, tex_index_diffuse)
+    );
+    vec4 cloud_color = texture(
+        sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+        vec3(cloud_coord, tex_index_diffuse)
+    );
 
-            vec2 sky_coord = intersection(dir, sky_plane_pos, plane_norm).xy;
-            vec2 cloud_coord = intersection(dir, cloud_plane_pos, plane_norm).xy;
-
-            sky_coord = mod((sky_coord + scroll) / size.y / sky_size, 1.) * vec2(0.5, 1.) + vec2(0.5, 0.);
-            cloud_coord = mod((cloud_coord + scroll) / size.y / sky_size, 1.) * vec2(0.5, 1.);
-
-            vec4 sky_color = texture(
-                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
-                vec3(sky_coord, tex_index_diffuse)
-            );
-            vec4 cloud_color = texture(
-                sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
-                vec3(cloud_coord, tex_index_diffuse)
-            );
-
-            float lum = (RGB_2_XYZ * cloud_color.rgb).y;
-            float max_blend = 0.1;
-            float blend = clamp(lum, 0., max_blend) / max_blend;
-            diffuse_attachment = vec4(mix(sky_color.rgb, cloud_color.rgb, blend), 0.25);
-            break;
-
-        // not possible
-        default:
-            break;
-    }
+    float lum = (RGB_2_XYZ * cloud_color.rgb).y;
+    float max_blend = 0.1;
+    float blend = clamp(lum, 0., max_blend) / max_blend;
+    diffuse_attachment = vec4(mix(sky_color.rgb, cloud_color.rgb, blend), 0.25);
+#endif
 
     // rescale normal to [0, 1]
     normal_attachment = vec4(f_normal / 2.0 + 0.5, 1.0);

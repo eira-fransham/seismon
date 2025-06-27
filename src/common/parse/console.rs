@@ -140,7 +140,7 @@ pub fn command_name(input: &str) -> nom::IResult<&str, CmdName> {
 /// - Zero or more leading non-newline whitespace characters
 /// - One or more arguments, separated by non-newline whitespace characters
 /// - A command terminator (see `command_terminator`)
-pub fn terminated_command(input: &str) -> nom::IResult<&str, RunCmd> {
+pub fn terminated_command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
     terminated(command, command_terminator)(input)
 }
 
@@ -149,7 +149,7 @@ pub fn terminated_command(input: &str) -> nom::IResult<&str, RunCmd> {
 /// A command is considered to be composed of:
 /// - Zero or more leading non-newline whitespace characters
 /// - One or more arguments, separated by non-newline whitespace characters
-pub fn command(input: &str) -> nom::IResult<&str, RunCmd> {
+pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
     tuple((
         command_name,
         many0(preceded(space0, arg.map(|arg| arg.to_owned()))),
@@ -163,7 +163,7 @@ pub fn command(input: &str) -> nom::IResult<&str, RunCmd> {
 /// A command is considered to be composed of:
 /// - Zero or more leading non-newline whitespace characters
 /// - One or more arguments, separated by non-newline whitespace characters
-pub fn binding(input: &str) -> nom::IResult<&str, Binding> {
+pub fn binding(input: &str) -> nom::IResult<&str, Binding<'_>> {
     tuple((
         opt(tag("*")).map(|val| {
             if val.is_some() {
@@ -178,7 +178,7 @@ pub fn binding(input: &str) -> nom::IResult<&str, Binding> {
     .parse(input)
 }
 
-pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd>> {
+pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
     delimited(
         tuple((many0(command_terminator), space0)),
         tuple((

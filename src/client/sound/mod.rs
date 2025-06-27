@@ -220,7 +220,6 @@ pub struct GlobalMixer {
 #[derive(Clone, Debug, Component)]
 pub struct Channel {
     channel: i8,
-    origin: Vec3,
 }
 
 /// If a `Sound` does not include this component, sound is associated with a temp entity
@@ -310,7 +309,6 @@ mod systems {
                     let mut new_sound = commands.spawn((
                         Sound,
                         Channel {
-                            origin: start.origin.into(),
                             channel: start.ent_channel,
                         },
                         SamplePlayer::new(start.src.clone()),

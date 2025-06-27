@@ -114,7 +114,7 @@ pub struct Client {
     color: u8,
     state: ClientState,
     // TODO: Per-client send
-    buffer: Vec<u8>,
+    _buffer: Vec<u8>,
 }
 
 impl Default for Client {
@@ -123,7 +123,7 @@ impl Default for Client {
             name: "player".into(),
             color: 0,
             state: ClientState::Connecting,
-            buffer: default(),
+            _buffer: default(),
         }
     }
 }
@@ -150,7 +150,9 @@ pub enum ClientState {
 #[derive(Debug)]
 pub struct ClientActive {
     /// If true, client may execute any command.
-    privileged: bool,
+    ///
+    /// > TODO: Implement client commands properly.
+    _privileged: bool,
 
     /// ID of the entity controlled by this client.
     entity_id: EntityId,
@@ -227,14 +229,15 @@ impl ClientSlots {
 /// Server state that persists between levels.
 pub struct SessionPersistent {
     client_slots: ClientSlots,
-    flags: SessionFlags,
+    // TODO: Implement this
+    _flags: SessionFlags,
 }
 
 impl SessionPersistent {
     pub fn new(max_clients: usize) -> SessionPersistent {
         SessionPersistent {
             client_slots: ClientSlots::new(max_clients),
-            flags: SessionFlags::empty(),
+            _flags: SessionFlags::empty(),
         }
     }
 
@@ -301,7 +304,7 @@ impl Session {
         self.persist.client_slots.find_available()
     }
 
-    pub fn clientcmd_prespawn(&mut self, slot: usize) -> Result<(), failure::Error> {
+    pub fn clientcmd_prespawn(&mut self, _slot: usize) -> Result<(), failure::Error> {
         self.new_client().unwrap();
 
         // TODO: Actually run prespawn routines
@@ -360,7 +363,7 @@ impl Session {
 
         // TODO: All players are currently privileged
         client.state = ClientState::Active(ClientActive {
-            privileged: true,
+            _privileged: true,
             entity_id: client_entity,
         });
 
@@ -412,11 +415,7 @@ impl Session {
     }
 
     pub fn loading(&self) -> bool {
-        if let SessionState::Loading = self.state {
-            true
-        } else {
-            false
-        }
+        matches!(&self.state, SessionState::Loading)
     }
 
     fn level(&self) -> &LevelState {
@@ -1338,7 +1337,7 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let ServerVars {
             gravity,
-            max_velocity,
+            max_velocity: _,
         } = registry.read_cvars()?;
 
         if !self.think(ent_id, frame_time, registry, vfs)? {
@@ -1384,7 +1383,7 @@ impl LevelState {
     pub fn move_push(
         &mut self,
         ent_id: EntityId,
-        frame_time: Duration,
+        _frame_time: Duration,
         move_time: Duration,
     ) -> Result<(), ProgsError> {
         let ent = self.world.entities.get_mut(ent_id)?;
@@ -1404,8 +1403,8 @@ impl LevelState {
             return Ok(());
         }
 
-        let move_time_f = duration_to_f32(move_time);
-        let move_vector = vel * move_time_f;
+        // let move_time_f = duration_to_f32(move_time);
+        // let move_vector = vel * move_time_f;
         // TODO let mins =
         // todo!()
         error!("TODO: `move_push`");
@@ -2721,13 +2720,13 @@ pub mod systems {
                             }
                         }
                         ClientCmd::Move {
-                            send_time,
-                            angles,
+                            send_time: _,
+                            angles: _,
                             fwd_move,
                             side_move,
                             up_move,
-                            button_flags,
-                            impulse,
+                            button_flags: _,
+                            impulse: _,
                         } => {
                             let Session { persist, level, .. } = &mut *server;
 
@@ -2785,7 +2784,7 @@ pub mod systems {
             server.level.physics(
                 &server.persist.client_slots,
                 Duration::from_std(time.delta())
-                    .map_err(|e| ProgsError::with_msg(format!("{}", e)))?,
+                    .map_err(|e| ProgsError::with_msg(format!("{e}")))?,
                 registry.reborrow(),
                 &vfs,
             )?;

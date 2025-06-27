@@ -291,14 +291,14 @@ impl fmt::Display for FieldAddrStringId {
 impl FieldAddr for FieldAddrStringId {
     type Value = StringId;
 
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
+    fn load(&self, _type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
         ent.get_int(*self as i16)
             .map(|val| StringId(val.try_into().unwrap()))
     }
 
     fn store(
         &self,
-        type_def: &EntityTypeDef,
+        _type_def: &EntityTypeDef,
         ent: &mut Entity,
         value: Self::Value,
     ) -> Result<(), EntityError> {
@@ -384,8 +384,7 @@ fn float_addr(addr: usize) -> Result<FieldAddrFloat, ProgsError> {
     match FieldAddrFloat::from_usize(addr) {
         Some(f) => Ok(f),
         None => Err(ProgsError::with_msg(format!(
-            "float_addr: invalid address ({})",
-            addr
+            "float_addr: invalid address ({addr})",
         ))),
     }
 }
@@ -396,8 +395,7 @@ fn vector_addr(addr: usize) -> Result<FieldAddrVector, ProgsError> {
     match FieldAddrVector::from_usize(addr) {
         Some(v) => Ok(v),
         None => Err(ProgsError::with_msg(format!(
-            "vector_addr: invalid address ({})",
-            addr
+            "vector_addr: invalid address ({addr})",
         ))),
     }
 }
@@ -423,8 +421,7 @@ impl EntityTypeDef {
     ) -> Result<EntityTypeDef, EntityError> {
         if addr_count < STATIC_ADDRESS_COUNT {
             return Err(EntityError::with_msg(format!(
-                "addr_count ({}) < STATIC_ADDRESS_COUNT ({})",
-                addr_count, STATIC_ADDRESS_COUNT
+                "addr_count ({addr_count}) < STATIC_ADDRESS_COUNT ({STATIC_ADDRESS_COUNT})",
             )));
         }
 

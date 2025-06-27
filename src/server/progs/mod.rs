@@ -308,10 +308,12 @@ struct Lump {
 
 #[derive(Debug)]
 pub struct GlobalDef {
-    save: bool,
+    // TODO: Implement this
+    _save: bool,
     type_: Type,
     offset: u16,
-    name_id: StringId,
+    // TODO: Implement this
+    _name_id: StringId,
 }
 
 /// An entity field definition.
@@ -467,10 +469,10 @@ where
         let offset = src.read_u16::<LittleEndian>()?;
         let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
         globaldefs.push(GlobalDef {
-            save: type_ & SAVE_GLOBAL != 0,
+            _save: type_ & SAVE_GLOBAL != 0,
             type_: Type::from_u16(type_ & !SAVE_GLOBAL).unwrap(),
             offset,
-            name_id,
+            _name_id: name_id,
         });
     }
 
