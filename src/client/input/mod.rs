@@ -107,7 +107,7 @@ pub mod systems {
             // TODO: Make this work better if we have arguments - currently we clone the arguments every time
             // TODO: Error handling
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {
-                run_cmds.send_batch(binding.commands.iter().filter_map(|cmd| {
+                run_cmds.write_batch(binding.commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, key.state) {
                         (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
                         (Some(Trigger::Positive) | None, ButtonState::Released) => {
@@ -141,7 +141,7 @@ pub mod systems {
             } = key;
 
             if AnyInput::from(logical_key.clone()) == AnyInput::ESCAPE {
-                run_cmds.send("toggleconsole".into());
+                run_cmds.write("toggleconsole".into());
                 return;
             }
 
@@ -195,7 +195,7 @@ pub mod systems {
 
                     match cmd {
                         Ok(cmd) => {
-                            run_cmds.send(cmd.into_owned());
+                            run_cmds.write(cmd.into_owned());
                         }
                         Err(e) => warn!("Console error: {}", e),
                     }
@@ -254,7 +254,7 @@ pub mod systems {
             // TODO: Make this actually respect the `togglemenu` keybinding
             if input == AnyInput::ESCAPE {
                 if menu.at_root() {
-                    run_cmds.send("togglemenu".into());
+                    run_cmds.write("togglemenu".into());
                 } else {
                     menu.back().expect("TODO: Handle menu failures");
                 }

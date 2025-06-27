@@ -247,7 +247,7 @@ pub fn register_commands(app: &mut App) {
     }
 
     app.command(|In(Music { track }), mut events: EventWriter<MixerEvent>| {
-        events.send(MixerEvent::StartMusic(Some(MusicSource::Named(track))));
+        events.write(MixerEvent::StartMusic(Some(MusicSource::Named(track))));
         default()
     });
 
@@ -257,7 +257,7 @@ pub fn register_commands(app: &mut App) {
     struct MusicStop;
 
     app.command(|In(MusicStop), mut events: EventWriter<MixerEvent>| {
-        events.send(MixerEvent::StopMusic);
+        events.write(MixerEvent::StopMusic);
         default()
     });
 
@@ -270,7 +270,7 @@ pub fn register_commands(app: &mut App) {
     struct MusicPause;
 
     app.command(|In(MusicPause), mut events: EventWriter<MixerEvent>| {
-        events.send(MixerEvent::PauseMusic);
+        events.write(MixerEvent::PauseMusic);
         default()
     });
 
@@ -283,7 +283,7 @@ pub fn register_commands(app: &mut App) {
     struct MusicResume;
 
     app.command(|In(MusicResume), mut events: EventWriter<MixerEvent>| {
-        events.send(MixerEvent::StartMusic(None));
+        events.write(MixerEvent::StartMusic(None));
         default()
     });
 
