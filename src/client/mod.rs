@@ -1229,31 +1229,28 @@ mod systems {
         //       but in this case it's almost certainly fine
         let impulse = impulses.read().next().map(|i| i.0);
 
-        match conn.as_deref_mut() {
-            Some(Connection {
-                state,
-                kind: ConnectionKind::Server { .. },
-                ..
-            }) => {
-                let move_cmd = state.handle_input(
-                    &*registry,
-                    Duration::from_std(frame_time.delta()).unwrap(),
-                    move_vars,
-                    mouse_vars,
-                    impulse,
-                );
-                let mut msg = Vec::new();
-                move_cmd.serialize(&mut msg)?;
-                client_events.write(ClientMessage {
-                    client_id: 0,
-                    packet: msg,
-                    kind: MessageKind::Unreliable,
-                });
+        if let Some(Connection {
+            state,
+            kind: ConnectionKind::Server { .. },
+            ..
+        }) = conn.as_deref_mut()
+        {
+            let move_cmd = state.handle_input(
+                &*registry,
+                Duration::from_std(frame_time.delta()).unwrap(),
+                move_vars,
+                mouse_vars,
+                impulse,
+            );
+            let mut msg = Vec::new();
+            move_cmd.serialize(&mut msg)?;
+            client_events.write(ClientMessage {
+                client_id: 0,
+                packet: msg,
+                kind: MessageKind::Unreliable,
+            });
 
-                // TODO: Refresh input (e.g. mouse movement)
-            }
-
-            _ => (),
+            // TODO: Refresh input (e.g. mouse movement)
         }
 
         Ok(())

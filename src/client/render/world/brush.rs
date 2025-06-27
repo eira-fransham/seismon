@@ -22,7 +22,8 @@ use std::{
     mem::{self, size_of},
     ops::Range,
     sync::{
-        atomic::{AtomicBool, Ordering}, Arc
+        Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -714,7 +715,10 @@ impl BrushRenderer {
     {
         use PushConstantUpdate::*;
 
-        assert_eq!(mem::size_of::<<BrushPipeline as Pipeline>::VertexPushConstants>(), 100);
+        assert_eq!(
+            mem::size_of::<<BrushPipeline as Pipeline>::VertexPushConstants>(),
+            100
+        );
 
         let Some(vbuf) = self.vertex_buffer.as_ref() else {
             return;

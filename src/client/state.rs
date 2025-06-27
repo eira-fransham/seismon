@@ -1,5 +1,9 @@
 use std::{
-    io::{Cursor, Read}, iter, num::NonZeroU32, path::Path, sync::LazyLock
+    io::{Cursor, Read},
+    iter,
+    num::NonZeroU32,
+    path::Path,
+    sync::LazyLock,
 };
 
 use super::{sound::MixerEvent, view::BobVars};
@@ -242,7 +246,7 @@ impl ClientState {
                 }
 
                 let decoded = firewheel::load_audio_file_from_source(
-                    &mut  sound_loader,
+                    &mut sound_loader,
                     Box::new(cursor),
                     Some(decode_hint),
                     NonZeroU32::new(44100).unwrap(),
@@ -276,17 +280,14 @@ impl ClientState {
                 }
 
                 let decoded = firewheel::load_audio_file_from_source(
-                    &mut  sound_loader,
+                    &mut sound_loader,
                     Box::new(cursor),
                     Some(decode_hint),
                     NonZeroU32::new(44100).unwrap(),
                     default(),
                 )?;
 
-                Ok((
-                    snd_name.into(),
-                    asset_server.add(Sample::new(decoded)),
-                ))
+                Ok((snd_name.into(), asset_server.add(Sample::new(decoded))))
             })
             .collect::<Result<_, ClientError>>()?;
 
