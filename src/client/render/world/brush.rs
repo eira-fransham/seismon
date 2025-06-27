@@ -19,11 +19,10 @@
 // SOFTWARE.
 
 use std::{
-    mem::size_of,
+    mem::{self, size_of},
     ops::Range,
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, Ordering}, Arc
     },
 };
 
@@ -133,13 +132,13 @@ impl BrushPipeline {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
-    pub transform: Mat4,
-    pub model_view: Mat3,
+    pub transform: [[f32; 4]; 4],
+    pub model_view: [[f32; 3]; 3],
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct SharedPushConstants {
+pub struct FramePushConstants {
     pub diffuse_index: u16,
     pub fullbright_index: u16,
 }
@@ -166,8 +165,8 @@ const VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
 
 impl Pipeline for BrushPipeline {
     type VertexPushConstants = VertexPushConstants;
-    type SharedPushConstants = SharedPushConstants;
-    type FragmentPushConstants = ();
+    type SharedPushConstants = ();
+    type FragmentPushConstants = FramePushConstants;
 
     type Args = (<WorldPipelineBase as Pipeline>::Args, TextureKind);
 
@@ -716,6 +715,8 @@ impl BrushRenderer {
     {
         use PushConstantUpdate::*;
 
+        assert_eq!(mem::size_of::<<BrushPipeline as Pipeline>::VertexPushConstants>(), 100);
+
         let Some(vbuf) = self.vertex_buffer.as_ref() else {
             return;
         };
@@ -754,11 +755,11 @@ impl BrushRenderer {
                 BrushPipeline::set_push_constants(
                     pass,
                     Retain,
-                    Update(bump.alloc(SharedPushConstants {
+                    Retain,
+                    Update(bump.alloc(FramePushConstants {
                         diffuse_index,
                         fullbright_index,
                     })),
-                    Retain,
                 );
 
                 for face_id in face_ids {

@@ -297,7 +297,7 @@ where
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * data.stride()),
-            rows_per_image: Some(height),
+            rows_per_image: if length.is_some() { Some(height) } else { None },
         },
         wgpu::Extent3d {
             width,

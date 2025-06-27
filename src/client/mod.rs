@@ -1202,7 +1202,6 @@ pub struct Impulse(pub u8);
 mod systems {
     use common::net::MessageKind;
     use serde::Deserialize;
-    use video_rs::ffmpeg::log;
 
     use self::common::console::Registry;
 

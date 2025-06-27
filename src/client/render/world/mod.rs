@@ -567,8 +567,8 @@ impl WorldRenderer {
                 BrushPipeline::set_push_constants(
                     pass,
                     Update(bump.alloc(brush::VertexPushConstants {
-                        transform: camera.view_projection(),
-                        model_view: Mat3::from_mat4(camera.view()),
+                        transform: camera.view_projection().to_cols_array_2d(),
+                        model_view: Mat3::from_mat4(camera.view()).to_cols_array_2d(),
                     })),
                     Clear,
                     Clear,
@@ -602,10 +602,10 @@ impl WorldRenderer {
                                 BrushPipeline::set_push_constants(
                                     pass,
                                     Update(bump.alloc(brush::VertexPushConstants {
-                                        transform: self.calculate_mvp_transform(camera, ent),
+                                        transform: self.calculate_mvp_transform(camera, ent).to_cols_array_2d(),
                                         model_view: Mat3::from_mat4(
                                             self.calculate_mv_transform(camera, ent),
-                                        ),
+                                        ).to_cols_array_2d(),
                                     })),
                                     Clear,
                                     Clear,
