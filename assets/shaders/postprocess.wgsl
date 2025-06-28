@@ -5,7 +5,7 @@
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
 struct PostProcessUniforms {
-    color_shift: array<vec4<f32>, 4>,
+    color_shift: array<vec4<f32>, 5>,
 }
 @group(0) @binding(2) var<uniform> postprocess_uniforms: PostProcessUniforms;
 
@@ -17,7 +17,7 @@ fn main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     var in_color: vec4<f32> = textureSample(screen_texture, texture_sampler, in.uv);
 
     var color_shifted: vec3<f32> = toColorSpace(COLOR_SPACE, in_color.rgb);
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 5; i++) {
         var color_shift: vec4<f32> = postprocess_uniforms.color_shift[i];
         var color_shift_rgb: vec3<f32> = toColorSpace(COLOR_SPACE, color_shift.rgb);
 

@@ -295,7 +295,8 @@ impl ::std::convert::From<u8> for PlayerColor {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct ColorShift {
     pub dest_color: [u8; 3],
-    pub percent: i32,
+    pub density: f32,
+    pub decay: f32,
 }
 
 #[derive(Copy, Clone, Debug, Eq, FromPrimitive, PartialEq)]

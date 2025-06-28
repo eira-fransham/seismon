@@ -117,8 +117,10 @@
 //! The edges are stored as a pair of 16-bit integer vertex IDs.
 
 mod load;
+mod model;
+mod utils;
 
-use std::{collections::HashSet, error::Error, fmt, sync::Arc};
+use std::{collections::HashSet, error::Error, fmt, iter, sync::Arc};
 
 use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 
@@ -819,40 +821,16 @@ impl BspData {
         }
     }
 
-    pub fn get_pvs(&self, leaf_id: usize, leaf_count: usize) -> Vec<usize> {
+    pub fn get_pvs(&self, leaf_id: usize, num_leaves: usize) -> impl Iterator<Item = usize> {
         // leaf 0 is outside the map, everything is visible
         if leaf_id == 0 {
-            return Vec::new();
+            return itertools::Either::Left(iter::empty());
         }
 
         match self.leaves[leaf_id].vis_offset {
-            Some(o) => {
-                let mut visleaf = 1;
-                let mut visleaf_list = Vec::new();
-                let mut it = (&self.visibility[o..]).iter();
+            Some(o) => itertools::Either::Right(utils::get_pvs(&self.visibility, o, num_leaves)),
 
-                while visleaf < leaf_count {
-                    let byte = it.next().unwrap();
-                    match *byte {
-                        // a zero byte signals the start of an RLE sequence
-                        0 => visleaf += 8 * *it.next().unwrap() as usize,
-
-                        bits => {
-                            for shift in 0..8 {
-                                if bits & 1 << shift != 0 {
-                                    visleaf_list.push(visleaf);
-                                }
-
-                                visleaf += 1;
-                            }
-                        }
-                    }
-                }
-
-                visleaf_list
-            }
-
-            None => Vec::new(),
+            None => itertools::Either::Left(iter::empty()),
         }
     }
 

@@ -284,6 +284,8 @@ enum ColorShiftCode {
     Damage = 1,
     Bonus = 2,
     Powerup = 3,
+    // For `v_cshift`
+    Custom = 4,
 }
 
 struct ServerInfo {
@@ -440,10 +442,6 @@ impl Connection {
 }
 
 impl Connection {
-    pub fn view_entity_id(&self) -> usize {
-        self.state.view_entity_id()
-    }
-
     pub fn trace<'a, I>(&self, entity_ids: I) -> Result<TraceFrame, ClientError>
     where
         I: IntoIterator<Item = &'a usize>,
@@ -579,6 +577,7 @@ impl Connection {
         mut console_output: Mut<ConsoleOutput>,
         kick_vars: KickVars,
         client_vars: ClientVars,
+        cl_nolerp: bool,
     ) -> Result<ConnectionStatus, ClientError> {
         use ConnectionStatus::*;
 
@@ -666,10 +665,10 @@ impl Connection {
                     self.state.update_entity(ent_id, ent_update)?;
 
                     // patch view angles in demos
-                    if let Some(angles) = demo_view_angles {
-                        if ent_id == self.state.view_entity_id() {
-                            self.state.update_view_angles(angles);
-                        }
+                    if let Some(angles) = demo_view_angles
+                        && ent_id == self.state.view_entity_id()
+                    {
+                        self.state.update_view_angles(angles);
                     }
                 }
 
@@ -749,7 +748,9 @@ impl Connection {
                     )?;
                 }
 
-                ServerCmd::SetAngle { angles } => self.state.set_view_angles(angles),
+                ServerCmd::SetAngle { angles } => {
+                    self.state.update_view_angles(angles)
+                }
 
                 ServerCmd::SetView { ent_id } => {
                     if ent_id > 0 {
@@ -786,14 +787,16 @@ impl Connection {
 
                     let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
                     let attenuation = attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                    mixer_events.write(MixerEvent::StartSound(StartSound {
-                        src: self.state.sounds[sound_id as usize].clone(),
-                        ent_id: Some(entity_id as usize),
-                        ent_channel: channel,
-                        volume: volume as f32 / 255.0,
-                        attenuation,
-                        origin: position.into(),
-                    }));
+                    if let Some(sound) = self.state.sounds.get(sound_id as usize) {
+                        mixer_events.write(MixerEvent::StartSound(StartSound {
+                            src: sound.clone(),
+                            ent_id: Some(entity_id as usize),
+                            ent_channel: channel,
+                            volume: volume as f32 / 255.0,
+                            attenuation,
+                            origin: position.into(),
+                        }));
+                    }
                 }
 
                 ServerCmd::SpawnBaseline {
@@ -883,7 +886,6 @@ impl Connection {
                 },
 
                 ServerCmd::Time { time } => {
-                    self.state.msg_times[1] = self.state.msg_times[0];
                     self.state.msg_times[0] = engine::duration_from_f32(time);
                 }
 
@@ -1018,6 +1020,7 @@ impl Connection {
         // do this _before_ parsing server messages so that we know when to
         // request the next message from the demo server.
         self.state.advance_time(frame_time);
+
         match self.parse_server_msg(
             state.reborrow(),
             time,
@@ -1029,6 +1032,7 @@ impl Connection {
             console.reborrow(),
             kick_vars,
             client_vars,
+            cl_nolerp,
         )? {
             ConnectionStatus::Maintain => {}
             // if Disconnect or NextDemo, delegate up the chain

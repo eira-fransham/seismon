@@ -127,23 +127,29 @@ void main() {
     ).rgb, 0.25);
 #elif INPUT_TEXTURE_KIND == TEXTURE_KIND_SKY
     // TODO: Convert these into cvars?
-    const float sky_height = 8000.;
-    const float cloud_height = 3000.;
+    const float sky_height = 6000.;
+    const float cloud_height = 2500.;
+    const float ground_dist = 2500.;
     const float sky_size = 60.;
+    const float horizon_screen_perc = 0.08;
 
-    const vec3 sky_plane_pos = vec3(0., 0., sky_height);
     const vec3 cloud_plane_pos = vec3(0., 0., cloud_height);
     const vec3 plane_norm = vec3(0., 0., -1);
 
     // We calculate the diffuse coords here instead of in the vertex shader to prevent incorrect
     // interpolation when the skybox is not parallel to the sky plane (e.g. for sky-textured walls)
     vec3 dir = normalize(f_diffuse - frame_uniforms.camera_pos.xyz / frame_uniforms.camera_pos.w);
+    bool is_ground = dir.z < 0;
+    float horizon_perc = abs(dir.z) / horizon_screen_perc;
+    float cloud_mul = is_ground ? 0. : 1.;
+
+    vec3 sky_plane_pos = vec3(0., 0., is_ground ? ground_dist : sky_height);
 
     // vec2 size = vec2(textureSize(sampler2DArray(u_diffuse_textures, u_diffuse_sampler), tex_index_diffuse));
     // Hard-coding for now as moving to texture arrays makes this awkward.
     vec2 size = vec2(256., 128.);
 
-    vec2 scroll = vec2(frame_uniforms.sky_time * 10.);
+    vec2 scroll = vec2(is_ground ? 0. : frame_uniforms.sky_time * 10.);
 
     vec2 sky_coord = intersection(dir, sky_plane_pos, plane_norm).xy;
     vec2 cloud_coord = intersection(dir, cloud_plane_pos, plane_norm).xy;
@@ -155,10 +161,17 @@ void main() {
         sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
         vec3(sky_coord, tex_index_diffuse)
     );
+    if (horizon_perc < 1.) {
+        vec4 sky_distant = texture(
+            sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
+            vec3(vec2(0.), tex_index_diffuse)
+        );
+        sky_color = mix(sky_distant, sky_color, horizon_perc);
+    }
     vec4 cloud_color = texture(
         sampler2DArray(u_diffuse_textures, u_diffuse_sampler),
         vec3(cloud_coord, tex_index_diffuse)
-    );
+    ) * cloud_mul * clamp(horizon_perc, 0., 1.5);
 
     float lum = (RGB_2_XYZ * cloud_color.rgb).y;
     float max_blend = 0.1;

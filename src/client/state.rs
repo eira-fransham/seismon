@@ -119,12 +119,12 @@ pub struct ClientState {
     // the last two timestamps sent by the server (for lerping)
     pub msg_times: [Duration; 2],
     pub time: Duration,
-    pub lerp_factor: f32,
+    pub lerp_factor: Option<f32>,
 
     pub items: ItemFlags,
     pub item_get_time: [Duration; net::MAX_ITEMS],
     pub face_anim_time: Duration,
-    pub color_shifts: [ColorShift; 4],
+    pub color_shifts: [ColorShift; 5],
     pub view: View,
 
     pub msg_velocity: [Vec3; 2],
@@ -172,7 +172,8 @@ impl ClientState {
             player_info: default(),
             msg_times: [Duration::zero(), Duration::zero()],
             time: Duration::zero(),
-            lerp_factor: 0.0,
+            // Don't update entities until the first message has been received from the server.
+            lerp_factor: None,
             items: ItemFlags::empty(),
             item_get_time: [Duration::zero(); net::MAX_ITEMS],
             color_shifts: default(),
@@ -307,7 +308,7 @@ impl ClientState {
     ///
     /// This method does not change the state of the world to match the new time value.
     pub fn advance_time(&mut self, frame_time: Duration) {
-        self.time = self.time + frame_time;
+        self.time += frame_time;
     }
 
     /// Update the client state interpolation ratio.
@@ -315,31 +316,42 @@ impl ClientState {
     /// This calculates the ratio used to interpolate entities between the last
     /// two updates from the server.
     pub fn update_interp_ratio(&mut self, cl_nolerp: bool) {
+        const MAX_INTERP_DELTA: Duration = Duration::try_milliseconds(100).unwrap();
+
         if cl_nolerp {
-            self.time = self.msg_times[0];
-            self.lerp_factor = 1.0;
+            if self.msg_times[0] < self.msg_times[1] {
+                self.time = self.msg_times[0];
+                self.lerp_factor = None;
+            } else {
+                self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
+                self.lerp_factor = Some(1.0);
+            }
             return;
         }
 
         let server_delta = engine::duration_to_f32(match self.msg_times[0] - self.msg_times[1] {
             // if no time has passed between updates, don't lerp anything
             d if d == Duration::zero() => {
-                self.time = self.msg_times[0];
-                self.lerp_factor = 1.0;
+                if d < Duration::zero() {
+                    warn!("Negative time delta from server!: ({d})");
+                }
+
+                self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
+                self.lerp_factor = Some(1.0);
                 return;
             }
 
-            d if d > Duration::try_milliseconds(100).unwrap() => {
-                self.msg_times[1] = self.msg_times[0] - Duration::try_milliseconds(100).unwrap();
-                Duration::try_milliseconds(100).unwrap()
+            d if d < Duration::zero() => {
+                warn!("Negative time delta from server!: ({d})");
+
+                self.time = self.msg_times[0];
+                self.lerp_factor = None;
+                return;
             }
 
-            d if d < Duration::zero() => {
-                warn!(
-                    "Negative time delta from server!: ({})s",
-                    engine::duration_to_f32(d)
-                );
-                d
+            d if d > MAX_INTERP_DELTA => {
+                self.msg_times[1] = self.msg_times[0] - MAX_INTERP_DELTA;
+                MAX_INTERP_DELTA
             }
 
             d => d,
@@ -347,7 +359,7 @@ impl ClientState {
 
         let frame_delta = engine::duration_to_f32(self.time - self.msg_times[1]);
 
-        self.lerp_factor = match frame_delta / server_delta {
+        self.lerp_factor = Some(match frame_delta / server_delta {
             f if f < 0.0 => {
                 if f < -0.01 {
                     self.time = self.msg_times[1];
@@ -365,7 +377,7 @@ impl ClientState {
             }
 
             f => f,
-        }
+        });
     }
 
     /// Update all entities in the game world.
@@ -382,10 +394,23 @@ impl ClientState {
         static BRIGHTLIGHT_DISTRIBUTION: LazyLock<Uniform<f32>> =
             LazyLock::new(|| Uniform::new(400.0, 432.0).unwrap());
 
-        let lerp_factor = self.lerp_factor;
+        let Some(lerp_factor) = self.lerp_factor else {
+            // Reset lerping if we time-travel (seems to be used in cutscene demos,
+            // e.g. in Malice)
+            self.msg_times[1] = self.msg_times[0];
+            self.velocity =
+                self.msg_velocity[0];
+
+            for ent in self.entities.iter_mut().skip(1) {
+                ent.msg_origins[1] = ent.msg_origins[0];
+                ent.msg_angles[1] = ent.msg_angles[0];
+            }
+
+            return Ok(());
+        };
 
         self.velocity =
-            self.msg_velocity[1] + lerp_factor * (self.msg_velocity[0] - self.msg_velocity[1]);
+            self.msg_velocity[1].lerp(self.msg_velocity[0], lerp_factor);
 
         // TODO: if we're in demo playback, interpolate the view angles
 
@@ -423,7 +448,7 @@ impl ClientState {
                     lerp_factor
                 };
 
-                ent.origin = ent.msg_origins[1] + ent_lerp_factor * origin_delta;
+                ent.origin = ent.msg_origins[1].lerp(ent.msg_origins[0], ent_lerp_factor);
 
                 // assume that entities will not whip around 180+ degrees in one
                 // frame and adjust the delta accordingly. this avoids a bug
@@ -438,8 +463,12 @@ impl ClientState {
                 }
             }
 
-            let model = &self.models[ent.model_id];
-            if model.has_flag(ModelFlags::ROTATE) {
+            let flags = &self
+                .models
+                .get(ent.model_id)
+                .map(|m| m.flags)
+                .unwrap_or_default();
+            if flags.contains(ModelFlags::ROTATE) {
                 ent.angles[1] = obj_rotate;
             }
 
@@ -492,15 +521,15 @@ impl ClientState {
             }
 
             // check if this entity leaves a trail
-            let trail_kind = if model.has_flag(ModelFlags::GIB) {
+            let trail_kind = if flags.contains(ModelFlags::GIB) {
                 Some(TrailKind::Blood)
-            } else if model.has_flag(ModelFlags::ZOMGIB) {
+            } else if flags.contains(ModelFlags::ZOMGIB) {
                 Some(TrailKind::BloodSlight)
-            } else if model.has_flag(ModelFlags::TRACER) {
+            } else if flags.contains(ModelFlags::TRACER) {
                 Some(TrailKind::TracerGreen)
-            } else if model.has_flag(ModelFlags::TRACER2) {
+            } else if flags.contains(ModelFlags::TRACER2) {
                 Some(TrailKind::TracerRed)
-            } else if model.has_flag(ModelFlags::ROCKET) {
+            } else if flags.contains(ModelFlags::ROCKET) {
                 ent.light_id = Some(self.lights.insert(
                     self.time,
                     LightDesc {
@@ -513,9 +542,9 @@ impl ClientState {
                     ent.light_id,
                 ));
                 Some(TrailKind::Rocket)
-            } else if model.has_flag(ModelFlags::GRENADE) {
+            } else if flags.contains(ModelFlags::GRENADE) {
                 Some(TrailKind::Smoke)
-            } else if model.has_flag(ModelFlags::TRACER3) {
+            } else if flags.contains(ModelFlags::TRACER3) {
                 Some(TrailKind::Vore)
             } else {
                 None
@@ -569,6 +598,8 @@ impl ClientState {
                 ));
             }
         }
+
+        self.msg_times[1] = self.msg_times[0];
 
         Ok(())
     }
@@ -741,12 +772,16 @@ impl ClientState {
     }
 
     pub fn handle_damage(&mut self, armor: u8, health: u8, source: Vec3, kick_vars: KickVars) {
+        const DMG_DENSITY: f32 = 0.03;
+
         self.face_anim_time = self.time + Duration::try_milliseconds(200).unwrap();
 
         let dmg_factor = (armor + health).min(20) as f32 / 2.0;
         let mut cshift = self.color_shifts[ColorShiftCode::Damage as usize];
-        cshift.percent += 3 * dmg_factor as i32;
-        cshift.percent = cshift.percent.clamp(0, 150);
+        cshift.density += DMG_DENSITY * dmg_factor as f32;
+        cshift.density = cshift.density.clamp(0., 1.5);
+        // Takes one second to decay no matter how intense.
+        cshift.decay = cshift.density as f32;
 
         if armor > health {
             cshift.dest_color = [200, 100, 100];
@@ -849,7 +884,12 @@ impl ClientState {
         let entity = &mut self.entities[id];
         entity.update(self.msg_times, update);
         if entity.model_changed() {
-            match self.models[entity.model_id].kind() {
+            match self
+                .models
+                .get(entity.model_id)
+                .map(|m| m.kind())
+                .unwrap_or_default()
+            {
                 ModelKind::None => (),
                 _ => {
                     entity.sync_base = match self.models[entity.model_id].sync_type() {
@@ -860,10 +900,10 @@ impl ClientState {
             }
         }
 
-        if let Some(c) = entity.colormap() {
-            if let Some(e) = self.entities.get_mut(id) {
-                e.colormap = Some(c);
-            }
+        if let Some(c) = entity.colormap()
+            && let Some(e) = self.entities.get_mut(id)
+        {
+            e.colormap = Some(c);
         }
 
         Ok(())
@@ -1028,7 +1068,7 @@ impl ClientState {
                             1 => "",
                             2 => "2",
                             3 => "3",
-                            x => panic!("invalid lightning model id: {}", x),
+                            x => panic!("invalid lightning model id: {x}"),
                         }
                     ),
                     Grapple => "progs/beam.mdl".to_string(),
@@ -1125,82 +1165,68 @@ impl ClientState {
 
         // set color for leaf contents
         self.color_shifts[ColorShiftCode::Contents as usize] = match self.view_leaf_contents()? {
-            bsp::BspLeafContents::Empty => ColorShift {
-                dest_color: [0, 0, 0],
-                percent: 0,
-            },
             bsp::BspLeafContents::Lava => ColorShift {
                 dest_color: [255, 80, 0],
-                percent: 150,
+                density: 150. / 255.,
+                decay: 0.,
             },
             bsp::BspLeafContents::Slime => ColorShift {
                 dest_color: [0, 25, 5],
-                percent: 150,
+                density: 150. / 255.,
+                decay: 0.,
+            },
+            bsp::BspLeafContents::Water => ColorShift {
+                dest_color: [130, 80, 50],
+                density: 128. / 255.,
+                decay: 0.,
             },
             _ => ColorShift {
-                dest_color: [130, 80, 50],
-                percent: 128,
+                dest_color: [0, 0, 0],
+                density: 0.,
+                decay: 0.,
             },
         };
-
-        // decay damage and item pickup shifts
-        // always decay at least 1 "percent" (actually 1/255)
-        // TODO: make percent an actual percent ([0.0, 1.0])
-        let dmg_shift = &mut self.color_shifts[ColorShiftCode::Damage as usize];
-        dmg_shift.percent -= ((float_time * 150.0) as i32).max(1);
-        dmg_shift.percent = dmg_shift.percent.max(0);
-
-        let bonus_shift = &mut self.color_shifts[ColorShiftCode::Bonus as usize];
-        bonus_shift.percent -= ((float_time * 100.0) as i32).max(1);
-        bonus_shift.percent = bonus_shift.percent.max(0);
 
         // set power-up overlay
         self.color_shifts[ColorShiftCode::Powerup as usize] =
             if self.items.contains(ItemFlags::QUAD) {
                 ColorShift {
                     dest_color: [0, 0, 255],
-                    percent: 30,
+                    density: 30.,
+                    decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::SUIT) {
                 ColorShift {
                     dest_color: [0, 255, 0],
-                    percent: 20,
+                    density: 20.,
+                    decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::INVISIBILITY) {
                 ColorShift {
                     dest_color: [100, 100, 100],
-                    percent: 100,
+                    density: 100.,
+                    decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::INVULNERABILITY) {
                 ColorShift {
                     dest_color: [255, 255, 0],
-                    percent: 30,
+                    density: 30.,
+                    decay: 0.,
                 }
             } else {
                 ColorShift {
                     dest_color: [0, 0, 0],
-                    percent: 0,
+                    density: 0.,
+                    decay: 0.,
                 }
             };
 
-        Ok(())
-    }
-
-    /// Update the view angles to the specified value, disabling interpolation.
-    pub fn set_view_angles(&mut self, angles: Vec3) {
-        self.view.update_input_angles(Angles {
-            pitch: angles.x,
-            roll: angles.z,
-            yaw: angles.y,
-        });
-        let final_angles = self.view.final_angles();
-        if let Some(e) = self.entities.get_mut(self.view.entity_id()) {
-            e.set_angles(Vec3::new(
-                final_angles.pitch,
-                final_angles.yaw,
-                final_angles.roll,
-            ));
+        for shift in &mut self.color_shifts {
+            shift.density -= float_time * shift.decay;
+            shift.density = shift.density.max(0.);
         }
+
+        Ok(())
     }
 
     /// Update the view angles to the specified value, enabling interpolation.
@@ -1211,7 +1237,11 @@ impl ClientState {
             yaw: angles.y,
         });
         let final_angles = self.view.final_angles();
-        self.entities[self.view.entity_id()].update_angles(Vec3::new(
+        let Some(ent) = self.entities.get_mut(self.view.entity_id()) else {
+            return;
+        };
+        // Update with interpolation.
+        ent.update_angles(Vec3::new(
             final_angles.pitch,
             final_angles.yaw,
             final_angles.roll,
@@ -1234,10 +1264,7 @@ impl ClientState {
     }
 
     pub fn viewmodel_id(&self) -> usize {
-        match self.stats[ClientStat::Weapon as usize] as usize {
-            0 => 0,
-            x => x - 1,
-        }
+        (self.stats[ClientStat::Weapon as usize] as usize).saturating_sub(1)
     }
 
     pub fn iter_visible_entities(&self) -> impl Iterator<Item = &ClientEntity> {
@@ -1337,26 +1364,6 @@ impl ClientState {
 
     pub fn face_anim_time(&self) -> Duration {
         self.face_anim_time
-    }
-
-    pub fn color_shift(&self) -> [f32; 4] {
-        self.color_shifts.iter().fold([0.0; 4], |accum, elem| {
-            let elem_a = elem.percent as f32 / 255.0 / 2.0;
-            if elem_a == 0.0 {
-                return accum;
-            }
-            let in_a = accum[3];
-            let out_a = in_a + elem_a * (1.0 - in_a);
-            let color_factor = elem_a / out_a;
-
-            let mut out = [0.0; 4];
-            for i in 0..3 {
-                out[i] = accum[i] * (1.0 - color_factor)
-                    + elem.dest_color[i] as f32 / 255.0 * color_factor;
-            }
-            out[3] = out_a.min(1.0).max(0.0);
-            out
-        })
     }
 
     pub fn check_entity_id(&self, id: usize) -> Result<(), ClientError> {

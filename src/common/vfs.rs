@@ -16,9 +16,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 use bevy::{prelude::*, render::extract_resource::ExtractResource};
 use std::{
+    borrow::Cow,
     fs::{File, OpenOptions},
     io::{self, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom},
-    iter,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -88,29 +88,30 @@ impl Vfs {
             std::process::exit(1);
         }
 
-        if let Some(game_dir) = &game_dir {
-            if !game_dir.is_dir() {
-                error!(
-                    "`{0}/` directory does not exist! Use the `--base-dir` option with the name of the directory which contains `{0}/`.",
-                    game.unwrap()
-                );
+        if let Some(game_dir) = &game_dir
+            && !game_dir.is_dir()
+        {
+            error!(
+                "`{0}/` directory does not exist! Use the `--base-dir` option with the name of the directory which contains `{0}/`.",
+                game.unwrap()
+            );
 
-                std::process::exit(1);
-            }
+            std::process::exit(1);
         }
 
         let mut num_paks = 0;
-        let pak_paths = iter::once(quake_dir).chain(game_dir);
+        let pak_paths = [Some(quake_dir), game_dir].into_iter().flatten();
         for mut pak_path in pak_paths {
             for vfs_id in 0..crate::common::MAX_PAKFILES {
                 // Add the file name.
-                pak_path.push(format!("pak{}.pak", vfs_id));
+                pak_path.push(format!("pak{vfs_id}.pak"));
 
                 // Keep adding PAKs until we don't find one or we hit MAX_PAKFILES.
                 if !pak_path.exists() {
                     // If the lowercase path doesn't exist, try again with uppercase.
+                    // TODO: Deduplicate this with the case-insensitive file resolution from `open`.
                     pak_path.pop();
-                    pak_path.push(format!("PAK{}.PAK", vfs_id));
+                    pak_path.push(format!("PAK{vfs_id}.PAK"));
                     if !pak_path.exists() {
                         pak_path.pop();
                         break;
@@ -124,8 +125,8 @@ impl Vfs {
                 pak_path.pop();
             }
 
-            // Allow files in id1 dir to overwrite files in paks (unsure if this is correct for Quake
-            // but it's a nice feature)
+            // Allow files in game or id1 dir to overwrite files in paks
+            // TODO: Does this break anything?
             vfs.add_directory(&pak_path).unwrap();
         }
 
@@ -133,7 +134,7 @@ impl Vfs {
             warn!("No PAK files found.");
         }
 
-        vfs
+        dbg!(vfs)
     }
 
     pub fn add_pakfile<P>(&mut self, path: P) -> Result<(), VfsError>
@@ -174,8 +175,49 @@ impl Vfs {
                     let mut full_path = path.to_owned();
                     full_path.push(vp);
 
-                    if let Ok(f) = File::open(full_path) {
+                    if let Ok(f) = File::open(&full_path) {
                         return Ok(VirtualFile::FileBacked(BufReader::new(f)));
+                    }
+
+                    // Janky case-insensitive directory traversal. Not resiliant against loops.
+                    // TODO: Convert to use `glob` or similar.
+                    let mut dir_path = Cow::Borrowed(&**path);
+                    let mut components_iter = Path::new(vp).components().peekable();
+                    info!("Searching for {vp}");
+                    'recurse_dirs: loop {
+                        info!("Searching {}...", dir_path.display());
+                        // TODO: Cache directories, handle loops.
+                        if let Ok(paths) = std::fs::read_dir(&*dir_path) {
+                            let full_path_str = full_path.as_os_str();
+
+                            for path in paths {
+                                let Ok(path) = path else {
+                                    continue;
+                                };
+
+                                if components_iter
+                                    .peek()
+                                    .copied()
+                                    .map(|c| c.as_os_str().eq_ignore_ascii_case(path.file_name()))
+                                    .unwrap_or_default()
+                                    && path.file_type().map(|t| t.is_dir()).unwrap_or_default()
+                                {
+                                    components_iter.next();
+                                    dir_path = Cow::Owned(path.path());
+                                    continue 'recurse_dirs;
+                                }
+
+                                let path = path.path();
+
+                                if path.as_os_str().eq_ignore_ascii_case(full_path_str)
+                                    && let Ok(f) = File::open(&path)
+                                {
+                                    return Ok(VirtualFile::FileBacked(BufReader::new(f)));
+                                }
+                            }
+                        }
+
+                        break;
                     }
                 }
             }

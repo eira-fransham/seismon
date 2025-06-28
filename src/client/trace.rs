@@ -34,6 +34,6 @@ pub struct TraceEntity {
 pub struct TraceFrame {
     pub msg_times_ms: [i64; 2],
     pub time_ms: i64,
-    pub lerp_factor: f32,
+    pub lerp_factor: Option<f32>,
     pub entities: HashMap<u32, TraceEntity>,
 }

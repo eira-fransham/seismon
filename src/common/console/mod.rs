@@ -75,7 +75,7 @@ impl Plugin for SeismonConsolePlugin {
             match history.set_file_name_and_load_history(history_path) {
                 Ok(_) => history.inc_append = true,
                 Err(e) => {
-                    warn!("Error loading history: {}", e);
+                    warn!(target: "console", "Error loading history: {}", e);
                     history = liner::History::default();
                 }
             }
@@ -270,7 +270,7 @@ impl serde::de::Error for ConsoleError {
 
 pub fn cvar_error_handler(In(result): In<Result<(), ConsoleError>>) {
     if let Err(err) = result {
-        warn!("encountered an error {:?}", err);
+        warn!(target: "console", "encountered an error {:?}", err);
     }
 }
 
@@ -325,7 +325,9 @@ impl FromStr for CmdName<'static> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse::command_name(s) {
-            Ok(("", val)) => Ok(val.into_owned().into()),
+            Ok((rest, val)) if rest.chars().all(|c| c.is_ascii_whitespace()) => {
+                Ok(val.into_owned())
+            }
             Ok((rest, _)) => Err(nom::Err::Failure(nom::error::Error::new(
                 rest.to_owned(),
                 nom::error::ErrorKind::Verify,
@@ -374,7 +376,7 @@ impl<'a> RunCmd<'a> {
 
     pub fn parse(s: &'a str) -> Result<Self, <RunCmd<'static> as FromStr>::Err> {
         match parse::command(s) {
-            Ok(("", val)) => Ok(val),
+            Ok((rest, val)) if rest.chars().all(|c| c.is_ascii_whitespace()) => Ok(val),
             Ok((rest, _)) => Err(nom::Err::Failure(nom::error::Error::new(
                 rest.to_owned(),
                 nom::error::ErrorKind::Verify,
@@ -446,6 +448,11 @@ pub trait RegisterCmdExt {
         C: Into<Cvar>,
         I: Into<CName>;
 
+    fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
+    where
+        S: Into<CName>,
+        C: Into<CName>;
+
     fn cvar<N, I, C>(&mut self, name: N, value: C, usage: I) -> &mut Self
     where
         N: Into<CName>,
@@ -461,6 +468,15 @@ impl RegisterCmdExt for App {
     {
         self.world_mut().command::<A, S, M>(run);
 
+        self
+    }
+
+    fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
+    where
+        S: Into<CName>,
+        C: Into<CName>,
+    {
+        self.world_mut().alias(name, command);
         self
     }
 
@@ -628,14 +644,24 @@ impl RegisterCmdExt for World {
                 match clap_err.kind() {
                     clap::error::ErrorKind::DisplayHelp
                     | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
-                        format!("{}", short_about).into()
+                        format!("{short_about}").into()
                     }
-                    other => format!("{}\n{}", other, usage).into(),
+                    other => format!("{other}\n{usage}").into(),
                 }
             },
         )));
         self.resource_mut::<Registry>()
-            .command(command_name, sys, format!("{}", about));
+            .command(command_name, sys, format!("{about}"));
+
+        self
+    }
+
+    fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
+    where
+        S: Into<CName>,
+        C: Into<CName>,
+    {
+        self.resource_mut::<Registry>().alias(name, command);
 
         self
     }
@@ -689,7 +715,7 @@ impl Command for SetCvar {
             .resource_mut::<Registry>()
             .set_cvar_raw(self.0, self.1)
         {
-            warn!("{}", e);
+            warn!(target: "console", "{e}");
         }
     }
 }
@@ -780,8 +806,8 @@ impl Registry {
             match &cmd.kind {
                 CmdKind::Alias(target) => Some(AliasInfo {
                     name,
-                    target: &**target,
-                    help: &*cmd.help,
+                    target: &target,
+                    help: &cmd.help,
                 }),
                 _ => None,
             }
@@ -1765,7 +1791,7 @@ impl ConsoleInput {
                     let out = editor.take_exec_buffer();
 
                     if let Err(e) = editor.move_to_end_of_history() {
-                        warn!("{e}");
+                        warn!(target: "console", "{e}");
                     }
 
                     Some(
@@ -1880,7 +1906,7 @@ impl ConsoleOutput {
             self.unwritten_chunks.push((
                 Timestamp::new(self.last_timestamp, generation),
                 ConsoleText {
-                    text: mem::replace(&mut self.buffer, new_buf.into()).into(),
+                    text: mem::replace(&mut self.buffer, new_buf.into()),
                     output_type: self.buffer_ty,
                 },
             ));
@@ -1892,13 +1918,19 @@ impl ConsoleOutput {
         self.unwritten_chunks.push((
             Timestamp::new(self.last_timestamp, generation),
             ConsoleText {
-                text: mem::take(&mut self.buffer).into(),
+                text: mem::take(&mut self.buffer),
                 output_type: self.buffer_ty,
             },
         ));
     }
 
     fn push_line<S: AsRef<[u8]>>(&mut self, chars: S, timestamp: i64, ty: OutputType) {
+        if let Ok(vals) = str::from_utf8(chars.as_ref()) {
+            match ty {
+                OutputType::Console => debug!(target: "console", "{vals}"),
+                OutputType::Alert => warn!(target: "console", "{vals}"),
+            }
+        }
         self.push(chars, timestamp, ty);
         self.push("\n", timestamp, ty);
     }
@@ -2016,7 +2048,7 @@ impl FromWorld for Gfx {
         let vfs = world.resource::<Vfs>();
         let assets = world.resource::<AssetServer>();
 
-        let palette = Palette::load(&vfs, "gfx/palette.lmp");
+        let palette = Palette::load(vfs, "gfx/palette.lmp");
         let wad = Wad::load(vfs.open("gfx.wad").unwrap()).unwrap();
 
         let conchars = wad.open_conchars().unwrap();
@@ -2478,8 +2510,9 @@ mod systems {
 
         let mut changed_cvars = Vec::new();
 
-        while let Some(RunCmd(CmdName { name, trigger }, args)) = commands.pop_front() {
-            let mut name = Cow::from(name);
+        while let Some(cmd) = commands.pop_front() {
+            debug!(target: "console", "{cmd}");
+            let RunCmd(CmdName { mut name, trigger }, args) = cmd;
             loop {
                 let (output, output_ty) = match world.resource_mut::<Registry>().get_mut(&*name) {
                     Some(CommandImpl { kind, .. }) => {
@@ -2546,8 +2579,7 @@ mod systems {
                             }
                             (Some(_), CmdKind::Builtin(_)) => (
                                 Cow::from(format!(
-                                    "{} is a command, and cannot be invoked with +/-",
-                                    name
+                                    "{name} is a command, and cannot be invoked with +/-"
                                 )),
                                 OutputType::Console,
                             ),
@@ -2586,7 +2618,7 @@ mod systems {
                         }
                     }
                     None => (
-                        Cow::from(format!("Unrecognized command \"{}\"", &*name)),
+                        Cow::from(format!("Unrecognized command \"{name}\"")),
                         OutputType::Console,
                     ),
                 };

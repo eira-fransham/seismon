@@ -420,10 +420,46 @@ pub fn register_commands(app: &mut App) {
 
     app.command(
         move |In(Bf), conn: Option<ResMut<Connection>>| -> ExecResult {
+            const BF_DECAY: f32 = 100.;
+
             if let Some(mut conn) = conn {
                 conn.state.color_shifts[ColorShiftCode::Bonus as usize] = ColorShift {
                     dest_color: [215, 186, 69],
-                    percent: 50,
+                    density: 0.5,
+                    decay: BF_DECAY,
+                };
+            }
+            default()
+        },
+    );
+
+    #[derive(Parser, Debug, Copy, Clone)]
+    #[command(name = "v_cshift", about = "Colored form of `bf`")]
+    struct CShift {
+        r: f32,
+        g: f32,
+        b: f32,
+        #[arg(default_value_t = 1.)]
+        density: f32,
+        #[arg(default_value_t = 0.)]
+        decay: f32,
+    }
+
+    app.command(
+        move |In(CShift {
+                  r,
+                  g,
+                  b,
+                  density,
+                  decay,
+              }),
+              conn: Option<ResMut<Connection>>|
+              -> ExecResult {
+            if let Some(mut conn) = conn {
+                conn.state.color_shifts[ColorShiftCode::Custom as usize] = ColorShift {
+                    dest_color: [r, g, b].map(|v| v.clamp(0., u8::MAX as _) as u8),
+                    density: density / u8::MAX as f32,
+                    decay,
                 };
             }
             default()
@@ -440,7 +476,7 @@ pub fn register_commands(app: &mut App) {
         move |In(Name { new_name }), mut registry: ResMut<Registry>| -> ExecResult {
             match registry.set_cvar_raw("_cl_name", new_name.into()) {
                 Ok(_) => default(),
-                Err(e) => format!("Error: {}", e).into(),
+                Err(e) => format!("Error: {e}").into(),
             }
         },
     );

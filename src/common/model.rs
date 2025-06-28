@@ -46,7 +46,7 @@ pub enum SyncType {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
+    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
     pub struct ModelFlags: u8 {
         const ROCKET  = 0b00000001;
         const GRENADE = 0b00000010;
@@ -66,13 +66,22 @@ pub struct Model {
     pub flags: ModelFlags,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub enum ModelKind {
     // TODO: find a more elegant way to express the null model
+    #[default]
     None,
     Brush(BspModel),
     Alias(AliasModel),
     Sprite(SpriteModel),
+}
+
+const DEFAULT_MODEL_KIND: ModelKind = ModelKind::None;
+
+impl Default for &'_ ModelKind {
+    fn default() -> Self {
+        &DEFAULT_MODEL_KIND
+    }
 }
 
 impl Model {
@@ -92,7 +101,7 @@ impl Model {
     where
         S: AsRef<str>,
     {
-        let name = name.as_ref();
+        let name = name.as_ref().trim();
         // TODO: original engine uses the magic numbers of each format instead of the extension.
         if name.ends_with(".bsp") {
             panic!("BSP files may contain multiple models, use bsp::load for this");

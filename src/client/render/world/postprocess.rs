@@ -28,7 +28,7 @@ use crate::{
 #[repr(C, align(256))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PostProcessUniforms {
-    pub color_shift: [[f32; 4]; 4],
+    pub color_shift: [[f32; 4]; 5],
 }
 
 #[derive(Resource)]
@@ -232,7 +232,7 @@ impl PostProcessBindGroup {
         &self,
         queue: &RenderQueue,
         post_pipeline: &PostProcessPipeline,
-        color_shift: [[f32; 4]; 4],
+        color_shift: [[f32; 4]; 5],
     ) {
         let uniforms = PostProcessUniforms { color_shift }; // update color shift
         queue.write_buffer(&post_pipeline.uniform_buffer, 0, unsafe {
@@ -316,14 +316,16 @@ impl ExtractResource for PostProcessVars {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct PostProcessPassLabel;
 
+type PostProcessSystemState = SystemState<(
+    ResMut<'static, PipelineCache>,
+    Res<'static, PostProcessPipeline>,
+    Res<'static, PostProcessVars>,
+    ResMut<'static, SpecializedRenderPipelines<PostProcessPipeline>>,
+)>;
+
 pub struct PostProcessPass {
     pipeline: Option<CachedRenderPipelineId>,
-    system_state: SystemState<(
-        ResMut<'static, PipelineCache>,
-        Res<'static, PostProcessPipeline>,
-        Res<'static, PostProcessVars>,
-        ResMut<'static, SpecializedRenderPipelines<PostProcessPipeline>>,
-    )>,
+    system_state: PostProcessSystemState,
 }
 
 impl FromWorld for PostProcessPass {
@@ -377,7 +379,7 @@ impl ViewNode for PostProcessPass {
             .state
             .color_shifts
             .iter()
-            .all(|ColorShift { percent, .. }| *percent == 0)
+            .all(|ColorShift { density, .. }| *density <= 0.)
         {
             return Ok(());
         }
@@ -415,11 +417,12 @@ impl ViewNode for PostProcessPass {
                 .color_shifts
                 .map(
                     |ColorShift {
-                         dest_color: [r, g, b],
-                         percent,
-                     }| [r, g, b, ((percent * 256) / 100).min(255) as u8],
+                         dest_color,
+                         density,
+                         ..
+                     }| (dest_color.map(|v| v as f32 / 255.), density),
                 )
-                .map(|rgba| rgba.map(|v| v as f32 / 255.)),
+                .map(|([r, g, b], a)| [r, g, b, a]),
         );
         bind_group.record_draw(pipeline, &mut post_pass);
 

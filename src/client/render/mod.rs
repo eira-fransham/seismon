@@ -278,6 +278,8 @@ where
         trace!("Creating texture {count} (label: {label:?}) {width}x{height}");
     }
 
+    let total_size = width * height * length.unwrap_or(1) * data.stride();
+
     // It looks like sometimes quake includes textures with at least one zero aspect?
     let texture = device.create_texture(&texture_descriptor(
         label,
@@ -293,7 +295,7 @@ where
             origin: wgpu::Origin3d::ZERO,
             aspect: Default::default(),
         },
-        data.data(),
+        &data.data()[..total_size as usize],
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * data.stride()),

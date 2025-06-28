@@ -20,7 +20,8 @@
     buf_read_has_data_left,
     error_generic_member_access,
     array_try_map,
-    never_type
+    never_type,
+    gen_blocks
 )]
 // TODO: Is this necessary?
 #![recursion_limit = "256"]

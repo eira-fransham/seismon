@@ -24,6 +24,7 @@
 use std::{
     fmt::{self, Display},
     io::{self, BufReader, Cursor, Read, Seek, SeekFrom},
+    iter,
 };
 
 use crate::common::util;
@@ -126,6 +127,11 @@ impl QPic {
         (&mut reader)
             .take((width * height) as u64)
             .read_to_end(&mut indices)?;
+
+        indices.extend(iter::repeat_n(
+            0xFF,
+            (width * height) as usize - indices.len(),
+        ));
 
         Ok(QPic {
             width,

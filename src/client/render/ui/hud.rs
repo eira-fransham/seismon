@@ -200,12 +200,18 @@ pub struct HudVars {
     pub crosshair: u8,
     #[serde(rename(deserialize = "cl_hud"))]
     pub hud_style: u8,
+    #[serde(rename(deserialize = "viewsize"))]
+    pub view_size: u32,
+    #[serde(rename(deserialize = "cl_drawhud"))]
+    pub draw_hud: u8,
 }
 
 impl Default for HudVars {
     fn default() -> Self {
         Self {
             crosshair: 1,
+            view_size: 100,
+            draw_hud: 1,
             hud_style: 3,
         }
     }
@@ -419,7 +425,12 @@ impl HudRenderer {
     ) {
         use HudTextureId::*;
 
-        if hud_cvars.hud_style == 0 {
+        const MAX_VIEW_SIZE_DRAW_HUD: u32 = 100;
+
+        if hud_cvars.draw_hud == 0
+            || hud_cvars.hud_style == 0
+            || hud_cvars.view_size > MAX_VIEW_SIZE_DRAW_HUD
+        {
             return;
         }
 
@@ -562,12 +573,17 @@ impl HudRenderer {
         } else if items.contains(ItemFlags::INVULNERABILITY) {
             FaceId::Invulnerable
         } else {
+            const MAX_HEALTH_FRAMES: usize = 4;
+            const MAX_HEALTH: usize = 100;
+            const REGULAR_HEALTH_FRAMES: usize = MAX_HEALTH / (MAX_HEALTH_FRAMES + 1);
+
             let health = stats[ClientStat::Health as usize];
-            let frame = 4 - if health >= 100 {
-                4
-            } else {
-                health.max(0) as usize / 20
-            };
+            let frame = MAX_HEALTH_FRAMES
+                - if health >= MAX_HEALTH as i32 {
+                    MAX_HEALTH_FRAMES
+                } else {
+                    health.max(0) as usize / REGULAR_HEALTH_FRAMES
+                };
 
             FaceId::Normal {
                 pain: face_anim_time > time,
@@ -580,7 +596,7 @@ impl HudRenderer {
         // crosshair
         if hud_cvars.crosshair != 0 {
             glyph_cmds.push(GlyphRendererCommand::Glyph {
-                glyph_id: '+' as u8,
+                glyph_id: b'+',
                 position: ScreenPosition::Absolute(Anchor::CENTER),
                 anchor: Anchor::TOP_LEFT,
                 scale,

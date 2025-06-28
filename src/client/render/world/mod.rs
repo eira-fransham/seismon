@@ -345,13 +345,15 @@ pub fn extract_world_renderer(
     info!("Updating world renderer");
     match &*game_state {
         ConnectionState::Connected(state) => {
-            let new_renderer = WorldRenderer::new(
-                &mut *gfx_state,
-                &*device,
-                &*queue,
+            let Some(new_renderer) = WorldRenderer::new(
+                &mut gfx_state,
+                &device,
+                &queue,
                 state.model_precache.iter(),
                 state.worldmodel_id,
-            );
+            ) else {
+                return;
+            };
             match world_renderer {
                 // TODO: Actually track changes to the connection
                 Some(mut world_renderer) => *world_renderer = new_renderer,
@@ -371,7 +373,7 @@ impl WorldRenderer {
         queue: &RenderQueue,
         models: M,
         worldmodel_id: usize,
-    ) -> WorldRenderer {
+    ) -> Option<WorldRenderer> {
         let mut worldmodel_renderer = None;
         let mut entity_renderers = Vec::new();
 
@@ -439,12 +441,12 @@ impl WorldRenderer {
             Err(e) => error!("{e}"),
         }
 
-        WorldRenderer {
-            worldmodel_renderer: worldmodel_renderer.unwrap(),
+        Some(WorldRenderer {
+            worldmodel_renderer: worldmodel_renderer?,
             entity_renderers,
             world_uniform_block,
             entity_uniform_blocks: Default::default(),
-        }
+        })
     }
 
     pub fn update_uniform_buffers<'a, I>(

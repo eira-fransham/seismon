@@ -42,12 +42,12 @@ pub fn register_cvars(app: &mut App) {
     )
     .cvar(
         "post_blendmode",
-        "softlight",
+        "normal",
         "Sets the blend mode for postprocess color shift",
     )
     .cvar(
         "post_colorspace",
-        "oklab",
+        "rgb",
         "Sets the colorspace for postprocess color shift",
     );
 }

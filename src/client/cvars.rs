@@ -90,6 +90,7 @@ pub fn register_cvars(app: &mut App) {
         "200",
         "the speed threshold at which the camera starts to tilt",
     );
+    app.cvar("cl_drawhud", "1", "whether to draw the HUD");
     app.cvar(
         "cl_shownet",
         "0",
@@ -99,6 +100,14 @@ pub fn register_cvars(app: &mut App) {
         "cl_sidespeed",
         "350",
         "the base speed you move when pressing +left and +right",
+    );
+    app.cvar(
+        "viewsize",
+        "100",
+        concat!(
+            "set display size (in Seismon, this is ignored, but it will still be used to ",
+            "hide the hud"
+        ),
     );
     app.cvar(
         "cl_upspeed",
@@ -115,14 +124,15 @@ pub fn register_cvars(app: &mut App) {
         "cl_hud",
         "3",
         "0: no hud, 1: transparent hud, 2: standard hud, 3: standard hud with ammo",
-    );
+    )
+    .alias("hudstyle", "cl_hud");
     app.cvar(
         "fov",
         "90",
         "sets the camera's field of view angle (in degrees)",
     );
     // TODO: What is the difference between this and `cl_skipCrosshair`?
-    app.cvar("crosshair", "1", "Whether to draw the crosshair");
+    app.cvar("crosshair", "1", "whether to draw the crosshair");
     app.cvar(
         "m_pitch",
         Cvar::new("0.022").archive(),

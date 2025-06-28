@@ -66,7 +66,7 @@ impl MenuRenderer {
     ) -> MenuRenderer {
         let mut tex_names = std::collections::HashSet::new();
         tex_names.insert("gfx/qplaque.lmp".to_string());
-        tex_names.extend((1..=6).map(|i| format!("gfx/menudot{}.lmp", i)));
+        tex_names.extend((1..=6).map(|i| format!("gfx/menudot{i}.lmp")));
         let mut menus = vec![menu];
 
         // walk menu and collect necessary textures

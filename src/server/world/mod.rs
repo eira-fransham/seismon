@@ -424,11 +424,11 @@ impl Entities {
             )));
         }
 
-        match self.slots[entity_id.0] {
-            AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_) => Err(ProgsError::with_msg(
-                format!("No entity at list entry {}", entity_id.0),
-            )),
-            AreaEntitySlot::Occupied(ref e) => Ok(e),
+        match self.slots.get(entity_id.0) {
+            None | Some(AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_)) => Err(
+                ProgsError::with_msg(format!("No entity at list entry {}", entity_id.0)),
+            ),
+            Some(AreaEntitySlot::Occupied(e)) => Ok(e),
         }
     }
 
@@ -440,11 +440,11 @@ impl Entities {
             )));
         }
 
-        match self.slots[entity_id.0] {
-            AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_) => Err(ProgsError::with_msg(
-                format!("No entity at list entry {}", entity_id.0),
-            )),
-            AreaEntitySlot::Occupied(ref mut e) => Ok(e),
+        match self.slots.get_mut(entity_id.0) {
+            None | Some(AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_)) => Err(
+                ProgsError::with_msg(format!("No entity at list entry {}", entity_id.0)),
+            ),
+            Some(AreaEntitySlot::Occupied(e)) => Ok(e),
         }
     }
 }
