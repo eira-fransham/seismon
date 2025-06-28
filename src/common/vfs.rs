@@ -134,7 +134,7 @@ impl Vfs {
             warn!("No PAK files found.");
         }
 
-        dbg!(vfs)
+        vfs
     }
 
     pub fn add_pakfile<P>(&mut self, path: P) -> Result<(), VfsError>
