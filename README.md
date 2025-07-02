@@ -9,10 +9,7 @@
 Seismon is a Quake engine written in Rust, based on the [Bevy](https://bevyengine.org/) framework. It is extensible,
 written in a modern ECS style, has a modern deferred and pipelined rendering system, and includes a modern audio
 framework. The engine is built of a set of plugins, and much of the work could be extracted to work in other games,
-especially the console. Work to extract these pieces out is ongoing.
-
-To my knowledge, this is the first full from-scratch rewrite of Quake 1, i.e. not built on top of the Quake 1 source code
-release.
+particularly the console system. Work to extract these pieces out is ongoing.
 
 Bevy has a lot of features related to rendering, audio and state management that in my [previous Quake-related project](https://github.com/eira-fransham/goeld)
 had to be implement manually - specifically, tonemapping/HDR and pipelined rendering. The audio system has also been completely
@@ -27,9 +24,12 @@ The audio effects in the build of the game at time of writing are a subtle rever
 I have added a limiter so that the game audio doesn't completly blow the speakers out when there are more than a couple of
 sounds playing at once.
 
-Based on [Richter](https://github.com/cormac-obrien/richter) by Cormac O'Brien, and still shares a lot of its DNA. It should
-be at feature parity with Richter but as refactoring work is ongoing some things may be broken temporarily. Started as a quick
-project to make Richter run on macOS, but ended up with some 15,000 lines added and 10,000 lines removed.
+Based on [Richter](https://github.com/cormac-obrien/richter) by Cormac O'Brien, and still shares a lot of its DNA. Seismon
+originally started as a quick weekend project to make Richter run on macOS, but I've now ended up spending months on it and
+the diff is something like +18,000, -11,000 LoC.
+
+To my knowledge, this is the first full from-scratch rewrite of Quake 1, i.e. not forked from the Quake 1 source code
+release.
 
 ![Preview of demo playback](content/preview.gif)
 
@@ -43,6 +43,12 @@ and still have regular Quake clients connect to it, instead of being restricted 
 
 These goals are partially completed, as the audio, rendering and input handling are already separate plugins, although
 there are still some remaining interdependence issues.
+
+The QuakeC interpreter is currently very self-contained, but once the server is functional and all the relevant QuakeC functions
+are implemented I hope to move it to use `bevy_mod_scripting` and for the entity field storage to be done via the ECS. This
+will make it far easier to write Quake mods in languages other than QuakeC, such as Lua. The Quake networking protocol is
+fairly extensible and the client knows little about the server's game logic, so without the limitations of QuakeC it should
+be possible to implement fairly complex games while still letting the DOS version of Quake connect to your server.
 
 ### Status
 
