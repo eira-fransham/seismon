@@ -63,6 +63,7 @@ use crate::{
     },
 };
 
+use beef::Cow;
 use bevy::{
     asset::AssetServer,
     ecs::{
@@ -344,13 +345,23 @@ enum ConnectionKind {
     Demo(DemoServer),
 }
 
-struct ServerUpdate {
-    message: Vec<u8>,
+struct ServerUpdate<'a> {
+    message: Cow<'a, [u8]>,
     angles: Option<Vec3>,
     track_override: Option<u32>,
 }
 
-impl Default for ServerUpdate {
+impl ServerUpdate<'_> {
+    pub fn into_owned(self) -> ServerUpdate<'static> {
+        ServerUpdate {
+            message: self.message.into_owned().into(),
+            angles: self.angles,
+            track_override: self.track_override,
+        }
+    }
+}
+
+impl Default for ServerUpdate<'_> {
     fn default() -> Self {
         Self {
             message: (&[][..]).into(),
@@ -364,7 +375,7 @@ impl ConnectionKind {
     fn recv(
         &mut self,
         events: &Events<ServerMessage>,
-    ) -> Result<Option<ServerUpdate>, ClientError> {
+    ) -> Result<Option<ServerUpdate<'_>>, ClientError> {
         match self {
             Self::Server { reader, .. } => {
                 let mut out = Vec::new();
@@ -376,7 +387,7 @@ impl ConnectionKind {
                 }
 
                 Ok(Some(ServerUpdate {
-                    message: out,
+                    message: out.into(),
                     ..default()
                 }))
             }
@@ -577,7 +588,6 @@ impl Connection {
         mut console_output: Mut<ConsoleOutput>,
         kick_vars: KickVars,
         client_vars: ClientVars,
-        cl_nolerp: bool,
     ) -> Result<ConnectionStatus, ClientError> {
         use ConnectionStatus::*;
 
@@ -587,12 +597,7 @@ impl Connection {
             return Ok(Maintain);
         }
 
-        let Some(ServerUpdate {
-            message,
-            angles: demo_view_angles,
-            track_override,
-        }) = self.kind.recv(server_events)?
-        else {
+        let Some(server_update) = self.kind.recv(server_events)? else {
             return if self.kind.is_demo() {
                 Ok(NextDemo)
             } else {
@@ -600,12 +605,18 @@ impl Connection {
             };
         };
 
+        let ServerUpdate {
+            message,
+            angles: demo_view_angles,
+            track_override,
+        } = server_update.into_owned();
+
         // no data available at this time
         if message.is_empty() {
             return Ok(Maintain);
         }
 
-        let reader = &mut message.as_slice();
+        let reader = &mut &message[..];
 
         loop {
             let cmd = match ServerCmd::deserialize(reader) {
@@ -616,6 +627,15 @@ impl Connection {
                 Ok(Some(cmd)) => cmd,
                 Ok(None) => break,
             };
+
+            if !matches!(
+                &cmd,
+                ServerCmd::FastUpdate(..) | ServerCmd::Time { .. } | ServerCmd::PlayerData(..)
+            ) {
+                debug!("CMD: {cmd:?}");
+            } else {
+                trace!("CMD: {cmd:?}");
+            }
 
             match cmd {
                 ServerCmd::Bad => {
@@ -651,7 +671,7 @@ impl Connection {
                 } => self.state.handle_damage(armor, blood, source, kick_vars),
 
                 ServerCmd::Disconnect => {
-                    return Ok(match self.kind {
+                    return Ok(match &self.kind {
                         ConnectionKind::Demo(_) => NextDemo,
                         ConnectionKind::Server { .. } => Disconnect,
                     });
@@ -748,9 +768,7 @@ impl Connection {
                     )?;
                 }
 
-                ServerCmd::SetAngle { angles } => {
-                    self.state.update_view_angles(angles)
-                }
+                ServerCmd::SetAngle { angles } => self.state.update_view_angles(angles),
 
                 ServerCmd::SetView { ent_id } => {
                     if ent_id > 0 {
@@ -782,7 +800,7 @@ impl Connection {
                             "server tried to start sound on nonexistent entity {}",
                             entity_id
                         );
-                        break;
+                        continue;
                     }
 
                     let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
@@ -886,6 +904,7 @@ impl Connection {
                 },
 
                 ServerCmd::Time { time } => {
+                    self.state.msg_times[1] = self.state.msg_times[0];
                     self.state.msg_times[0] = engine::duration_from_f32(time);
                 }
 
@@ -1032,7 +1051,6 @@ impl Connection {
             console.reborrow(),
             kick_vars,
             client_vars,
-            cl_nolerp,
         )? {
             ConnectionStatus::Maintain => {}
             // if Disconnect or NextDemo, delegate up the chain
@@ -1287,11 +1305,11 @@ mod systems {
         let NetworkVars {
             disable_lerp,
             gravity,
-        } = cvars.read_cvars().map_err(|c| ClientError::Cvar(c))?;
-        let idle_vars: IdleVars = cvars.read_cvars().map_err(|c| ClientError::Cvar(c))?;
-        let kick_vars: KickVars = cvars.read_cvars().map_err(|c| ClientError::Cvar(c))?;
-        let roll_vars: RollVars = cvars.read_cvars().map_err(|c| ClientError::Cvar(c))?;
-        let bob_vars: BobVars = cvars.read_cvars().map_err(|c| ClientError::Cvar(c))?;
+        } = cvars.read_cvars()?;
+        let idle_vars: IdleVars = cvars.read_cvars()?;
+        let kick_vars: KickVars = cvars.read_cvars()?;
+        let roll_vars: RollVars = cvars.read_cvars()?;
+        let bob_vars: BobVars = cvars.read_cvars()?;
         // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't recognise symbols
         // as valid strings, so we need to use `.value().as_name()` and can't use `read_cvars`.
         let client_vars: ClientVars = ClientVars {
@@ -1369,7 +1387,7 @@ mod systems {
                                             state: ClientState::new(),
                                         }),
                                         Err(e) => {
-                                            console.println(format!("{}", e), time);
+                                            console.println(format!("{e}"), time);
                                             demo_queue.reset();
                                             None
                                         }

@@ -67,8 +67,8 @@ impl fmt::Display for GlobalsError {
                 write!(f, "I/O error: ")?;
                 err.fmt(f)
             }
-            GlobalsError::Address(val) => write!(f, "Invalid address ({})", val),
-            GlobalsError::Other(ref msg) => write!(f, "{}", msg),
+            GlobalsError::Address(val) => write!(f, "Invalid address ({val})"),
+            GlobalsError::Other(ref msg) => write!(f, "{msg}"),
         }
     }
 }

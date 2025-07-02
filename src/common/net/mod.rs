@@ -592,7 +592,7 @@ impl EntityState {
             ent_id,
             model_id: Some(self.model_id as _).filter(|v| *v != baseline.model_id as u8),
             frame_id: Some(self.frame_id as _).filter(|v| *v != baseline.frame_id as u8),
-            colormap: Some(self.colormap as _).filter(|v| *v != baseline.colormap as u8),
+            colormap: Some(self.colormap as _).filter(|v| *v != baseline.colormap),
             skin_id: Some(self.skin_id as _).filter(|v| *v != baseline.skin_id as u8),
             effects: Some(self.effects).filter(|v| *v != baseline.effects),
             origin_x: Some(self.origin[0]).filter(|v| *v != baseline.origin[0]),
@@ -629,91 +629,79 @@ impl EntityUpdate {
     where
         R: Read,
     {
-        let ent_id;
-        if update_flags.contains(UpdateFlags::LONG_ENTITY) {
-            ent_id = reader.read_u16::<LittleEndian>()?;
+        let ent_id = if update_flags.contains(UpdateFlags::LONG_ENTITY) {
+            reader.read_u16::<LittleEndian>()?
         } else {
-            ent_id = reader.read_u8()? as u16;
-        }
+            reader.read_u8()? as u16
+        };
 
-        let model_id;
-        if update_flags.contains(UpdateFlags::MODEL) {
-            model_id = Some(reader.read_u8()?);
+        let model_id = if update_flags.contains(UpdateFlags::MODEL) {
+            Some(reader.read_u8()?)
         } else {
-            model_id = None;
-        }
+            None
+        };
 
-        let frame_id;
-        if update_flags.contains(UpdateFlags::FRAME) {
-            frame_id = Some(reader.read_u8()?);
+        let frame_id = if update_flags.contains(UpdateFlags::FRAME) {
+            Some(reader.read_u8()?)
         } else {
-            frame_id = None;
-        }
+            None
+        };
 
-        let colormap;
-        if update_flags.contains(UpdateFlags::COLORMAP) {
-            colormap = Some(reader.read_u8()?);
+        let colormap = if update_flags.contains(UpdateFlags::COLORMAP) {
+            Some(reader.read_u8()?)
         } else {
-            colormap = None;
-        }
+            None
+        };
 
-        let skin_id;
-        if update_flags.contains(UpdateFlags::SKIN) {
-            skin_id = Some(reader.read_u8()?);
+        let skin_id = if update_flags.contains(UpdateFlags::SKIN) {
+            Some(reader.read_u8()?)
         } else {
-            skin_id = None;
-        }
+            None
+        };
 
-        let effects;
-        if update_flags.contains(UpdateFlags::EFFECTS) {
+        let effects = if update_flags.contains(UpdateFlags::EFFECTS) {
             let effects_bits = reader.read_u8()?;
-            effects =
-                Some(EntityEffects::from_bits(effects_bits).ok_or(io::ErrorKind::InvalidData)?);
-        } else {
-            effects = None;
-        }
 
-        let origin_x;
-        if update_flags.contains(UpdateFlags::ORIGIN_X) {
-            origin_x = Some(read_coord(reader)?);
+            Some(EntityEffects::from_bits(effects_bits).ok_or(io::ErrorKind::InvalidData)?)
         } else {
-            origin_x = None;
-        }
+            None
+        };
 
-        let pitch;
-        if update_flags.contains(UpdateFlags::PITCH) {
-            pitch = Some(read_angle(reader)?);
+        let origin_x = if update_flags.contains(UpdateFlags::ORIGIN_X) {
+            Some(read_coord(reader)?)
         } else {
-            pitch = None;
-        }
+            None
+        };
 
-        let origin_y;
-        if update_flags.contains(UpdateFlags::ORIGIN_Y) {
-            origin_y = Some(read_coord(reader)?);
+        let pitch = if update_flags.contains(UpdateFlags::PITCH) {
+            Some(read_angle(reader)?)
         } else {
-            origin_y = None;
-        }
+            None
+        };
 
-        let yaw;
-        if update_flags.contains(UpdateFlags::YAW) {
-            yaw = Some(read_angle(reader)?);
+        let origin_y = if update_flags.contains(UpdateFlags::ORIGIN_Y) {
+            Some(read_coord(reader)?)
         } else {
-            yaw = None;
-        }
+            None
+        };
 
-        let origin_z;
-        if update_flags.contains(UpdateFlags::ORIGIN_Z) {
-            origin_z = Some(read_coord(reader)?);
+        let yaw = if update_flags.contains(UpdateFlags::YAW) {
+            Some(read_angle(reader)?)
         } else {
-            origin_z = None;
-        }
+            None
+        };
 
-        let roll;
-        if update_flags.contains(UpdateFlags::ROLL) {
-            roll = Some(read_angle(reader)?);
+        let origin_z = if update_flags.contains(UpdateFlags::ORIGIN_Z) {
+            Some(read_coord(reader)?)
         } else {
-            roll = None;
-        }
+            None
+        };
+
+        let roll = if update_flags.contains(UpdateFlags::ROLL) {
+            Some(read_angle(reader)?)
+        } else {
+            None
+        };
 
         let no_lerp = update_flags.contains(UpdateFlags::NO_LERP);
 
@@ -1961,6 +1949,10 @@ impl ServerCmd {
                 origin,
                 angles,
             } => {
+                if model_id == 0 {
+                    return Ok(());
+                }
+
                 writer.write_u16::<LittleEndian>(ent_id)?;
                 writer.write_u8(model_id)?;
                 writer.write_u8(frame_id)?;

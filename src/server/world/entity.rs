@@ -828,8 +828,7 @@ impl Entity {
         match EntitySolid::from_i32(solid_i) {
             Some(s) => Ok(s),
             None => Err(EntityError::with_msg(format!(
-                "Invalid value for entity.solid ({})",
-                solid_i,
+                "Invalid value for entity.solid ({solid_i})",
             ))),
         }
     }
@@ -841,6 +840,7 @@ impl Entity {
         abs_min, set_abs_min => FieldAddrVector::AbsMin;
         abs_max, set_abs_max => FieldAddrVector::AbsMax;
         model_index, set_model_index => FieldAddrFloat::ModelIndex;
+        model_name, set_model_name => FieldAddrStringId::ModelName;
         ideal_pitch, set_ideal_pitch => FieldAddrFloat::IdealPitch;
         punch_angle, set_punch_angle => FieldAddrVector::PunchAngle;
         items, set_items => FieldAddrFloat::Items;

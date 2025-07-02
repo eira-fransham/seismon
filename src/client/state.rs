@@ -154,7 +154,7 @@ impl ClientState {
     pub fn new() -> ClientState {
         ClientState {
             rng: SmallRng::from_rng(&mut rand::rng()),
-            models: iter::once(Model::none()).collect(),
+            models: iter::once(Model::default()).collect(),
             worldmodel_id: 1,
             model_names: default(),
             sounds: default(),
@@ -201,7 +201,7 @@ impl ClientState {
         info!("Model precache: {model_precache:?}");
 
         // TODO: validate submodel names
-        let mut models: im::Vector<_> = iter::once(Model::none()).collect();
+        let mut models: im::Vector<_> = iter::once(Model::default()).collect();
         let mut model_names = im::HashMap::new();
         for mod_name in model_precache {
             // BSPs can have more than one model
@@ -218,7 +218,9 @@ impl ClientState {
                 // model names starting with * are loaded from the world BSP
                 debug!("Loading model {mod_name}");
                 let id = models.len();
-                models.push_back(Model::load(vfs, &mod_name)?);
+                models.push_back(
+                    Model::load(vfs, &mod_name).unwrap_or_else(|_| Model::none(&mod_name[..])),
+                );
                 model_names.insert(mod_name, id);
             }
 
@@ -320,7 +322,7 @@ impl ClientState {
 
         if cl_nolerp {
             if self.msg_times[0] < self.msg_times[1] {
-                self.time = self.msg_times[0];
+                self.time = self.msg_times[1];
                 self.lerp_factor = None;
             } else {
                 self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
@@ -332,10 +334,6 @@ impl ClientState {
         let server_delta = engine::duration_to_f32(match self.msg_times[0] - self.msg_times[1] {
             // if no time has passed between updates, don't lerp anything
             d if d == Duration::zero() => {
-                if d < Duration::zero() {
-                    warn!("Negative time delta from server!: ({d})");
-                }
-
                 self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
                 self.lerp_factor = Some(1.0);
                 return;
@@ -344,7 +342,6 @@ impl ClientState {
             d if d < Duration::zero() => {
                 warn!("Negative time delta from server!: ({d})");
 
-                self.time = self.msg_times[0];
                 self.lerp_factor = None;
                 return;
             }
@@ -397,9 +394,7 @@ impl ClientState {
         let Some(lerp_factor) = self.lerp_factor else {
             // Reset lerping if we time-travel (seems to be used in cutscene demos,
             // e.g. in Malice)
-            self.msg_times[1] = self.msg_times[0];
-            self.velocity =
-                self.msg_velocity[0];
+            self.velocity = self.msg_velocity[0];
 
             for ent in self.entities.iter_mut().skip(1) {
                 ent.msg_origins[1] = ent.msg_origins[0];
@@ -409,8 +404,7 @@ impl ClientState {
             return Ok(());
         };
 
-        self.velocity =
-            self.msg_velocity[1].lerp(self.msg_velocity[0], lerp_factor);
+        self.velocity = self.msg_velocity[1].lerp(self.msg_velocity[0], lerp_factor);
 
         // TODO: if we're in demo playback, interpolate the view angles
 
@@ -598,8 +592,6 @@ impl ClientState {
                 ));
             }
         }
-
-        self.msg_times[1] = self.msg_times[0];
 
         Ok(())
     }
@@ -1167,17 +1159,17 @@ impl ClientState {
         self.color_shifts[ColorShiftCode::Contents as usize] = match self.view_leaf_contents()? {
             bsp::BspLeafContents::Lava => ColorShift {
                 dest_color: [255, 80, 0],
-                density: 150. / 255.,
+                density: 0.6,
                 decay: 0.,
             },
             bsp::BspLeafContents::Slime => ColorShift {
                 dest_color: [0, 25, 5],
-                density: 150. / 255.,
+                density: 0.6,
                 decay: 0.,
             },
             bsp::BspLeafContents::Water => ColorShift {
                 dest_color: [130, 80, 50],
-                density: 128. / 255.,
+                density: 0.5,
                 decay: 0.,
             },
             _ => ColorShift {
@@ -1192,25 +1184,25 @@ impl ClientState {
             if self.items.contains(ItemFlags::QUAD) {
                 ColorShift {
                     dest_color: [0, 0, 255],
-                    density: 30.,
+                    density: 0.3,
                     decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::SUIT) {
                 ColorShift {
                     dest_color: [0, 255, 0],
-                    density: 20.,
+                    density: 0.2,
                     decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::INVISIBILITY) {
                 ColorShift {
                     dest_color: [100, 100, 100],
-                    density: 100.,
+                    density: 1.,
                     decay: 0.,
                 }
             } else if self.items.contains(ItemFlags::INVULNERABILITY) {
                 ColorShift {
                     dest_color: [255, 255, 0],
-                    density: 30.,
+                    density: 0.3,
                     decay: 0.,
                 }
             } else {

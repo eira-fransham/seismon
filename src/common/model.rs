@@ -59,7 +59,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Model {
     pub name: String,
     pub kind: ModelKind,
@@ -85,9 +85,12 @@ impl Default for &'_ ModelKind {
 }
 
 impl Model {
-    pub fn none() -> Model {
+    pub fn none<S>(path: S) -> Model
+    where
+        S: Into<String>,
+    {
         Model {
-            name: Default::default(),
+            name: path.into(),
             kind: ModelKind::None,
             flags: ModelFlags::empty(),
         }
@@ -106,7 +109,10 @@ impl Model {
         if name.ends_with(".bsp") {
             panic!("BSP files may contain multiple models, use bsp::load for this");
         } else if name.ends_with(".mdl") {
-            Ok(Model::from_alias_model(name, mdl::load(vfs.open(name)?)?))
+            Ok(Model::from_alias_model(
+                name,
+                mdl::load(vfs.open(name)?).into_result()?,
+            ))
         } else if name.ends_with(".spr") {
             Ok(Model::from_sprite_model(
                 name,

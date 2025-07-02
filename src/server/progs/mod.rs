@@ -590,10 +590,7 @@ impl ExecutionContext {
     pub fn print_backtrace(&self, string_table: &StringTable) {
         let backtrace_var =
             std::env::var("RUST_LIB_BACKTRACE").or_else(|_| std::env::var("RUST_BACKTRACE"));
-        let backtrace_enabled = match backtrace_var.as_deref() {
-            Err(_) | Ok("0") => false,
-            _ => true,
-        };
+        let backtrace_enabled = matches!(backtrace_var.as_deref(), Err(_) | Ok("0"));
         if backtrace_enabled {
             for (depth, id) in self.backtrace().enumerate() {
                 let def = self.function_def(id).unwrap();

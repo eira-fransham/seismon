@@ -34,6 +34,7 @@ struct DemoMessage {
 }
 
 /// A view of a server message from a demo.
+#[derive(Debug, Copy, Clone)]
 pub struct DemoMessageView<'a> {
     view_angles: Vec3,
     message: &'a [u8],
@@ -46,7 +47,7 @@ impl<'a> DemoMessageView<'a> {
     }
 
     /// Returns the server message for this demo message as a slice of bytes.
-    pub fn message(&self) -> &[u8] {
+    pub fn message(self) -> &'a [u8] {
         self.message
     }
 }

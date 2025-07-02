@@ -47,7 +47,7 @@ pub fn register_cvars(app: &mut App) {
     )
     .cvar(
         "post_colorspace",
-        "rgb",
+        "oklab",
         "Sets the colorspace for postprocess color shift",
     );
 }

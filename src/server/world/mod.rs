@@ -461,7 +461,7 @@ impl World {
         let mut models = Vec::with_capacity(brush_models.len() + 1);
 
         // put null model at index 0
-        models.push(Model::none());
+        models.push(Model::default());
 
         // take ownership of all brush models
         models.append(&mut brush_models);
@@ -531,7 +531,7 @@ impl World {
             self.models.append(&mut brush_models);
         } else if name.ends_with(b".mdl") {
             let data = vfs.open(name.to_str()).unwrap();
-            let alias_model = mdl::load(data).unwrap();
+            let alias_model = mdl::load(data).into_result().unwrap();
             self.models
                 .push(Model::from_alias_model(name.to_str(), alias_model));
         } else if name.ends_with(b".spr") {
@@ -620,13 +620,13 @@ impl World {
     pub fn alloc_from_map(
         &mut self,
         string_table: &mut StringTable,
-        map: HashMap<&str, &str>,
+        map: &HashMap<&str, &str>,
         // functions: &Functions,
     ) -> Result<EntityId, ProgsError> {
         let mut ent = Entity::new(&self.type_def);
 
         for (key, val) in map.iter() {
-            debug!(".{} = {}", key, val);
+            info!(".{} = {}", key, val);
             match *key {
                 // ignore keys starting with an underscore
                 k if k.starts_with('_') => (),
@@ -635,7 +635,7 @@ impl World {
                     // this is referred to in the original source as "anglehack" -- essentially,
                     // only the yaw (Y) value is given. see
                     // https://github.com/id-Software/Quake/blob/master/WinQuake/pr_edict.c#L826-L834
-                    let def = self.find_def(&string_table, "angles")?;
+                    let def = self.find_def(string_table, "angles")?;
                     ent.put_vector(
                         &self.type_def,
                         [0.0, val.parse().unwrap(), 0.0],
@@ -645,7 +645,7 @@ impl World {
 
                 "light" => {
                     // more fun hacks brought to you by Carmack & Friends
-                    let def = self.find_def(&string_table, "light_lev")?;
+                    let def = self.find_def(string_table, "light_lev")?;
                     ent.put_float(
                         &self.type_def,
                         val.trim().parse().unwrap(),
@@ -658,13 +658,13 @@ impl World {
 
                     match def.type_ {
                         // void has no value, skip it
-                        Type::QVoid => (),
+                        Type::QVoid => continue,
 
                         // TODO: figure out if this ever happens
                         Type::QPointer => unimplemented!(),
 
                         Type::QString => {
-                            let s_id = string_table.insert(val);
+                            let s_id = string_table.find_or_insert(val);
                             ent.put_string_id(&self.type_def, s_id, def.offset as i16)?;
                         }
 

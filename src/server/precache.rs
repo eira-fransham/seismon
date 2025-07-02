@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{iter, ops::Range};
 
 use arrayvec::{ArrayString, ArrayVec};
 
@@ -17,28 +17,28 @@ const MAX_PRECACHE_ENTRIES: usize = 256;
 // const generic parameter. In practice both models and sounds have a maximum
 // value of 256.
 // TODO: HashMap for fast lookup
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Precache {
     str_data: ArrayString<{ MAX_PRECACHE_PATH * MAX_PRECACHE_ENTRIES }>,
     items: ArrayVec<Range<usize>, MAX_PRECACHE_ENTRIES>,
 }
 
+/// Offset the index in order to allow `0` to represent null.
+const OFFSET: usize = 1;
+
 impl Precache {
     /// Creates a new empty `Precache`.
     pub fn new() -> Precache {
-        Precache {
-            str_data: ArrayString::new(),
-            items: ArrayVec::new(),
-        }
+        Self::default()
     }
 
     /// Retrieves an item from the precache if the item exists.
     pub fn get(&self, index: usize) -> Option<&str> {
-        if index > self.items.len() {
+        if index == 0 || index > self.items.len() {
             return None;
         }
 
-        let range = self.items[index].clone();
+        let range = self.items[index - OFFSET].clone();
         Some(&self.str_data[range])
     }
 
@@ -51,7 +51,7 @@ impl Precache {
             .iter()
             .enumerate()
             .find(|&(_, item)| item == target.as_ref())?;
-        Some(idx)
+        Some(idx + OFFSET)
     }
 
     /// Adds an item to the precache.
@@ -68,10 +68,7 @@ impl Precache {
         }
 
         if item.len() > MAX_PRECACHE_PATH {
-            panic!(
-                "precache name (\"{}\") too long: max length is {}",
-                item, MAX_PRECACHE_PATH
-            );
+            panic!("precache name (\"{item}\") too long: max length is {MAX_PRECACHE_PATH}",);
         }
 
         if self.find(item).is_some() {

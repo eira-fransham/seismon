@@ -59,6 +59,59 @@ impl FromWorld for Vfs {
     }
 }
 
+fn traverse_case_insensitive(root: &Path, path: &Path) -> io::Result<File> {
+    let mut full_path = root.to_owned();
+    full_path.push(path);
+
+    if let Ok(f) = File::open(&full_path) {
+        return Ok(f);
+    }
+
+    // Janky case-insensitive directory traversal. Not resiliant against loops.
+    // TODO: Convert to use `glob` or similar.
+    let mut dir_path = Cow::Borrowed(root);
+    let mut components_iter = path.components().peekable();
+
+    info!("Searching for {}", path.display());
+    'recurse_dirs: loop {
+        info!("Searching {}...", dir_path.display());
+        // TODO: Cache directories, handle loops.
+        if let Ok(paths) = std::fs::read_dir(&*dir_path) {
+            let full_path_str = full_path.as_os_str();
+
+            for path in paths {
+                let Ok(path) = path else {
+                    continue;
+                };
+
+                if components_iter
+                    .peek()
+                    .copied()
+                    .map(|c| c.as_os_str().eq_ignore_ascii_case(path.file_name()))
+                    .unwrap_or_default()
+                    && path.file_type().map(|t| t.is_dir()).unwrap_or_default()
+                {
+                    components_iter.next();
+                    dir_path = Cow::Owned(path.path());
+                    continue 'recurse_dirs;
+                }
+
+                let path = path.path();
+
+                if path.as_os_str().eq_ignore_ascii_case(full_path_str)
+                    && let Ok(f) = File::open(&path)
+                {
+                    return Ok(f);
+                }
+            }
+        }
+
+        break;
+    }
+
+    Err(io::Error::from(io::ErrorKind::NotFound))
+}
+
 impl Vfs {
     pub fn new() -> Vfs {
         Vfs {
@@ -101,32 +154,18 @@ impl Vfs {
 
         let mut num_paks = 0;
         let pak_paths = [Some(quake_dir), game_dir].into_iter().flatten();
-        for mut pak_path in pak_paths {
+        for pak_path in pak_paths {
             for vfs_id in 0..crate::common::MAX_PAKFILES {
-                // Add the file name.
-                pak_path.push(format!("pak{vfs_id}.pak"));
-
-                // Keep adding PAKs until we don't find one or we hit MAX_PAKFILES.
-                if !pak_path.exists() {
-                    // If the lowercase path doesn't exist, try again with uppercase.
-                    // TODO: Deduplicate this with the case-insensitive file resolution from `open`.
-                    pak_path.pop();
-                    pak_path.push(format!("PAK{vfs_id}.PAK"));
-                    if !pak_path.exists() {
-                        pak_path.pop();
-                        break;
-                    }
+                if let Ok(file) =
+                    traverse_case_insensitive(&pak_path, Path::new(&format!("pak{vfs_id}.pak")))
+                {
+                    vfs.add_pakfile(&file).unwrap();
+                    num_paks += 1;
                 }
-
-                vfs.add_pakfile(&pak_path).unwrap();
-                num_paks += 1;
-
-                // Remove the file name, leaving the game directory.
-                pak_path.pop();
             }
 
             // Allow files in game or id1 dir to overwrite files in paks
-            // TODO: Does this break anything?
+            // TODO: Does this break anything? There are some incorrect models in Malice.
             vfs.add_directory(&pak_path).unwrap();
         }
 
@@ -137,13 +176,19 @@ impl Vfs {
         vfs
     }
 
-    pub fn add_pakfile<P>(&mut self, path: P) -> Result<(), VfsError>
+    pub fn open_pakfile<P>(&mut self, path: P) -> Result<(), VfsError>
     where
         P: AsRef<Path>,
     {
         let path = path.as_ref();
         self.components
-            .push(VfsComponent::Pak(Pak::new(path)?).into());
+            .push(VfsComponent::Pak(Pak::open(path)?).into());
+        Ok(())
+    }
+
+    pub fn add_pakfile(&mut self, file: &File) -> Result<(), VfsError> {
+        self.components
+            .push(VfsComponent::Pak(Pak::new(file)?).into());
         Ok(())
     }
 
@@ -166,58 +211,14 @@ impl Vfs {
         for c in self.components.iter().rev() {
             match &**c {
                 VfsComponent::Pak(pak) => {
-                    if let Ok(f) = pak.open(vp) {
+                    if let Ok(f) = pak.get(vp) {
                         return Ok(VirtualFile::PakBacked(Cursor::new(f)));
                     }
                 }
 
                 VfsComponent::Directory(path) => {
-                    let mut full_path = path.to_owned();
-                    full_path.push(vp);
-
-                    if let Ok(f) = File::open(&full_path) {
+                    if let Ok(f) = traverse_case_insensitive(path, Path::new(vp)) {
                         return Ok(VirtualFile::FileBacked(BufReader::new(f)));
-                    }
-
-                    // Janky case-insensitive directory traversal. Not resiliant against loops.
-                    // TODO: Convert to use `glob` or similar.
-                    let mut dir_path = Cow::Borrowed(&**path);
-                    let mut components_iter = Path::new(vp).components().peekable();
-                    info!("Searching for {vp}");
-                    'recurse_dirs: loop {
-                        info!("Searching {}...", dir_path.display());
-                        // TODO: Cache directories, handle loops.
-                        if let Ok(paths) = std::fs::read_dir(&*dir_path) {
-                            let full_path_str = full_path.as_os_str();
-
-                            for path in paths {
-                                let Ok(path) = path else {
-                                    continue;
-                                };
-
-                                if components_iter
-                                    .peek()
-                                    .copied()
-                                    .map(|c| c.as_os_str().eq_ignore_ascii_case(path.file_name()))
-                                    .unwrap_or_default()
-                                    && path.file_type().map(|t| t.is_dir()).unwrap_or_default()
-                                {
-                                    components_iter.next();
-                                    dir_path = Cow::Owned(path.path());
-                                    continue 'recurse_dirs;
-                                }
-
-                                let path = path.path();
-
-                                if path.as_os_str().eq_ignore_ascii_case(full_path_str)
-                                    && let Ok(f) = File::open(&path)
-                                {
-                                    return Ok(VirtualFile::FileBacked(BufReader::new(f)));
-                                }
-                            }
-                        }
-
-                        break;
                     }
                 }
             }

@@ -2181,7 +2181,7 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::client::ConnectionState;
+    use crate::client::{ConnectionState, input::game::Action};
 
     use self::console_text::AtlasText;
 
@@ -2617,10 +2617,17 @@ mod systems {
                             ),
                         }
                     }
-                    None => (
-                        Cow::from(format!("Unrecognized command \"{name}\"")),
-                        OutputType::Console,
-                    ),
+                    None => {
+                        // TODO: Entirely replace `GameInput` with triggers.
+                        if trigger.is_some() && Action::from_str(&name).is_err() {
+                            (
+                                Cow::from(format!("Unrecognized command \"{name}\"")),
+                                OutputType::Console,
+                            )
+                        } else {
+                            default()
+                        }
+                    }
                 };
 
                 if !output.is_empty() {

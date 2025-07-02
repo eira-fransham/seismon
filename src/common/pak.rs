@@ -154,13 +154,18 @@ impl AssetReader for Pak {
 
 impl Pak {
     // TODO: rename to from_path or similar
-    pub fn new<P>(path: P) -> Result<Pak, PakError>
+    pub fn open<P>(path: P) -> Result<Pak, PakError>
     where
         P: AsRef<Path>,
     {
         debug!("Opening {}", path.as_ref().to_str().unwrap());
 
         Self::read(unsafe { MmapOptions::new().map(&fs::File::open(path)?)? })
+    }
+
+    // TODO: rename to from_path or similar
+    pub fn new(file: &fs::File) -> Result<Pak, PakError> {
+        Self::read(unsafe { MmapOptions::new().map(file)? })
     }
 
     fn read<B: Into<PakBacking>>(bytes: B) -> Result<Self, PakError> {
@@ -260,7 +265,7 @@ impl Pak {
     /// let progs_dat = pak.open("progs.dat").unwrap();
     /// # }
     /// ```
-    pub fn open<S>(&self, path: S) -> Result<&[u8], PakError>
+    pub fn get<S>(&self, path: S) -> Result<&[u8], PakError>
     where
         S: AsRef<Path>,
     {

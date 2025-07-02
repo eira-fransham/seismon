@@ -66,6 +66,7 @@ fn cmd_map(
     let bsp_name = format!("{}", path.display());
     let bsp = vfs.open(&bsp_name)?;
     let (models, entmap) = crate::common::bsp::load(bsp)?;
+
     let progs = vfs.open("progs.dat")?;
     let progs = crate::server::progs::load(progs)?;
 
@@ -74,7 +75,7 @@ fn cmd_map(
         bsp_name,
         8,
         registry.reborrow(),
-        &*vfs,
+        &vfs,
         progs,
         models,
         entmap,
