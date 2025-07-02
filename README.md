@@ -53,14 +53,19 @@ command implementations are just regular systems which can access any resource o
 the Bevy rendergraph, although the rendering code itself is still mostly written by hand using wgpu, albeit in a much more
 extensible way than the original Richter implementation.
 
-Hosting a server has preliminary support - the server can run all the initialisation code in QuakeC, and it can
-load into any level from the original game. At the time of writing, input is unimplemented, but most physics routines and
-thinking are implemented. Clients can send movement information, but that information is not used yet. The server can
-communicate with the client locally, although remote clients are still unimplemented. At time of writing there seems to be
-a bug where enemies are either not appearing or being immediately killed. Work on the server is the current highest priority
-task. Here is an example of the client connected to the local Seismon server running `e1m2`:
+Audio is done using `bevy_seedling`, a modern audiograph-based audio system replacing Bevy's default. This lets us apply
+effects to the audio, and while it is relatively simple for now it should allow for some more advanced features later.
 
-![Preview of running server](content/seismon-server.gif)
+Hosting a server has preliminary support - the server can run all the initialisation code in QuakeC, and it can
+load into any level from the original game. The server can correctly load entities, run the initialisation routines for
+the player and entities, do basic physics, and send the resultant information to the client. The client can send input, which
+is passed to QuakeC, but as player physics are not yet fully implemented the input can't actually move the player. The next
+steps are to finish the physics and implement a couple of routines that are needed to make monsters move around. Basic collision
+with the world and entities appears to work, but the best it can do right now is make the player awkwardly scoot around the level
+when they spawn clipped into an entity (like on some levels where you start on an ammo/health pickup). Here is an example of the
+client connected to the local Seismon server running `e3m6`:
+
+![Preview of running server](content/seismon-server.png)
 
 `map` works the first time, although there are still bugs when changing maps (presumably due to state being incorrectly carried
 over between map runs), and `changelevel` is still unimplemented.
@@ -70,16 +75,16 @@ working again once the client update code is ported to use the ECS. I haven't to
 theory it should still work or only require minor changes.
 
 I've implemented mod support outside of the original `id1` directory, and so far all the mods that are designed to work with the
-original Quake release work. I have tried Hipnotic, Rogue, Soul of Evil, and Xmen: Ravages of Apocalypse, and playing demos from
-all of these games works. I have run the entirety of the "Quake Done Quickest" demos (`qdqst`) so can confirm that all maps from
-the original game can be loaded and rendered correctly.
+original Quake release work. I have tried Hipnotic, Rogue, Soul of Evil, Xmen: Ravages of Apocalypse, MALICE (all the cutscenes
+work but some of the regular levels have strange issues where entities are displayed with the wrong models), Omen, and Alien Quake.
+Playing demos from all of these mods work.
 
 A host of bugs and limitations from the original Richter were fixed. Inputs are no longer handled by an enum and you can
 define your own arbitrary `+action`/`-action` commands which can be bound, and arbitrary cvars which can have a system
 attached which will run when the cvar is changed. Commands are also implemented as systems, and so can have access to global
 state.
 
-There are still a couple of small pieces of code that use nightly Rust, but I hope to fix those soon.
+There are still a couple of small pieces of code that use nightly Rust, but I hope to fix those eventually.
 
 ### Help needed
 
@@ -87,12 +92,15 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for an up-to-date 
 
 ### Running
 
-```
+```bash
 cd /path/to/quake
 # To run Quake 1 (id1 folder)
 cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
 # To run other games
 cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client -- --game [GAME_NAME]
+# To run commands on startup (may require editing `quake.rc`, as `startdemos xxx` in the .rc
+# may overwrite commands from `stuffcmds`)
+cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client -- +map e1m1
 ```
 
 #### Feature checklist
@@ -103,6 +111,18 @@ cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
     - [x] All in-game server commands handled
     - [x] Carryover between levels
   - [ ] FitzQuake extended protocol support (`sv_protocol 666`)
+- Server
+  - [x] Initialisation routines
+  - [x] All opcodes implemented
+  - [x] Basic physics
+  - [ ] Complete physics
+  - [ ] All builtins implemented
+  - [ ] Input handling
+  - [x] Basic client connection handling
+  - [ ] Full client connection
+  - [x] Single-player clients
+  - [ ] External clients
+  - [ ] Diffing to prevent unnecessarily sending information
 - Rendering
   - [x] Deferred dynamic lighting
   - [x] Particle effects
@@ -135,13 +155,14 @@ cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
   - [x] Entity sound
   - [x] Ambient sound
   - [x] Spatial attenuation
-  - [ ] Stereo spatialization (almost complete)
+  - [x] Stereo spatialization
   - [x] Music
   - [x] Global effects, particularly lookahead-enabled limiting to prevent audio clipping
 - Console
   - [x] Line editing
   - [x] History browsing
   - [x] Cvar modification
+  - [x] Shell-style completion
   - [x] Command execution
   - [x] Quake script file execution
 - Demos
