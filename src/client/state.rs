@@ -198,7 +198,7 @@ impl ClientState {
     ) -> Result<ClientState, ClientError> {
         let mut sound_loader = SymphoniumLoader::new();
 
-        info!("Model precache: {model_precache:?}");
+        debug!("Model precache: {model_precache:?}");
 
         // TODO: validate submodel names
         let mut models: im::Vector<_> = iter::once(Model::default()).collect();
@@ -231,7 +231,7 @@ impl ClientState {
             .chain(sound_precache.iter().map(AsRef::as_ref))
             .enumerate()
             .map(|(i, snd_name)| {
-                info!("Loading sound {}: {}", i, snd_name);
+                debug!("Loading sound {}: {}", i, snd_name);
 
                 let mut data = Vec::new();
                 vfs.open(format!("sound/{snd_name}"))?

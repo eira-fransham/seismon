@@ -67,14 +67,14 @@ fn traverse_case_insensitive(root: &Path, path: &Path) -> io::Result<File> {
         return Ok(f);
     }
 
-    // Janky case-insensitive directory traversal. Not resiliant against loops.
+    // Janky case-insensitive directory traversal. Not resiliant against symlink loops.
     // TODO: Convert to use `glob` or similar.
     let mut dir_path = Cow::Borrowed(root);
     let mut components_iter = path.components().peekable();
 
-    info!("Searching for {}", path.display());
+    debug!("Searching for {}", path.display());
     'recurse_dirs: loop {
-        info!("Searching {}...", dir_path.display());
+        debug!("Searching {}...", dir_path.display());
         // TODO: Cache directories, handle loops.
         if let Ok(paths) = std::fs::read_dir(&*dir_path) {
             let full_path_str = full_path.as_os_str();

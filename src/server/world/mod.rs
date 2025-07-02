@@ -626,7 +626,7 @@ impl World {
         let mut ent = Entity::new(&self.type_def);
 
         for (key, val) in map.iter() {
-            info!(".{} = {}", key, val);
+            debug!(".{} = {}", key, val);
             match *key {
                 // ignore keys starting with an underscore
                 k if k.starts_with('_') => (),

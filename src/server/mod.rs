@@ -578,7 +578,7 @@ impl LevelState {
         };
 
         for entity in entity_list {
-            info!("Spawning entity: {entity:?}");
+            debug!("Spawning entity: {entity:?}");
             if let Err(e) = level.spawn_entity_from_map(&entity, registry.reborrow(), vfs) {
                 error!("Failed spawning entity {entity:?}: {e}");
             }
@@ -1000,9 +1000,7 @@ impl LevelState {
                 ent.load(&self.world.type_def, FieldAddrFloat::ModelIndex)?;
 
             if resultant_precached_model != 0. {
-                let precached = self
-                    .model_precache
-                    .get(resultant_precached_model as _);
+                let precached = self.model_precache.get(resultant_precached_model as _);
                 let mdl_name = self
                     .string_table
                     .get(resultant_model)

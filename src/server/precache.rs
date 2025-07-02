@@ -1,6 +1,7 @@
-use std::{iter, ops::Range};
+use std::ops::Range;
 
 use arrayvec::{ArrayString, ArrayVec};
+use hashbrown::HashMap;
 
 /// Maximum permitted length of a precache path.
 const MAX_PRECACHE_PATH: usize = 64;
@@ -16,11 +17,11 @@ const MAX_PRECACHE_ENTRIES: usize = 256;
 // it's not currently possible to do { MAX_PRECACHE_PATH * N } where N is a
 // const generic parameter. In practice both models and sounds have a maximum
 // value of 256.
-// TODO: HashMap for fast lookup
 #[derive(Debug, Default)]
 pub struct Precache {
     str_data: ArrayString<{ MAX_PRECACHE_PATH * MAX_PRECACHE_ENTRIES }>,
     items: ArrayVec<Range<usize>, MAX_PRECACHE_ENTRIES>,
+    name_to_index: HashMap<String, usize>,
 }
 
 /// Offset the index in order to allow `0` to represent null.
@@ -34,7 +35,8 @@ impl Precache {
 
     /// Retrieves an item from the precache if the item exists.
     pub fn get(&self, index: usize) -> Option<&str> {
-        if index == 0 || index > self.items.len() {
+        // Out-of-range index
+        if !(OFFSET..self.items.len() - OFFSET).contains(&index) {
             return None;
         }
 
@@ -47,11 +49,7 @@ impl Precache {
     where
         S: AsRef<str>,
     {
-        let (idx, _) = self
-            .iter()
-            .enumerate()
-            .find(|&(_, item)| item == target.as_ref())?;
-        Some(idx + OFFSET)
+        self.name_to_index.get(target.as_ref()).copied()
     }
 
     /// Adds an item to the precache.
@@ -68,7 +66,7 @@ impl Precache {
         }
 
         if item.len() > MAX_PRECACHE_PATH {
-            panic!("precache name (\"{item}\") too long: max length is {MAX_PRECACHE_PATH}",);
+            panic!("precache name (\"{item}\") too long: max length is {MAX_PRECACHE_PATH}");
         }
 
         if self.find(item).is_some() {
@@ -80,7 +78,10 @@ impl Precache {
         self.str_data.push_str(item);
         let end = self.str_data.len();
 
+        let index = self.items.len();
+
         self.items.push(start..end);
+        self.name_to_index.insert(item.to_owned(), index + OFFSET);
     }
 
     /// Returns an iterator over the values in the precache.

@@ -1949,6 +1949,7 @@ impl ServerCmd {
                 origin,
                 angles,
             } => {
+                // Entities with no model ID should not be sent to the client.
                 if model_id == 0 {
                     return Ok(());
                 }
