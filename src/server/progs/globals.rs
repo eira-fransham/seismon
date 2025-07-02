@@ -17,7 +17,7 @@
 
 use std::{error::Error, fmt};
 
-use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, StringId, Type};
+use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, Opcode, StringId, Type};
 
 use bevy::math::{EulerRot, Mat3, Vec3};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -43,6 +43,31 @@ pub const GLOBAL_ADDR_ARG_5: usize = 19;
 pub const GLOBAL_ADDR_ARG_6: usize = 22;
 #[allow(dead_code)]
 pub const GLOBAL_ADDR_ARG_7: usize = 25;
+
+macro_rules! log_op {
+    ($this:expr; $dest:ident = $op:ident ( $arg0:expr )) => {
+        log_op!($this; $dest = $op($arg0, ""))
+    };
+    ($this:expr; $dest:ident = $op:ident ( $arg0:expr, $arg1:expr )) => {{
+        let dest = $dest;
+        match $this.defs.binary_search_by(|def| (def.offset as i16).cmp(&dest)) {
+            Ok(def) =>
+                bevy::log::debug!("{} = {:<12} {:>5} {:>5}", &$this.defs[def].debug_name, Opcode::$op, $arg0, $arg1),
+            Err(def_after) => {
+                let def = def_after.saturating_sub(1);
+                let def_ref = &$this.defs[def];
+                bevy::log::debug!(
+                    "{}[{}] = {:<12} {:>5} {:>5}",
+                    &def_ref.debug_name,
+                    dest - def_ref.offset as i16,
+                    Opcode::$op,
+                    $arg0,
+                    $arg1,
+                );
+            }
+        }
+    }};
+}
 
 #[derive(Debug)]
 pub enum GlobalsError {
@@ -168,7 +193,7 @@ pub enum GlobalAddrVector {
 }
 
 impl GlobalAddr for GlobalAddrVector {
-    type Value = [f32; 3];
+    type Value = Vec3;
 
     #[inline]
     fn load(&self, globals: &Globals) -> Result<Self::Value, GlobalsError> {
@@ -244,8 +269,12 @@ impl Globals {
     /// overlapping definitions with their x-components (e.g. a vector `origin` and its x-component
     /// `origin_X` will have the same address).
     pub fn type_check(&self, addr: usize, type_: Type) -> Result<(), GlobalsError> {
-        match self.defs.iter().find(|def| def.offset as usize == addr) {
-            Some(d) => {
+        match self
+            .defs
+            .binary_search_by(|def| (def.offset as usize).cmp(&addr))
+        {
+            Ok(i) => {
+                let d = &self.defs[i];
                 if type_ == d.type_
                     || (type_ == Type::QFloat && d.type_ == Type::QVector)
                     || (type_ == Type::QVector && d.type_ == Type::QFloat)
@@ -256,13 +285,9 @@ impl Globals {
                         "Type check failed (expected {}, found {})",
                         type_, d.type_
                     )))
-                    // TODO: QuakeC almost certainly does type punning, so we probably don't want to
-                    //       completely error out.
-                    // error!("Type check failed (expected {}, found {})", type_, d.type_);
-                    // Ok(())
                 }
             }
-            None => Ok(()),
+            Err(_) => Ok(()),
         }
     }
 
@@ -344,6 +369,11 @@ impl Globals {
     /// Loads an `f32` from the given virtual address.
     pub fn get_float(&self, addr: i16) -> Result<f32, GlobalsError> {
         self.type_check(addr as usize, Type::QFloat)?;
+        self.get_float_untyped(addr)
+    }
+
+    /// Loads an `f32` from the given virtual address.
+    pub fn get_float_untyped(&self, addr: i16) -> Result<f32, GlobalsError> {
         Ok(self.get_addr(addr)?.read_f32::<LittleEndian>()?)
     }
 
@@ -355,20 +385,24 @@ impl Globals {
     }
 
     /// Loads an `[f32; 3]` from the given virtual address.
-    pub fn get_vector(&self, addr: i16) -> Result<[f32; 3], GlobalsError> {
+    pub fn get_vector(&self, addr: i16) -> Result<Vec3, GlobalsError> {
         self.type_check(addr as usize, Type::QVector)?;
 
-        let mut v = [0.0; 3];
+        self.get_vector_untyped(addr)
+    }
 
+    /// Loads an `[f32; 3]` from the given virtual address.
+    pub fn get_vector_untyped(&self, addr: i16) -> Result<Vec3, GlobalsError> {
+        let mut v = [0.; 3];
         for (i, v) in v.iter_mut().enumerate() {
-            *v = self.get_float(addr + i as i16)?;
+            *v = self.get_float_untyped(addr + i as i16)?;
         }
 
-        Ok(v)
+        Ok(v.into())
     }
 
     /// Stores an `[f32; 3]` at the given virtual address.
-    pub fn put_vector(&mut self, val: [f32; 3], addr: i16) -> Result<(), GlobalsError> {
+    pub fn put_vector(&mut self, val: Vec3, addr: i16) -> Result<(), GlobalsError> {
         self.type_check(addr as usize, Type::QVector)?;
 
         for i in 0..3 {
@@ -489,6 +523,9 @@ impl Globals {
     pub fn op_mul_f(&mut self, f1_id: i16, f2_id: i16, prod_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; prod_id = MulF(f1, f2));
+
         self.put_float(f1 * f2, prod_id)?;
 
         Ok(())
@@ -499,12 +536,9 @@ impl Globals {
         let v1 = self.get_vector(v1_id)?;
         let v2 = self.get_vector(v2_id)?;
 
-        let mut dot = 0.0;
+        log_op!(self; dot_id = MulV(v1, v2));
 
-        for c in 0..3 {
-            dot += v1[c] * v2[c];
-        }
-        self.put_float(dot, dot_id)?;
+        self.put_float(v1.dot(v2), dot_id)?;
 
         Ok(())
     }
@@ -514,12 +548,9 @@ impl Globals {
         let f = self.get_float(f_id)?;
         let v = self.get_vector(v_id)?;
 
-        let mut prod = [0.0; 3];
-        for c in 0..prod.len() {
-            prod[c] = v[c] * f;
-        }
+        log_op!(self; prod_id = MulFV(f, v));
 
-        self.put_vector(prod, prod_id)?;
+        self.put_vector(f * v, prod_id)?;
 
         Ok(())
     }
@@ -529,12 +560,9 @@ impl Globals {
         let v = self.get_vector(v_id)?;
         let f = self.get_float(f_id)?;
 
-        let mut prod = [0.0; 3];
-        for c in 0..prod.len() {
-            prod[c] = v[c] * f;
-        }
+        log_op!(self; prod_id = MulVF(v, f));
 
-        self.put_vector(prod, prod_id)?;
+        self.put_vector(f * v, prod_id)?;
 
         Ok(())
     }
@@ -543,6 +571,9 @@ impl Globals {
     pub fn op_div(&mut self, f1_id: i16, f2_id: i16, quot_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; quot_id = Div(f1, f2));
+
         self.put_float(f1 / f2, quot_id)?;
 
         Ok(())
@@ -552,6 +583,9 @@ impl Globals {
     pub fn op_add_f(&mut self, f1_ofs: i16, f2_ofs: i16, sum_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; sum_ofs = AddF(f1, f2));
+
         self.put_float(f1 + f2, sum_ofs)?;
 
         Ok(())
@@ -562,12 +596,9 @@ impl Globals {
         let v1 = self.get_vector(v1_id)?;
         let v2 = self.get_vector(v2_id)?;
 
-        let mut sum = [0.0; 3];
-        for c in 0..sum.len() {
-            sum[c] = v1[c] + v2[c];
-        }
+        log_op!(self; sum_id = AddV(v1, v2));
 
-        self.put_vector(sum, sum_id)?;
+        self.put_vector(v1 + v2, sum_id)?;
 
         Ok(())
     }
@@ -576,6 +607,9 @@ impl Globals {
     pub fn op_sub_f(&mut self, f1_id: i16, f2_id: i16, diff_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; diff_id = SubF(f1, f2));
+
         self.put_float(f1 - f2, diff_id)?;
 
         Ok(())
@@ -586,12 +620,9 @@ impl Globals {
         let v1 = self.get_vector(v1_id)?;
         let v2 = self.get_vector(v2_id)?;
 
-        let mut diff = [0.0; 3];
-        for c in 0..diff.len() {
-            diff[c] = v1[c] - v2[c];
-        }
+        log_op!(self; diff_id = SubV(v1, v2));
 
-        self.put_vector(diff, diff_id)?;
+        self.put_vector(v1 - v2, diff_id)?;
 
         Ok(())
     }
@@ -600,6 +631,9 @@ impl Globals {
     pub fn op_eq_f(&mut self, f1_id: i16, f2_id: i16, eq_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; eq_id = EqF(f1, f2));
+
         self.put_float(
             match f1 == f2 {
                 true => 1.0,
@@ -615,6 +649,9 @@ impl Globals {
     pub fn op_eq_v(&mut self, v1_id: i16, v2_id: i16, eq_id: i16) -> Result<(), GlobalsError> {
         let v1 = self.get_vector(v1_id)?;
         let v2 = self.get_vector(v2_id)?;
+
+        log_op!(self; eq_id = EqV(v1, v2));
+
         self.put_float(
             match v1 == v2 {
                 true => 1.0,
@@ -632,7 +669,12 @@ impl Globals {
             return Err(GlobalsError::with_msg("eq_s: negative string offset"));
         }
 
-        if s1_ofs == s2_ofs || self.string_id(s1_ofs)? == self.string_id(s2_ofs)? {
+        let s1 = self.string_id(s1_ofs)?;
+        let s2 = self.string_id(s2_ofs)?;
+
+        log_op!(self; eq_ofs = EqS(s1, s2));
+
+        if s1_ofs == s2_ofs || s1 == s2 {
             self.put_float(1.0, eq_ofs)?;
         } else {
             self.put_float(0.0, eq_ofs)?;
@@ -645,6 +687,8 @@ impl Globals {
     pub fn op_eq_ent(&mut self, e1_ofs: i16, e2_ofs: i16, eq_ofs: i16) -> Result<(), GlobalsError> {
         let e1 = self.entity_id(e1_ofs)?;
         let e2 = self.entity_id(e2_ofs)?;
+
+        log_op!(self; eq_ofs = EqEnt(e1, e2));
 
         self.put_float(
             match e1 == e2 {
@@ -662,6 +706,8 @@ impl Globals {
         let f1 = self.function_id(f1_ofs)?;
         let f2 = self.function_id(f2_ofs)?;
 
+        log_op!(self; eq_ofs = EqFnc(f1, f2));
+
         self.put_float(
             match f1 == f2 {
                 true => 1.0,
@@ -677,6 +723,9 @@ impl Globals {
     pub fn op_ne_f(&mut self, f1_ofs: i16, f2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; ne_ofs = NeF(f1, f2));
+
         self.put_float(
             match f1 != f2 {
                 true => 1.0,
@@ -692,6 +741,9 @@ impl Globals {
     pub fn op_ne_v(&mut self, v1_ofs: i16, v2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
         let v1 = self.get_vector(v1_ofs)?;
         let v2 = self.get_vector(v2_ofs)?;
+
+        log_op!(self; ne_ofs = NeV(v1, v2));
+
         self.put_float(
             match v1 != v2 {
                 true => 1.0,
@@ -709,7 +761,12 @@ impl Globals {
             return Err(GlobalsError::with_msg("eq_s: negative string offset"));
         }
 
-        if s1_ofs != s2_ofs && self.string_id(s1_ofs)? != self.string_id(s2_ofs)? {
+        let s1 = self.string_id(s1_ofs)?;
+        let s2 = self.string_id(s2_ofs)?;
+
+        log_op!(self; ne_ofs = NeS(s1, s2));
+
+        if s1_ofs != s2_ofs && s1 != s2 {
             self.put_float(1.0, ne_ofs)?;
         } else {
             self.put_float(0.0, ne_ofs)?;
@@ -721,6 +778,8 @@ impl Globals {
     pub fn op_ne_ent(&mut self, e1_ofs: i16, e2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
         let e1 = self.entity_id(e1_ofs)?;
         let e2 = self.entity_id(e2_ofs)?;
+
+        log_op!(self; ne_ofs = NeEnt(e1, e2));
 
         self.put_float(
             match e1 != e2 {
@@ -737,6 +796,8 @@ impl Globals {
         let f1 = self.function_id(f1_ofs)?;
         let f2 = self.function_id(f2_ofs)?;
 
+        log_op!(self; ne_ofs = NeFnc(f1, f2));
+
         self.put_float(
             match f1 != f2 {
                 true => 1.0,
@@ -752,6 +813,9 @@ impl Globals {
     pub fn op_le(&mut self, f1_ofs: i16, f2_ofs: i16, le_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; le_ofs = Le(f1, f2));
+
         self.put_float(
             match f1 <= f2 {
                 true => 1.0,
@@ -767,6 +831,9 @@ impl Globals {
     pub fn op_ge(&mut self, f1_ofs: i16, f2_ofs: i16, ge_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; ge_ofs = Ge(f1, f2));
+
         self.put_float(
             match f1 >= f2 {
                 true => 1.0,
@@ -782,6 +849,9 @@ impl Globals {
     pub fn op_lt(&mut self, f1_ofs: i16, f2_ofs: i16, lt_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; lt_ofs = Lt(f1, f2));
+
         self.put_float(
             match f1 < f2 {
                 true => 1.0,
@@ -797,6 +867,9 @@ impl Globals {
     pub fn op_gt(&mut self, f1_ofs: i16, f2_ofs: i16, gt_ofs: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_ofs)?;
         let f2 = self.get_float(f2_ofs)?;
+
+        log_op!(self; gt_ofs = Gt(f1, f2));
+
         self.put_float(
             match f1 > f2 {
                 true => 1.0,
@@ -820,6 +893,9 @@ impl Globals {
         }
 
         let f = self.get_float(src_ofs)?;
+
+        log_op!(self; dest_ofs = StoreF(f));
+
         self.put_float(f, dest_ofs)?;
 
         Ok(())
@@ -836,7 +912,9 @@ impl Globals {
             return Err(GlobalsError::with_msg("Nonzero arg3 to STORE_V"));
         }
 
-        if dest_ofs > 0 && dest_ofs < GLOBAL_STATIC_START as i16 {
+        if (0..GLOBAL_STATIC_START as i16).contains(&dest_ofs) {
+            let [a, b, c] = [0, 1, 2].map(|i| self.get_int(src_ofs + i).unwrap());
+            log_op!(self; dest_ofs = StoreV(format_args!("[{a}, {b}, {c}]")));
             // Untyped copy is required because STORE_V is used to copy function arguments into the global
             // argument slots.
             //
@@ -845,10 +923,9 @@ impl Globals {
                 self.untyped_copy(src_ofs + c as i16, dest_ofs + c as i16)?;
             }
         } else {
-            for c in 0..3 {
-                let f = self.get_float(src_ofs + c)?;
-                self.put_float(f, dest_ofs + c)?;
-            }
+            let v = self.get_vector(src_ofs)?;
+            log_op!(self; dest_ofs = StoreV(v));
+            self.put_vector(v, dest_ofs)?;
         }
 
         Ok(())
@@ -865,6 +942,9 @@ impl Globals {
         }
 
         let s = self.string_id(src_ofs)?;
+
+        log_op!(self; dest_ofs = StoreS(s));
+
         self.put_string_id(s, dest_ofs)?;
 
         Ok(())
@@ -881,6 +961,9 @@ impl Globals {
         }
 
         let ent = self.entity_id(src_ofs)?;
+
+        log_op!(self; dest_ofs = StoreEnt(ent));
+
         self.put_entity_id(ent, dest_ofs)?;
 
         Ok(())
@@ -897,6 +980,9 @@ impl Globals {
         }
 
         let fld = self.get_field_addr(src_ofs)?;
+
+        log_op!(self; dest_ofs = StoreFld(fld));
+
         self.put_field_addr(fld, dest_ofs)?;
 
         Ok(())
@@ -913,6 +999,9 @@ impl Globals {
         }
 
         let fnc = self.function_id(src_ofs)?;
+
+        log_op!(self; dest_ofs = StoreFnc(fnc));
+
         self.put_function_id(fnc, dest_ofs)?;
 
         Ok(())
@@ -925,6 +1014,9 @@ impl Globals {
         }
 
         let f = self.get_float(f_id)?;
+
+        log_op!(self; not_id = NotF(f));
+
         self.put_float(
             match f == 0.0 {
                 true => 1.0,
@@ -943,10 +1035,13 @@ impl Globals {
         }
 
         let v = self.get_vector(v_id)?;
-        let zero_vec = [0.0; 3];
+
+        log_op!(self; not_id = NotV(v));
+
+        let zero_vec = Vec3::ZERO;
         self.put_vector(
             match v == zero_vec {
-                true => [1.0; 3],
+                true => Vec3::ONE,
                 false => zero_vec,
             },
             not_id,
@@ -966,6 +1061,8 @@ impl Globals {
         }
 
         let s = self.string_id(s_ofs)?;
+
+        log_op!(self; not_ofs = NotS(s));
 
         if s_ofs == 0 || s.0 == 0 {
             self.put_float(1.0, not_ofs)?;
@@ -988,6 +1085,9 @@ impl Globals {
         }
 
         let fnc_id = self.function_id(fnc_id_ofs)?;
+
+        log_op!(self; not_ofs = NotFnc(fnc_id));
+
         self.put_float(
             match fnc_id {
                 FunctionId(0) => 1.0,
@@ -1011,6 +1111,9 @@ impl Globals {
         }
 
         let ent = self.entity_id(ent_ofs)?;
+
+        log_op!(self; not_ofs = NotEnt(ent));
+
         self.put_float(
             match ent {
                 EntityId(0) => 1.0,
@@ -1026,6 +1129,9 @@ impl Globals {
     pub fn op_and(&mut self, f1_id: i16, f2_id: i16, and_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; and_id = And(f1, f2));
+
         self.put_float(
             match f1 != 0.0 && f2 != 0.0 {
                 true => 1.0,
@@ -1041,6 +1147,9 @@ impl Globals {
     pub fn op_or(&mut self, f1_id: i16, f2_id: i16, or_id: i16) -> Result<(), GlobalsError> {
         let f1 = self.get_float(f1_id)?;
         let f2 = self.get_float(f2_id)?;
+
+        log_op!(self; or_id = Or(f1, f2));
+
         self.put_float(
             match f1 != 0.0 || f2 != 0.0 {
                 true => 1.0,
@@ -1059,10 +1168,12 @@ impl Globals {
         f2_ofs: i16,
         bit_and_ofs: i16,
     ) -> Result<(), GlobalsError> {
-        let f1 = self.get_float(f1_ofs)?;
-        let f2 = self.get_float(f2_ofs)?;
+        let f1 = self.get_float(f1_ofs)? as i32;
+        let f2 = self.get_float(f2_ofs)? as i32;
 
-        self.put_float((f1 as i32 & f2 as i32) as f32, bit_and_ofs)?;
+        log_op!(self; bit_and_ofs = BitAnd(f1, f2));
+
+        self.put_float((f1 & f2) as f32, bit_and_ofs)?;
 
         Ok(())
     }
@@ -1074,10 +1185,12 @@ impl Globals {
         f2_ofs: i16,
         bit_or_ofs: i16,
     ) -> Result<(), GlobalsError> {
-        let f1 = self.get_float(f1_ofs)?;
-        let f2 = self.get_float(f2_ofs)?;
+        let f1 = self.get_float(f1_ofs)? as i32;
+        let f2 = self.get_float(f2_ofs)? as i32;
 
-        self.put_float((f1 as i32 | f2 as i32) as f32, bit_or_ofs)?;
+        log_op!(self; bit_or_ofs = BitOr(f1, f2));
+
+        self.put_float((f1 | f2) as f32, bit_or_ofs)?;
 
         Ok(())
     }
@@ -1102,15 +1215,9 @@ impl Globals {
 
         let rotation_matrix = make_vectors(angles);
 
-        self.put_vector(
-            rotation_matrix.x_axis.into(),
-            GlobalAddrVector::VForward as i16,
-        )?;
-        self.put_vector(
-            rotation_matrix.y_axis.into(),
-            GlobalAddrVector::VRight as i16,
-        )?;
-        self.put_vector(rotation_matrix.z_axis.into(), GlobalAddrVector::VUp as i16)?;
+        self.put_vector(rotation_matrix.x_axis, GlobalAddrVector::VForward as i16)?;
+        self.put_vector(rotation_matrix.y_axis, GlobalAddrVector::VRight as i16)?;
+        self.put_vector(rotation_matrix.z_axis, GlobalAddrVector::VUp as i16)?;
 
         Ok(())
     }
@@ -1120,7 +1227,7 @@ impl Globals {
     /// Loads the vector from `GLOBAL_ADDR_ARG_0` and stores its magnitude at
     /// `GLOBAL_ADDR_RETURN`.
     pub fn builtin_v_len(&mut self) -> Result<(), GlobalsError> {
-        let v = Vec3::from(self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?);
+        let v = self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
         self.put_float(v.length(), GLOBAL_ADDR_RETURN as i16)?;
         Ok(())
     }
@@ -1187,7 +1294,7 @@ impl Globals {
     }
 }
 
-pub fn make_vectors(angles: [f32; 3]) -> Mat3 {
+pub fn make_vectors(angles: Vec3) -> Mat3 {
     let pitch = -angles[0].to_radians();
     let yaw = angles[1].to_radians();
     let roll = angles[2].to_radians();

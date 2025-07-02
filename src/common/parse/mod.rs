@@ -66,7 +66,7 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
     alt((tag(";"), nom::character::complete::line_ending))(input)
 }
 
-pub fn vector3_components<S>(src: S) -> Option<[f32; 3]>
+pub fn vector3_components<S>(src: S) -> Option<Vec3>
 where
     S: AsRef<str>,
 {
@@ -92,7 +92,7 @@ where
         None => return None,
     };
 
-    Some([x, y, z])
+    Some(Vec3::new(x, y, z))
 }
 
 pub fn vector3<S>(src: S) -> Option<Vec3>

@@ -203,6 +203,96 @@ pub enum FieldAddrFloat {
     Sounds = 100,
 }
 
+impl fmt::Display for FieldAddrFloat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ModelIndex => write!(f, "model_id"),
+            Self::AbsMinX => write!(f, "abs_min_x"),
+            Self::AbsMinY => write!(f, "abs_min_y"),
+            Self::AbsMinZ => write!(f, "abs_min_z"),
+            Self::AbsMaxX => write!(f, "abs_max_x"),
+            Self::AbsMaxY => write!(f, "abs_max_y"),
+            Self::AbsMaxZ => write!(f, "abs_max_z"),
+            Self::LocalTime => write!(f, "local_time"),
+            Self::MoveKind => write!(f, "move_kind"),
+            Self::Solid => write!(f, "solid"),
+            Self::OriginX => write!(f, "origin_x"),
+            Self::OriginY => write!(f, "origin_y"),
+            Self::OriginZ => write!(f, "origin_z"),
+            Self::OldOriginX => write!(f, "old_origin_x"),
+            Self::OldOriginY => write!(f, "old_origin_y"),
+            Self::OldOriginZ => write!(f, "old_origin_z"),
+            Self::VelocityX => write!(f, "velocity_x"),
+            Self::VelocityY => write!(f, "velocity_y"),
+            Self::VelocityZ => write!(f, "velocity_z"),
+            Self::AnglesX => write!(f, "angles_x"),
+            Self::AnglesY => write!(f, "angles_y"),
+            Self::AnglesZ => write!(f, "angles_z"),
+            Self::AngularVelocityX => write!(f, "angular_velocity_x"),
+            Self::AngularVelocityY => write!(f, "angular_velocity_y"),
+            Self::AngularVelocityZ => write!(f, "angular_velocity_z"),
+            Self::PunchAngleX => write!(f, "punch_angle_x"),
+            Self::PunchAngleY => write!(f, "punch_angle_y"),
+            Self::PunchAngleZ => write!(f, "punch_angle_z"),
+            Self::FrameId => write!(f, "frame_id"),
+            Self::SkinId => write!(f, "skin_id"),
+            Self::Effects => write!(f, "effects"),
+            Self::MinsX => write!(f, "mins_x"),
+            Self::MinsY => write!(f, "mins_y"),
+            Self::MinsZ => write!(f, "mins_z"),
+            Self::MaxsX => write!(f, "maxs_x"),
+            Self::MaxsY => write!(f, "maxs_y"),
+            Self::MaxsZ => write!(f, "maxs_z"),
+            Self::SizeX => write!(f, "size_x"),
+            Self::SizeY => write!(f, "size_y"),
+            Self::SizeZ => write!(f, "size_z"),
+            Self::NextThink => write!(f, "next_think"),
+            Self::Health => write!(f, "health"),
+            Self::Frags => write!(f, "frags"),
+            Self::Weapon => write!(f, "weapon"),
+            Self::WeaponFrame => write!(f, "weapon_frame"),
+            Self::CurrentAmmo => write!(f, "current_ammo"),
+            Self::AmmoShells => write!(f, "ammo_shells"),
+            Self::AmmoNails => write!(f, "ammo_nails"),
+            Self::AmmoRockets => write!(f, "ammo_rockets"),
+            Self::AmmoCells => write!(f, "ammo_cells"),
+            Self::Items => write!(f, "items"),
+            Self::TakeDamage => write!(f, "take_damage"),
+            Self::DeadFlag => write!(f, "dead_flag"),
+            Self::ViewOffsetX => write!(f, "view_offset_x"),
+            Self::ViewOffsetY => write!(f, "view_offset_y"),
+            Self::ViewOffsetZ => write!(f, "view_offset_z"),
+            Self::Button0 => write!(f, "button0"),
+            Self::Button1 => write!(f, "button1"),
+            Self::Button2 => write!(f, "button2"),
+            Self::Impulse => write!(f, "impulse"),
+            Self::FixAngle => write!(f, "fix_angle"),
+            Self::ViewAngleX => write!(f, "view_angle_x"),
+            Self::ViewAngleY => write!(f, "view_angle_y"),
+            Self::ViewAngleZ => write!(f, "view_angle_z"),
+            Self::IdealPitch => write!(f, "ideal_pitch"),
+            Self::Flags => write!(f, "flags"),
+            Self::Colormap => write!(f, "colormap"),
+            Self::Team => write!(f, "team"),
+            Self::MaxHealth => write!(f, "max_health"),
+            Self::TeleportTime => write!(f, "teleport_time"),
+            Self::ArmorStrength => write!(f, "armor_strength"),
+            Self::ArmorValue => write!(f, "armor_value"),
+            Self::WaterLevel => write!(f, "water_level"),
+            Self::Contents => write!(f, "contents"),
+            Self::IdealYaw => write!(f, "ideal_yaw"),
+            Self::YawSpeed => write!(f, "yaw_speed"),
+            Self::SpawnFlags => write!(f, "spawn_flags"),
+            Self::DmgTake => write!(f, "dmg_take"),
+            Self::DmgSave => write!(f, "dmg_save"),
+            Self::MoveDirectionX => write!(f, "move_direction_x"),
+            Self::MoveDirectionY => write!(f, "move_direction_y"),
+            Self::MoveDirectionZ => write!(f, "move_direction_z"),
+            Self::Sounds => write!(f, "sounds"),
+        }
+    }
+}
+
 impl FieldAddr for FieldAddrFloat {
     type Value = f32;
 
@@ -528,11 +618,10 @@ impl Entity {
             .find(|def| def.type_ != Type::QVoid && def.offset as usize == addr)
         {
             Some(d) => {
-                if type_ == d.type_ {
-                    Ok(())
-                } else if type_ == Type::QFloat && d.type_ == Type::QVector {
-                    Ok(())
-                } else if type_ == Type::QVector && d.type_ == Type::QFloat {
+                if type_ == d.type_
+                    || (type_ == Type::QFloat && d.type_ == Type::QVector)
+                    || (type_ == Type::QVector && d.type_ == Type::QFloat)
+                {
                     Ok(())
                 } else {
                     Err(EntityError::with_msg(format!(
@@ -698,10 +787,10 @@ impl Entity {
     }
 
     /// Loads an `[f32; 3]` from the given virtual address.
-    pub fn get_vector(&self, type_def: &EntityTypeDef, addr: i16) -> Result<[f32; 3], EntityError> {
+    pub fn get_vector(&self, type_def: &EntityTypeDef, addr: i16) -> Result<Vec3, EntityError> {
         self.type_check(type_def, addr as usize, Type::QVector)?;
 
-        let mut v = [0.0; 3];
+        let mut v = Vec3::ZERO;
 
         for i in 0..3 {
             v[i] = self.get_float(type_def, addr + i as i16)?;
@@ -714,7 +803,7 @@ impl Entity {
     pub fn put_vector(
         &mut self,
         type_def: &EntityTypeDef,
-        val: [f32; 3],
+        val: Vec3,
         addr: i16,
     ) -> Result<(), EntityError> {
         self.type_check(type_def, addr as usize, Type::QVector)?;
@@ -925,6 +1014,14 @@ impl Entity {
                 flags_i
             ))),
         }
+    }
+
+    pub fn has_flag(
+        &self,
+        type_def: &EntityTypeDef,
+        flag: EntityFlags,
+    ) -> Result<bool, EntityError> {
+        Ok(self.flags(type_def)?.contains(flag))
     }
 
     pub fn add_flags(

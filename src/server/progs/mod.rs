@@ -230,6 +230,12 @@ impl StringId {
     }
 }
 
+impl fmt::Display for StringId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "s{}", self.0)
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[repr(C)]
 pub struct EntityId(pub usize);
@@ -255,6 +261,12 @@ impl From<EntityId> for u16 {
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct FieldAddr(pub usize);
+
+impl fmt::Display for FieldAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "fld{}", self.0)
+    }
+}
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
@@ -306,14 +318,40 @@ struct Lump {
     count: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GlobalDef {
     // TODO: Implement this
     _save: bool,
     type_: Type,
     offset: u16,
-    // TODO: Implement this
-    _name_id: StringId,
+    name_id: StringId,
+    /// Dereferenced version of `name_id`, for debuggging purposes
+    debug_name: String,
+}
+
+impl GlobalDef {
+    pub fn format(&self, f: &mut fmt::Formatter, string_table: &StringTable) -> fmt::Result {
+        let name = string_table.get(self.name_id).unwrap();
+        write!(f, "{} {} = {}", self.type_, name, self.offset)
+    }
+
+    pub fn display<'a>(&'a self, string_table: &'a StringTable) -> impl fmt::Display + use<'a> {
+        GlobalDefFormatter {
+            def: self,
+            string_table,
+        }
+    }
+}
+
+pub struct GlobalDefFormatter<'a> {
+    def: &'a GlobalDef,
+    string_table: &'a StringTable,
+}
+
+impl fmt::Display for GlobalDefFormatter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.def.format(f, self.string_table)
+    }
 }
 
 /// An entity field definition.
@@ -321,11 +359,36 @@ pub struct GlobalDef {
 /// These definitions can be used to look up entity fields by name. This is
 /// required for custom fields defined in QuakeC code; their offsets are not
 /// known at compile time.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct FieldDef {
     pub type_: Type,
     pub offset: u16,
     pub name_id: StringId,
+}
+
+impl FieldDef {
+    pub fn format(&self, f: &mut fmt::Formatter, string_table: &StringTable) -> fmt::Result {
+        let name = string_table.get(self.name_id).unwrap();
+        write!(f, "{} {} = {}", self.type_, name, self.offset)
+    }
+
+    pub fn display<'a>(&self, string_table: &'a StringTable) -> impl fmt::Display + use<'a> {
+        FieldDefFormatter {
+            def: *self,
+            string_table,
+        }
+    }
+}
+
+pub struct FieldDefFormatter<'a> {
+    def: FieldDef,
+    string_table: &'a StringTable,
+}
+
+impl fmt::Display for FieldDefFormatter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.def.format(f, self.string_table)
+    }
 }
 
 /// The values returned by loading a `progs.dat` file.
@@ -351,13 +414,13 @@ where
         count: 0,
     }; LUMP_COUNT];
 
-    for l in 0..lumps.len() {
-        lumps[l] = Lump {
+    for (i, lump) in lumps.iter_mut().enumerate() {
+        *lump = Lump {
             offset: src.read_i32::<LittleEndian>()? as usize,
             count: src.read_i32::<LittleEndian>()? as usize,
         };
 
-        debug!("{:?}: {:?}", l, lumps[l]);
+        debug!("{:?}: {:?}", i, lump);
     }
 
     let ent_addr_count = src.read_i32::<LittleEndian>()? as usize;
@@ -468,13 +531,17 @@ where
         let type_ = src.read_u16::<LittleEndian>()?;
         let offset = src.read_u16::<LittleEndian>()?;
         let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
+        let debug_name = format!("{}", string_table.get(name_id).unwrap_or_default());
         globaldefs.push(GlobalDef {
             _save: type_ & SAVE_GLOBAL != 0,
             type_: Type::from_u16(type_ & !SAVE_GLOBAL).unwrap(),
             offset,
-            _name_id: name_id,
+            name_id,
+            debug_name,
         });
     }
+
+    globaldefs.sort_by_key(|def| def.offset);
 
     assert_eq!(
         src.stream_position()?,
@@ -613,6 +680,10 @@ impl ExecutionContext {
         name: S,
     ) -> Result<FunctionId, ProgsError> {
         self.functions.find_function_by_name(string_table, name)
+    }
+
+    pub fn exists(&self, id: FunctionId) -> bool {
+        self.functions.exists(id)
     }
 
     pub fn function_def(&self, id: FunctionId) -> Result<&FunctionDef, ProgsError> {

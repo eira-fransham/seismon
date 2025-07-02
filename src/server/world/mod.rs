@@ -20,7 +20,7 @@ pub mod phys;
 
 use std::{
     collections::HashSet,
-    iter,
+    iter, mem,
     ops::{Bound, RangeBounds},
 };
 
@@ -577,8 +577,9 @@ impl World {
     ///
     /// This representation should be compatible with the one used by the original Quake.
     pub fn ent_fld_addr_to_i32(&self, ent_fld_addr: EntityFieldAddr) -> i32 {
-        let total_addr =
-            (ent_fld_addr.entity_id.0 * self.type_def.addr_count() + ent_fld_addr.field_addr.0) * 4;
+        let total_addr = (ent_fld_addr.entity_id.0 * self.type_def.addr_count()
+            + ent_fld_addr.field_addr.0)
+            * mem::size_of::<f32>();
 
         if total_addr > ::std::i32::MAX as usize {
             panic!("ent_fld_addr_to_i32: total_addr overflow");
@@ -597,7 +598,7 @@ impl World {
             panic!("ent_fld_addr_from_i32: value % 4 != 0 ({})", val);
         }
 
-        let total_addr = val as usize / 4;
+        let total_addr = val as usize / mem::size_of::<f32>();
         EntityFieldAddr {
             entity_id: EntityId(total_addr / self.type_def.addr_count()),
             field_addr: FieldAddr(total_addr % self.type_def.addr_count()),
@@ -638,7 +639,7 @@ impl World {
                     let def = self.find_def(string_table, "angles")?;
                     ent.put_vector(
                         &self.type_def,
-                        [0.0, val.parse().unwrap(), 0.0],
+                        Vec3::new(0.0, val.parse().unwrap(), 0.0),
                         def.offset as i16,
                     )?;
                 }
@@ -967,15 +968,34 @@ impl World {
         }
     }
 
-    pub fn trace_entity_move(
-        &mut self,
+    pub fn entity_is_stuck<F>(&self, e_id: EntityId, filter: F) -> Result<bool, ProgsError>
+    where
+        F: Fn(EntityId) -> bool,
+    {
+        let ent = self.entities.try_get(e_id)?;
+
+        let origin = ent.origin(&self.type_def)?;
+        let min = ent.min(&self.type_def)?;
+        let max = ent.max(&self.type_def)?;
+        let (trace, _) =
+            self.trace_entity_move(e_id, origin, min, max, origin, CollideKind::Normal, filter)?;
+
+        Ok(trace.start_solid())
+    }
+
+    pub fn trace_entity_move<F>(
+        &self,
         e_id: EntityId,
         start: Vec3,
         min: Vec3,
         max: Vec3,
         end: Vec3,
         kind: CollideKind,
-    ) -> Result<(Trace, Option<EntityId>), ProgsError> {
+        filter: F,
+    ) -> Result<(Trace, Option<EntityId>), ProgsError>
+    where
+        F: Fn(EntityId) -> bool,
+    {
         debug!("start={start} min={min} max={max} end={end}",);
 
         debug!("Collision test: Entity {e_id} with world entity");
@@ -988,10 +1008,7 @@ impl World {
 
         // if this is a rocket or a grenade, expand the monster collision box
         let (monster_min, monster_max) = match kind {
-            CollideKind::Missile => (
-                min - Vec3::new(15.0, 15.0, 15.0),
-                max + Vec3::new(15.0, 15.0, 15.0),
-            ),
+            CollideKind::Missile => (min - Vec3::splat(15.0), max + Vec3::splat(15.0)),
             _ => (min, max),
         };
 
@@ -1011,7 +1028,7 @@ impl World {
             kind,
         };
 
-        let (collide_trace, collide_ent) = self.collide(&collide)?;
+        let (collide_trace, collide_ent) = self.collide(&collide, filter)?;
 
         if collide_trace.all_solid()
             || collide_trace.start_solid()
@@ -1023,15 +1040,26 @@ impl World {
         }
     }
 
-    pub fn collide(&self, collide: &Collide) -> Result<(Trace, Option<EntityId>), ProgsError> {
-        self.collide_area(0, collide)
+    pub fn collide<F>(
+        &self,
+        collide: &Collide,
+        filter: F,
+    ) -> Result<(Trace, Option<EntityId>), ProgsError>
+    where
+        F: Fn(EntityId) -> bool,
+    {
+        self.collide_area(0, collide, &filter)
     }
 
-    fn collide_area(
+    fn collide_area<F>(
         &self,
         area_id: usize,
         collide: &Collide,
-    ) -> Result<(Trace, Option<EntityId>), ProgsError> {
+        filter: F,
+    ) -> Result<(Trace, Option<EntityId>), ProgsError>
+    where
+        F: Fn(EntityId) -> bool + Copy,
+    {
         let mut trace = Trace::new(
             TraceStart::new(Vec3::ZERO, 0.0),
             TraceEnd::terminal(Vec3::ZERO),
@@ -1042,7 +1070,7 @@ impl World {
 
         let area = &self.area_nodes[area_id];
 
-        for touch in area.solids.iter() {
+        for touch in area.solids.iter().filter(|e| filter(**e)) {
             // don't collide an entity with itself
             if let Some(e) = collide.e_id {
                 if e == *touch {
@@ -1142,11 +1170,11 @@ impl World {
 
             AreaNodeKind::Branch(ref b) => {
                 if collide.move_max[b.axis as usize] > b.dist {
-                    self.collide_area(b.front, collide)?;
+                    self.collide_area(b.front, collide, filter)?;
                 }
 
                 if collide.move_min[b.axis as usize] < b.dist {
-                    self.collide_area(b.back, collide)?;
+                    self.collide_area(b.back, collide, filter)?;
                 }
             }
         }

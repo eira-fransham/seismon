@@ -15,6 +15,8 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+use std::fmt;
+
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
@@ -51,6 +53,12 @@ impl Statement {
 #[repr(C)]
 pub struct FunctionId(pub usize);
 
+impl FunctionId {
+    pub fn is_none(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 impl TryInto<i32> for FunctionId {
     type Error = ProgsError;
 
@@ -60,6 +68,12 @@ impl TryInto<i32> for FunctionId {
         } else {
             Ok(self.0 as i32)
         }
+    }
+}
+
+impl fmt::Display for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f{}", self.0)
     }
 }
 
@@ -177,6 +191,10 @@ impl Functions {
                 value
             )))
         }
+    }
+
+    pub fn exists(&self, id: FunctionId) -> bool {
+        (0..self.defs.len()).contains(&id.0)
     }
 
     pub fn get_def(&self, id: FunctionId) -> Result<&FunctionDef, ProgsError> {
