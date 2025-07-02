@@ -156,6 +156,13 @@ cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
     - [x] Level intermissions
     - [x] On-screen messages
     - [x] Menus
+- Use Bevy libraries instead of hand-rolling code
+  - [x] Use `bevy_seedling` for audio
+  - [ ] Use `hanabi` for particles
+  - [x] Use `bevy-ui` for UI
+  - [ ] Use standard Bevy rendering for the world/models
+  - [ ] Support for rollback netcode using `matchbox`
+  - [ ] Integrate an optional physics engine
 - Sound
   - [x] Loading and playback
   - [x] Entity sound
