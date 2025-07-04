@@ -133,7 +133,7 @@ impl BrushPipeline {
 #[derive(Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: [[f32; 4]; 4],
-    pub model_view: [[f32; 3]; 3],
+    pub inv_view: [[f32; 3]; 3],
 }
 
 #[repr(C)]

@@ -427,6 +427,8 @@ impl ViewNode for DeferredPass {
             ..default()
         });
 
+        assert_eq!(std::alloc::Layout::new::<PointLight>(), std::alloc::Layout::new::<[f32; 4]>());
+
         let mut deferred_pass = TrackedRenderPass::new(device, deferred_pass);
 
         let mut lights = [PointLight {
@@ -436,13 +438,15 @@ impl ViewNode for DeferredPass {
 
         let mut light_count = 0;
         for (light_id, light) in cl_state.iter_lights().enumerate().take(MAX_LIGHTS) {
-            light_count += 1;
+            let radius = light.radius(cl_state.time());
             let light_origin = light.origin();
+
             let converted_origin = Vec3::new(-light_origin.y, light_origin.z, -light_origin.x);
             lights[light_id].origin = (camera.view() * converted_origin.extend(1.0))
                 .truncate()
                 .into();
-            lights[light_id].radius = light.radius(cl_state.time());
+            lights[light_id].radius = radius;
+            light_count += 1;
         }
 
         let uniforms = DeferredUniforms {

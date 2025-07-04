@@ -59,7 +59,8 @@ void main() {
     float dist = abs(distance(dlight_origin(dlight), position));
     float radius = dlight_radius(dlight);
 
-    if (dist < radius && dot(dir, in_normal) < 0.0) {
+    // TODO: Why do the normals get corrupted?
+    if (dist < radius) { // && dot(dir, in_normal) < 0.0) {
       // linear attenuation
       light += (radius - dist) / radius;
     }

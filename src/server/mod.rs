@@ -1472,7 +1472,7 @@ impl LevelState {
 
         let angles = ent.angles(&self.world.type_def)?;
         let anglular_velocity = ent.angles(&self.world.type_def)?;
-        let new_angles = angles + frame_time.as_seconds_f32() * anglular_velocity;
+        let new_angles = angles + frame_time.to_std().unwrap().as_secs_f32() * anglular_velocity;
 
         ent.set_angles(&self.world.type_def, new_angles)?;
 
@@ -1634,7 +1634,8 @@ impl LevelState {
             return Ok(());
         }
 
-        let move_amt = vel * move_time.as_seconds_f32();
+        let move_amt = vel * move_time.to_std().unwrap()
+            .as_secs_f32();
 
         if self.push(pusher, move_amt, registry, vfs)? {
             let ent = self.world.entities.get_mut(pusher)?;
