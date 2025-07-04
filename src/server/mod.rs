@@ -59,7 +59,7 @@ use self::{
 
 use arrayvec::ArrayVec;
 use bevy::{
-    math::bounding::{Aabb3d, IntersectsVolume as _},
+    math::bounding::{BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
 };
 use bitflags::bitflags;
@@ -438,7 +438,9 @@ impl Session {
         });
 
         for (i, arg_addr) in SPAWN_PARAM_ADDRS.iter().enumerate() {
-            self.level.globals.store(*arg_addr, client.spawn_params[i])?;
+            self.level
+                .globals
+                .store(*arg_addr, client.spawn_params[i])?;
         }
 
         self.level
@@ -873,7 +875,7 @@ impl LevelState {
                             WriteAngle => self.builtin_write_angle()?,
                             WriteString => self.builtin_write_string()?,
                             WriteEntity => self.builtin_write_entity()?,
-                            MoveToGoal => todo_builtin!(MoveToGoal),
+                            MoveToGoal => self.builtin_move_to_goal(registry.reborrow(), vfs)?,
                             // Only used in `qcc`, does nothing at runtime
                             PrecacheFile => {}
                             MakeStatic => self.builtin_make_static()?,
@@ -1030,8 +1032,7 @@ impl LevelState {
         self.execute_program_by_name(classname, registry.reborrow(), vfs)?;
 
         #[cfg(debug_assertions)]
-        if let (Some(model), Some(ent)) = (map.get("model"), self.world.entities.get(ent_id))
-        {
+        if let (Some(model), Some(ent)) = (map.get("model"), self.world.entities.get(ent_id)) {
             let resultant_model = ent.load(&self.world.type_def, FieldAddrStringId::ModelName)?;
             let resultant_precached_model =
                 ent.load(&self.world.type_def, FieldAddrFloat::ModelIndex)?;
@@ -1492,13 +1493,7 @@ impl LevelState {
 
         let mut moved = Vec::<(EntityId, Vec3)>::new();
 
-        let min = pusher.abs_min(&self.world.type_def)? + move_amt;
-        let max = pusher.abs_max(&self.world.type_def)? + move_amt;
-
-        let pusher_bb = Aabb3d {
-            min: min.into(),
-            max: max.into(),
-        };
+        let pusher_bb = pusher.abs_bounding_box(&self.world.type_def)?;
 
         let pusher_origin = pusher.origin(&self.world.type_def)?;
 
@@ -1531,13 +1526,7 @@ impl LevelState {
             if !other.has_flag(&self.world.type_def, EntityFlags::ON_GROUND)?
                 && other.ground(&self.world.type_def)? == pusher_id
             {
-                let other_min = other.abs_min(&self.world.type_def)?;
-                let other_max = other.abs_max(&self.world.type_def)?;
-
-                let other_bb = Aabb3d {
-                    min: other_min.into(),
-                    max: other_max.into(),
-                };
+                let other_bb = other.abs_bounding_box(&self.world.type_def)?;
 
                 // If the entity doesn't collide with anything, we're done.
                 if !other_bb.intersects(&pusher_bb)
@@ -2814,6 +2803,224 @@ impl LevelState {
         Ok(())
     }
 
+    fn close_enough(&self, a: EntityId, b: EntityId, dist: f32) -> Result<bool, ProgsError> {
+        let a = self
+            .world
+            .entities
+            .try_get(a)?
+            .abs_bounding_box(&self.world.type_def)?;
+        let b = self
+            .world
+            .entities
+            .try_get(b)?
+            .abs_bounding_box(&self.world.type_def)?;
+
+        Ok(a.grow(Vec3A::splat(dist)).intersects(&b))
+    }
+
+    fn move_step(
+        &mut self,
+        ent_id: EntityId,
+        move_dir: Vec3,
+        relink: bool,
+        registry: Mut<Registry>,
+        vfs: &Vfs
+    ) -> Result<bool, ProgsError> {
+        let ent = self.world.entities.try_get(ent_id)?;
+        let ent_flags = ent.flags(&self.world.type_def)?;
+
+        let min = ent.min(&self.world.type_def)?;
+        let max = ent.max(&self.world.type_def)?;
+
+        if ent_flags.contains(EntityFlags::SWIM) | ent_flags.contains(EntityFlags::FLY) {
+            // Try move with/without vertical motion
+            for i in 0..2 {
+                let ent = self.world.entities.try_get(ent_id)?;
+                let old_origin = ent.origin(&self.world.type_def)?;
+                let mut new_origin = old_origin + move_dir;
+
+                let enemy_id = ent.enemy(&self.world.type_def)?;
+
+                if i != 0 && !enemy_id.is_none() {
+                    // TODO: This doesn't need to be hard-coded to +- 8, and it doesn't need to be hard-coded to target the
+                    //       point 30 units above the origin of the target.
+                    match old_origin.z - self.world.entities.try_get(ent_id)?.origin(&self.world.type_def)?.z {
+                        40f32.. => new_origin.z -= 8.,
+                        ..30f32 => new_origin.z += 8.,
+                        _ => {}
+                    }
+                }
+
+                let (trace, _) = self.world.trace_entity_move(
+                    ent_id,
+                    old_origin,
+                    min,
+                    max,
+                    new_origin,
+                    CollideKind::default(),
+                    |_| true,
+                )?;
+
+                if trace.is_terminal() {
+                    if ent_flags.contains(EntityFlags::SWIM) && !trace.in_water() {
+                        // Swimming monster left water
+                        return Ok(false);
+                    }
+
+                    let ent = self.world.entities.get_mut(ent_id)?;
+                    ent.set_origin(&self.world.type_def, trace.end_point())?;
+
+                    if relink {
+                        self.link_entity(ent_id, true, registry, vfs)?;
+                    }
+
+                    return Ok(true);
+                }
+
+                // TODO: This can be cleaned up
+                if enemy_id.is_none() {
+                    break;
+                }
+            }
+        }
+
+        let ent = self.world.entities.try_get(ent_id)?;
+
+        let old_origin = ent.origin(&self.world.type_def)?;
+        let new_origin = old_origin + move_dir;
+
+        let max_step: f32 = registry.read_cvar("sv_stepheight")?;
+        let step = Vec3::Z * max_step;
+
+        let end =new_origin - step;
+
+        let (trace, _) = self.world.trace_entity_move(
+            ent_id,
+            new_origin + step,
+            min,
+            max,
+            end,
+            CollideKind::default(),
+            |_| true,
+        )?;
+
+        if trace.all_solid() {
+            return Ok(false);
+        }
+
+        if trace.start_solid() {
+            let (trace, _) = self.world.trace_entity_move(
+                ent_id,
+                new_origin,
+                min,
+                max,
+                end,
+                CollideKind::default(),
+                |_| true,
+            )?;
+
+            if trace.all_solid()
+                || trace.start_solid() {
+                    return Ok(false);
+                }
+        }
+
+        if trace.is_terminal() {
+            // The entity had the ground move out from beneath it.
+            return Ok(if ent_flags.contains(EntityFlags::PARTIAL_GROUND) {
+                let ent = self.world.entities.get_mut(ent_id)?;
+                ent.set_origin(&self.world.type_def, new_origin)?;
+
+                ent.remove_flags(&self.world.type_def, EntityFlags::ON_GROUND)?;
+
+                if relink {
+                    self.link_entity(ent_id, true, registry, vfs)?;
+                }
+
+                true
+            } else {
+                false
+            });
+        }
+
+        error!("TODO: MoveStep");
+
+        Ok(false)
+    }
+
+    fn step_direction(
+        &mut self,
+        ent_id: EntityId,
+        yaw: f32,
+        dist: f32,
+        mut registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> Result<bool, ProgsError> {
+        let ent = self.world.entities.get_mut(ent_id)?;
+        ent.set_ideal_yaw(&self.world.type_def, yaw)?;
+
+        // Quake sometimes has differences in units from Bevy but this is the same as the Quake code (i.e. x = cos, y = sin)
+        let move_dir = Vec2::from_angle(yaw.to_radians()).extend(0.) * dist;
+        let old_origin = ent.origin(&self.world.type_def)?;
+
+        let did_move = self.move_step(ent_id, move_dir, false, registry.reborrow(), vfs)?;
+
+        if did_move {
+            let ent = self.world.entities.get_mut(ent_id)?;
+            let delta = ent.angles(&self.world.type_def)?.y - ent.ideal_yaw(&self.world.type_def)?;
+
+            if (45f32..315f32).contains(&delta) {
+                // Quake cancels the step if the monster did not turn far enough
+                ent.set_origin(&self.world.type_def, old_origin)?;
+            }
+        }
+
+        self.link_entity(ent_id, true, registry, vfs)?;
+
+        Ok(did_move)
+    }
+
+    pub fn builtin_move_to_goal(
+        &mut self,
+        registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> Result<(), ProgsError> {
+        let dist = self.globals.get_float(GLOBAL_ADDR_ARG_0 as i16)?;
+        let this_id = self.globals.load(GlobalAddrEntity::Self_)?;
+        let this = self.world.entities.try_get(this_id)?;
+        let goal_id = this.load(&self.world.type_def, FieldAddrEntityId::Goal)?;
+
+        let flags = this.flags(&self.world.type_def)?;
+
+        if !(flags.contains(EntityFlags::ON_GROUND)
+            || flags.contains(EntityFlags::FLY)
+            || flags.contains(EntityFlags::SWIM))
+        {
+            self.globals.put_float(0., GLOBAL_ADDR_RETURN as i16)?;
+            return Ok(());
+        }
+
+        if !this
+            .load(&self.world.type_def, FieldAddrEntityId::Enemy)?
+            .is_none()
+            && self.close_enough(this_id, goal_id, dist)?
+        {
+            self.globals.put_float(0., GLOBAL_ADDR_RETURN as i16)?;
+            return Ok(());
+        }
+
+        let ideal_yaw = this.ideal_yaw(&self.world.type_def)?;
+
+        error!("TODO: MoveToGoal");
+        return Ok(());
+
+        if rand::random_bool(1. / 3.) || !self.step_direction(this_id, ideal_yaw, dist, registry, vfs)? {
+            todo!()
+        }
+
+        Ok(())
+    }
+
     pub fn builtin_center_print(&mut self) -> Result<(), ProgsError> {
         let text = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let text = self.string_table.get(text).unwrap().into_owned();
@@ -2943,7 +3150,13 @@ pub mod systems {
                                         // TODO: Error handling
                                         assert!(args.is_empty());
 
-                                        server.clientcmd_prespawn(client_id, registry.reborrow(), &*vfs).unwrap();
+                                        server
+                                            .clientcmd_prespawn(
+                                                client_id,
+                                                registry.reborrow(),
+                                                &*vfs,
+                                            )
+                                            .unwrap();
 
                                         ServerCmd::SignOnStage {
                                             stage: SignOnStage::ClientInfo,

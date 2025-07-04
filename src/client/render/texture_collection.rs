@@ -221,6 +221,10 @@ where
         let mut atlas = TextureAtlasBuilder::default();
         atlas.format(self.format);
         atlas.auto_format_conversion(true);
+        // TODO: We probably want to have multiple textures instead of one big texture,
+        //       this is far easier to achieve with Bevy's render system than our
+        //       hand-rolled one.
+        atlas.max_size(UVec2::splat(4096));
 
         for (id, image) in vals {
             atlas.add_texture(Some(id), image.borrow());

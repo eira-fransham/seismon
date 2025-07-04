@@ -29,7 +29,7 @@ use crate::{
 };
 
 use arrayvec::ArrayString;
-use bevy::prelude::*;
+use bevy::{math::bounding::Aabb3d, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
@@ -926,15 +926,19 @@ impl Entity {
         origin, set_origin => FieldAddrVector::Origin;
         angles, set_angles => FieldAddrVector::Angles;
         view_ofs, set_view_ofs => FieldAddrVector::ViewOffset;
+        min, set_min => FieldAddrVector::Mins;
+        max, set_max => FieldAddrVector::Maxs;
         abs_min, set_abs_min => FieldAddrVector::AbsMin;
         abs_max, set_abs_max => FieldAddrVector::AbsMax;
         model_index, set_model_index => FieldAddrFloat::ModelIndex;
         model_name, set_model_name => FieldAddrStringId::ModelName;
         ideal_pitch, set_ideal_pitch => FieldAddrFloat::IdealPitch;
+        ideal_yaw, set_ideal_yaw => FieldAddrFloat::IdealYaw;
         punch_angle, set_punch_angle => FieldAddrVector::PunchAngle;
         items, set_items => FieldAddrFloat::Items;
         ground, set_ground => FieldAddrEntityId::Ground;
         owner, set_owner => FieldAddrEntityId::Owner;
+        enemy, set_enemy => FieldAddrEntityId::Enemy;
         weapon_frame, set_weapon_frame => FieldAddrFloat::WeaponFrame;
         armor, set_armor => FieldAddrFloat::ArmorStrength;
         weapon_model_name, set_weapon_model_name => FieldAddrStringId::WeaponModelName;
@@ -947,10 +951,15 @@ impl Entity {
         ammo_rockets, set_ammo_rockets => FieldAddrFloat::AmmoRockets;
         water_level, set_water_level => FieldAddrFloat::WaterLevel;
         view_angle, set_view_angle => FieldAddrVector::ViewAngle;
-        min, set_min => FieldAddrVector::Mins;
-        max, set_max => FieldAddrVector::Maxs;
         size, set_size => FieldAddrVector::Size;
         velocity, set_velocity => FieldAddrVector::Velocity;
+    }
+
+    pub fn abs_bounding_box(&self, type_def: &EntityTypeDef) -> Result<Aabb3d, EntityError> {
+        Ok(Aabb3d {
+            min: self.abs_min(type_def)?.into(),
+            max: self.abs_max(type_def)?.into(),
+        })
     }
 
     /// Applies gravity to the entity.

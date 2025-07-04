@@ -86,11 +86,11 @@ impl std::fmt::Display for HudTextureId {
             Colon => write!(f, "NUM_COLON"),
             Slash => write!(f, "NUM_SLASH"),
             Weapon { id, frame } => write!(f, "INV{}_{}", frame, id),
-            Ammo { id } => write!(f, "SB_{}", id),
+            Ammo { id } => write!(f, "SB_{id}"),
             Armor { id } => write!(f, "SB_ARMOR{}", id + 1),
-            Item { id } => write!(f, "SB_{}", id),
+            Item { id } => write!(f, "SB_{id}"),
             Sigil { id } => write!(f, "SB_SIGIL{}", id + 1),
-            Face { id } => write!(f, "{}", id),
+            Face { id } => write!(f, "{id}"),
             StatusBar => write!(f, "SBAR"),
             InvBar => write!(f, "IBAR"),
             ScoreBar => write!(f, "SCOREBAR"),
@@ -270,23 +270,20 @@ impl HudRenderer {
 
         // faces
         ids.extend(
-            (&[false, true])
+            [false, true]
                 .iter()
                 .flat_map(|b| (0..5).map(move |i| FaceId::Normal { pain: *b, frame: i }))
-                .chain(
-                    vec![
-                        FaceId::Invisible,
-                        FaceId::Invulnerable,
-                        FaceId::InvisibleInvulnerable,
-                        FaceId::QuadDamage,
-                    ]
-                    .into_iter(),
-                )
+                .chain(vec![
+                    FaceId::Invisible,
+                    FaceId::Invulnerable,
+                    FaceId::InvisibleInvulnerable,
+                    FaceId::QuadDamage,
+                ])
                 .map(move |id| Face { id }),
         );
 
         // unit variants
-        ids.extend(vec![Colon, Slash, StatusBar, InvBar, ScoreBar].into_iter());
+        ids.extend([Colon, Slash, StatusBar, InvBar, ScoreBar]);
 
         let mut textures = HashMap::default();
         for id in ids.into_iter() {
@@ -300,7 +297,7 @@ impl HudRenderer {
         let ids = vec![Complete, Intermission];
         for id in ids.into_iter() {
             debug!("Opening {}", id);
-            let qpic = QPic::load(vfs.open(&format!("{}", id)).unwrap()).unwrap();
+            let qpic = QPic::load(vfs.open(format!("{id}")).unwrap()).unwrap();
             textures.insert(id, QuadTexture::from_qpic(state, device, queue, &qpic));
         }
 
@@ -321,7 +318,7 @@ impl HudRenderer {
     ) {
         use HudTextureId::*;
 
-        let number_str = format!("{}", number);
+        let number_str = format!("{number}");
         let number_chars = number_str.chars().collect::<Vec<_>>();
 
         let mut skip = 0;

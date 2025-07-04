@@ -1199,6 +1199,7 @@ impl Globals {
 
     #[inline]
     pub fn builtin_random(&mut self) -> Result<(), GlobalsError> {
+        // TODO: Make the RNG a field so that we can save/load state better.
         self.put_float(rand::random(), GLOBAL_ADDR_RETURN as i16)
     }
 

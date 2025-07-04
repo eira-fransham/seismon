@@ -735,6 +735,7 @@ impl BspData {
 
     pub fn face_iter_vertices(&self, face_id: usize) -> impl Iterator<Item = Vec3> + '_ {
         let face = &self.faces[face_id];
+
         self.edgelist[face.edge_id..face.edge_id + face.edge_count]
             .iter()
             .map(move |id| {
