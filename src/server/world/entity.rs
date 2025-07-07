@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{error::Error, fmt, iter};
+use std::{error::Error, fmt, ops};
 
 use crate::{
     common::{
@@ -23,7 +23,7 @@ use crate::{
         net::{EntityEffects, EntityState},
     },
     server::{
-        progs::{EntityId, FieldDef, FunctionId, ProgsError, StringId, StringTable, Type},
+        progs::{EntityId, FieldDef, FunctionId, StringId, StringTable, Type},
         world::phys::MoveKind,
     },
 };
@@ -33,6 +33,7 @@ use bevy::{math::bounding::Aabb3d, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
+use im::vector::{Focus, FocusMut};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use parking_lot::Mutex;
@@ -87,15 +88,10 @@ pub trait FieldAddr {
     type Value;
 
     /// Loads the value at this address.
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError>;
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>;
 
     /// Stores a value at this address.
-    fn store(
-        &self,
-        type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError>;
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive)]
@@ -296,17 +292,12 @@ impl fmt::Display for FieldAddrFloat {
 impl FieldAddr for FieldAddrFloat {
     type Value = f32;
 
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
-        ent.get_float(type_def, *self as i16)
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+        ent.get_float(*self as i16)
     }
 
-    fn store(
-        &self,
-        type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError> {
-        ent.put_float(type_def, value, *self as i16)
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+        ent.put_float(value, *self as i16)
     }
 }
 
@@ -331,17 +322,12 @@ pub enum FieldAddrVector {
 impl FieldAddr for FieldAddrVector {
     type Value = Vec3;
 
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
-        ent.get_vector(type_def, *self as i16).map(Into::into)
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+        ent.get_vector(*self as i16).map(Into::into)
     }
 
-    fn store(
-        &self,
-        type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError> {
-        ent.put_vector(type_def, value.into(), *self as i16)
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+        ent.put_vector(value.into(), *self as i16)
     }
 }
 
@@ -381,17 +367,12 @@ impl fmt::Display for FieldAddrStringId {
 impl FieldAddr for FieldAddrStringId {
     type Value = StringId;
 
-    fn load(&self, _type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
         ent.get_int(*self as i16)
             .map(|val| StringId(val.try_into().unwrap()))
     }
 
-    fn store(
-        &self,
-        _type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError> {
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
         ent.put_int(value.0.try_into().unwrap(), *self as i16)
     }
 }
@@ -411,17 +392,12 @@ pub enum FieldAddrEntityId {
 impl FieldAddr for FieldAddrEntityId {
     type Value = EntityId;
 
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
-        ent.entity_id(type_def, *self as i16)
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+        ent.entity_id(*self as i16)
     }
 
-    fn store(
-        &self,
-        type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError> {
-        ent.put_entity_id(type_def, value, *self as i16)
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+        ent.put_entity_id(value, *self as i16)
     }
 }
 
@@ -436,17 +412,12 @@ pub enum FieldAddrFunctionId {
 impl FieldAddr for FieldAddrFunctionId {
     type Value = FunctionId;
 
-    fn load(&self, type_def: &EntityTypeDef, ent: &Entity) -> Result<Self::Value, EntityError> {
-        ent.function_id(type_def, *self as i16)
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+        ent.function_id(*self as i16)
     }
 
-    fn store(
-        &self,
-        type_def: &EntityTypeDef,
-        ent: &mut Entity,
-        value: Self::Value,
-    ) -> Result<(), EntityError> {
-        ent.put_function_id(type_def, value, *self as i16)
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+        ent.put_function_id(value, *self as i16)
     }
 }
 
@@ -465,28 +436,6 @@ bitflags! {
         const PARTIAL_GROUND = 0b0010000000000;
         const WATER_JUMP     = 0b0100000000000;
         const JUMP_RELEASED  = 0b1000000000000;
-    }
-}
-
-// TODO: if this never gets used, remove it
-#[allow(dead_code)]
-fn float_addr(addr: usize) -> Result<FieldAddrFloat, ProgsError> {
-    match FieldAddrFloat::from_usize(addr) {
-        Some(f) => Ok(f),
-        None => Err(ProgsError::with_msg(format!(
-            "float_addr: invalid address ({addr})",
-        ))),
-    }
-}
-
-// TODO: if this never gets used, remove it
-#[allow(dead_code)]
-fn vector_addr(addr: usize) -> Result<FieldAddrVector, ProgsError> {
-    match FieldAddrVector::from_usize(addr) {
-        Some(v) => Ok(v),
-        None => Err(ProgsError::with_msg(format!(
-            "vector_addr: invalid address ({addr})",
-        ))),
     }
 }
 
@@ -569,50 +518,112 @@ pub enum EntitySolid {
     Bsp = 4,
 }
 
-#[derive(Debug, Clone)]
-pub struct Entity {
-    addrs: im::Vector<[u8; 4]>,
-
+#[derive(Default, Debug, Clone)]
+pub struct EntityMeta {
     pub leaf_count: usize,
     pub leaf_ids: [usize; MAX_ENT_LEAVES],
     pub baseline: EntityState,
 }
 
+pub struct Entity<'a, Addrs, Meta> {
+    addrs: Addrs,
+    type_def: &'a EntityTypeDef,
+    meta: Meta,
+}
+
+impl<A, M> ops::Deref for Entity<'_, A, M>
+where
+    M: ops::Deref,
+{
+    type Target = <M as ops::Deref>::Target;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.meta
+    }
+}
+
+impl<A, M> ops::DerefMut for Entity<'_, A, M>
+where
+    M: ops::DerefMut,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.meta
+    }
+}
+
+pub type EntityField = [u8; 4];
+
+pub type EntityRef<'a> = Entity<'a, im::vector::Focus<'a, EntityField>, &'a EntityMeta>;
+pub type EntityMut<'a> = Entity<'a, im::vector::FocusMut<'a, EntityField>, &'a mut EntityMeta>;
+
 macro_rules! field_accessors {
-    ($($name:ident, $set_name:ident => $kind:ident :: $field:ident;)*) => {
+    ($addr_type_param:ident; $($name:ident, $set_name:ident => $kind:ident :: $field:ident;)*) => {
         $(
-            pub fn $name(&self, type_def: &EntityTypeDef) -> Result<<$kind as FieldAddr>::Value, EntityError> {
+            pub fn $name(&mut self) -> Result<<$kind as FieldAddr>::Value, EntityError> {
                 self
-                    .load(type_def, $kind::$field)
+                    .load($kind::$field)
             }
 
-            pub fn $set_name(&mut self, type_def: &EntityTypeDef, value: <$kind as FieldAddr>::Value) -> Result<(), EntityError> {
+            pub fn $set_name(&mut self, value: <$kind as FieldAddr>::Value) -> Result<(), EntityError>
+            where
+                $addr_type_param: FocusIndexMut,
+            {
                 self
-                    .store(type_def, $kind::$field, value)
+                    .store($kind::$field, value)
             }
         )*
     };
 }
 
-impl Entity {
-    pub fn new(type_def: &EntityTypeDef) -> Entity {
-        let addrs = iter::repeat_n([0; 4], type_def.addr_count).collect();
-
-        Entity {
+impl<'a, Addrs, Meta> Entity<'a, Addrs, Meta> {
+    pub fn new(type_def: &'a EntityTypeDef, addrs: Addrs, meta: Meta) -> Self {
+        Self {
             addrs,
-            leaf_count: 0,
-            leaf_ids: [0; MAX_ENT_LEAVES],
-            baseline: EntityState::uninitialized(),
+            meta,
+            type_def,
         }
     }
+}
 
-    pub fn type_check(
-        &self,
-        type_def: &EntityTypeDef,
-        addr: usize,
-        type_: Type,
-    ) -> Result<(), EntityError> {
-        match type_def
+pub trait FocusIndex {
+    type Output;
+
+    fn index(&mut self, index: usize) -> &Self::Output;
+}
+
+pub trait FocusIndexMut: FocusIndex {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output;
+}
+
+impl<T> FocusIndex for Focus<'_, T> where T: Clone{
+    type Output = T;
+
+    fn index(&mut self, index: usize) -> &Self::Output {
+        Focus::index(self, index)
+    }
+}
+
+impl<T> FocusIndex for FocusMut<'_, T> where T: Clone{
+    type Output = T;
+
+    fn index(&mut self, index: usize) -> &Self::Output {
+        FocusMut::index(self, index)
+    }
+}
+
+impl<T> FocusIndexMut for FocusMut<'_, T> where T: Clone{
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        FocusMut::index_mut(self, index)
+    }
+}
+
+impl<Addrs, Meta> Entity<'_, Addrs, Meta>
+where
+    Addrs: FocusIndex<Output = EntityField>,
+{
+    pub fn type_check(&mut self, addr: usize, type_: Type) -> Result<(), EntityError> {
+        match self
+            .type_def
             .field_defs
             .iter()
             .find(|def| def.type_ != Type::QVoid && def.offset as usize == addr)
@@ -634,25 +645,15 @@ impl Entity {
         }
     }
 
-    pub fn state(&self, type_def: &EntityTypeDef) -> Option<EntityState> {
+    pub fn state(&mut self) -> Option<EntityState> {
         let (model_id, frame_id, colormap, skin_id, effects, origin, angles) = (
-            self.get_float(type_def, FieldAddrFloat::ModelIndex as i16)
-                .ok()? as _,
-            self.get_float(type_def, FieldAddrFloat::FrameId as i16)
-                .ok()? as _,
-            self.get_float(type_def, FieldAddrFloat::Colormap as i16)
-                .ok()? as _,
-            self.get_float(type_def, FieldAddrFloat::SkinId as i16)
-                .ok()? as _,
-            EntityEffects::from_bits(
-                self.get_float(type_def, FieldAddrFloat::SkinId as i16)
-                    .ok()? as _,
-            )?,
-            self.get_vector(type_def, FieldAddrVector::Origin as i16)
-                .ok()?
-                .into(),
-            self.get_vector(type_def, FieldAddrVector::Angles as i16)
-                .ok()?,
+            self.get_float(FieldAddrFloat::ModelIndex as i16).ok()? as _,
+            self.get_float(FieldAddrFloat::FrameId as i16).ok()? as _,
+            self.get_float(FieldAddrFloat::Colormap as i16).ok()? as _,
+            self.get_float(FieldAddrFloat::SkinId as i16).ok()? as _,
+            EntityEffects::from_bits(self.get_float(FieldAddrFloat::SkinId as i16).ok()? as _)?,
+            self.get_vector(FieldAddrVector::Origin as i16).ok()?.into(),
+            self.get_vector(FieldAddrVector::Angles as i16).ok()?,
         );
 
         let angles: Vec3 = angles.into();
@@ -669,155 +670,153 @@ impl Entity {
     }
 
     /// Returns a reference to the memory at the given address.
-    pub fn get_addr(&self, addr: i16) -> Result<&[u8], EntityError> {
+    pub fn get_addr(&mut self, addr: i16) -> Result<&[u8], EntityError> {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
 
         let addr = addr as usize;
 
-        if addr > self.addrs.len() {
+        if addr >= self.type_def.addr_count() {
             return Err(EntityError::Address(addr as isize));
         }
 
-        Ok(&self.addrs[addr])
+        Ok(self.addrs.index(addr))
     }
 
     /// Returns a mutable reference to the memory at the given address.
-    pub fn get_addr_mut(&mut self, addr: i16) -> Result<&mut [u8], EntityError> {
+    pub fn get_addr_mut(&mut self, addr: i16) -> Result<&mut [u8], EntityError>
+    where
+        Addrs: FocusIndexMut,
+    {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
 
         let addr = addr as usize;
 
-        if addr > self.addrs.len() {
+        if addr >= self.type_def.addr_count() {
             return Err(EntityError::Address(addr as isize));
         }
 
-        Ok(&mut self.addrs[addr])
+        Ok(self.addrs.index_mut(addr))
     }
 
     /// Returns a copy of the memory at the given address.
-    pub fn get_bytes(&self, addr: i16) -> Result<[u8; 4], EntityError> {
+    pub fn get_bytes(&mut self, addr: i16) -> Result<[u8; 4], EntityError> {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
 
         let addr = addr as usize;
 
-        if addr > self.addrs.len() {
+        if addr >= self.type_def.addr_count() {
             return Err(EntityError::Address(addr as isize));
         }
 
-        Ok(self.addrs[addr])
+        Ok(*self.addrs.index(addr))
     }
 
     /// Writes the provided data to the memory at the given address.
     ///
     /// This can be used to circumvent the type checker in cases where an operation is not dependent
     /// of the type of the data.
-    pub fn put_bytes(&mut self, val: [u8; 4], addr: i16) -> Result<(), EntityError> {
+    pub fn put_bytes(&mut self, val: [u8; 4], addr: i16) -> Result<(), EntityError>
+    where
+        Addrs: FocusIndexMut,
+    {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
 
         let addr = addr as usize;
 
-        if addr > self.addrs.len() {
+        if addr >= self.type_def.addr_count() {
             return Err(EntityError::Address(addr as isize));
         }
 
-        self.addrs[addr] = val;
+        *self.addrs.index_mut(addr) = val;
         Ok(())
     }
 
-    pub fn load<F>(&self, type_def: &EntityTypeDef, field: F) -> Result<F::Value, EntityError>
+    pub fn load<F>(&mut self, field: F) -> Result<F::Value, EntityError>
     where
         F: FieldAddr,
     {
-        field.load(type_def, self)
+        field.load(self)
     }
 
-    pub fn store<F>(
-        &mut self,
-        type_def: &EntityTypeDef,
-        field: F,
-        value: F::Value,
-    ) -> Result<(), EntityError>
+    pub fn store<F>(&mut self, field: F, value: F::Value) -> Result<(), EntityError>
     where
         F: FieldAddr,
+        Addrs: FocusIndexMut,
     {
-        field.store(type_def, self, value)
+        field.store(self, value)
     }
 
     /// Loads an `i32` from the given virtual address.
-    pub fn get_int(&self, addr: i16) -> Result<i32, EntityError> {
+    pub fn get_int(&mut self, addr: i16) -> Result<i32, EntityError> {
         Ok(self.get_addr(addr)?.read_i32::<LittleEndian>()?)
     }
 
     /// Loads an `i32` from the given virtual address.
-    pub fn put_int(&mut self, val: i32, addr: i16) -> Result<(), EntityError> {
+    pub fn put_int(&mut self, val: i32, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
         self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val)?;
         Ok(())
     }
 
     /// Loads an `f32` from the given virtual address.
-    pub fn get_float(&self, type_def: &EntityTypeDef, addr: i16) -> Result<f32, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QFloat)?;
+    pub fn get_float(&mut self, addr: i16) -> Result<f32, EntityError> {
+        self.type_check(addr as usize, Type::QFloat)?;
         Ok(self.get_addr(addr)?.read_f32::<LittleEndian>()?)
     }
 
     /// Loads an `f32` from the given virtual address and converts it to a bool.
-    pub fn get_bool(&self, type_def: &EntityTypeDef, addr: i16) -> Result<bool, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QFloat)?;
+    pub fn get_bool(&mut self, addr: i16) -> Result<bool, EntityError> {
+        self.type_check(addr as usize, Type::QFloat)?;
         Ok(self.get_addr(addr)?.read_f32::<LittleEndian>()? != 0.)
     }
 
     /// Stores an `f32` at the given virtual address.
-    pub fn put_float(
-        &mut self,
-        type_def: &EntityTypeDef,
-        val: f32,
-        addr: i16,
-    ) -> Result<(), EntityError> {
-        self.type_check(type_def, addr as usize, Type::QFloat)?;
+    pub fn put_float(&mut self, val: f32, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
+        self.type_check(addr as usize, Type::QFloat)?;
         self.get_addr_mut(addr)?.write_f32::<LittleEndian>(val)?;
         Ok(())
     }
 
     /// Loads an `[f32; 3]` from the given virtual address.
-    pub fn get_vector(&self, type_def: &EntityTypeDef, addr: i16) -> Result<Vec3, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QVector)?;
+    pub fn get_vector(&mut self, addr: i16) -> Result<Vec3, EntityError> {
+        self.type_check(addr as usize, Type::QVector)?;
 
         let mut v = Vec3::ZERO;
 
         for i in 0..3 {
-            v[i] = self.get_float(type_def, addr + i as i16)?;
+            v[i] = self.get_float(addr + i as i16)?;
         }
 
         Ok(v)
     }
 
     /// Stores an `[f32; 3]` at the given virtual address.
-    pub fn put_vector(
-        &mut self,
-        type_def: &EntityTypeDef,
-        val: Vec3,
-        addr: i16,
-    ) -> Result<(), EntityError> {
-        self.type_check(type_def, addr as usize, Type::QVector)?;
+    pub fn put_vector(&mut self, val: Vec3, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
+        self.type_check(addr as usize, Type::QVector)?;
 
         for i in 0..3 {
-            self.put_float(type_def, val[i], addr + i as i16)?;
+            self.put_float(val[i], addr + i as i16)?;
         }
 
         Ok(())
     }
 
     /// Loads a `StringId` from the given virtual address.
-    pub fn string_id(&self, type_def: &EntityTypeDef, addr: i16) -> Result<StringId, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QString)?;
+    pub fn string_id(&mut self, addr: i16) -> Result<StringId, EntityError> {
+        self.type_check(addr as usize, Type::QString)?;
 
         Ok(StringId(
             self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
@@ -825,13 +824,10 @@ impl Entity {
     }
 
     /// Stores a `StringId` at the given virtual address.
-    pub fn put_string_id(
-        &mut self,
-        type_def: &EntityTypeDef,
-        val: StringId,
-        addr: i16,
-    ) -> Result<(), EntityError> {
-        self.type_check(type_def, addr as usize, Type::QString)?;
+    pub fn put_string_id(&mut self, val: StringId, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
+        self.type_check(addr as usize, Type::QString)?;
 
         self.get_addr_mut(addr)?
             .write_i32::<LittleEndian>(val.try_into().unwrap())?;
@@ -839,8 +835,8 @@ impl Entity {
     }
 
     /// Loads an `EntityId` from the given virtual address.
-    pub fn entity_id(&self, type_def: &EntityTypeDef, addr: i16) -> Result<EntityId, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QEntity)?;
+    pub fn entity_id(&mut self, addr: i16) -> Result<EntityId, EntityError> {
+        self.type_check(addr as usize, Type::QEntity)?;
 
         match self.get_addr(addr)?.read_i32::<LittleEndian>()? {
             e if e < 0 => Err(EntityError::with_msg(format!("Negative entity ID ({})", e))),
@@ -849,13 +845,10 @@ impl Entity {
     }
 
     /// Stores an `EntityId` at the given virtual address.
-    pub fn put_entity_id(
-        &mut self,
-        type_def: &EntityTypeDef,
-        val: EntityId,
-        addr: i16,
-    ) -> Result<(), EntityError> {
-        self.type_check(type_def, addr as usize, Type::QEntity)?;
+    pub fn put_entity_id(&mut self, val: EntityId, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
+        self.type_check(addr as usize, Type::QEntity)?;
 
         self.get_addr_mut(addr)?
             .write_i32::<LittleEndian>(val.0 as i32)?;
@@ -863,57 +856,46 @@ impl Entity {
     }
 
     /// Loads a `FunctionId` from the given virtual address.
-    pub fn function_id(
-        &self,
-        type_def: &EntityTypeDef,
-        addr: i16,
-    ) -> Result<FunctionId, EntityError> {
-        self.type_check(type_def, addr as usize, Type::QFunction)?;
+    pub fn function_id(&mut self, addr: i16) -> Result<FunctionId, EntityError> {
+        self.type_check(addr as usize, Type::QFunction)?;
         Ok(FunctionId(
             self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
         ))
     }
 
     /// Stores a `FunctionId` at the given virtual address.
-    pub fn put_function_id(
-        &mut self,
-        type_def: &EntityTypeDef,
-        val: FunctionId,
-        addr: i16,
-    ) -> Result<(), EntityError> {
-        self.type_check(type_def, addr as usize, Type::QFunction)?;
+    pub fn put_function_id(&mut self, val: FunctionId, addr: i16) -> Result<(), EntityError>
+        where Addrs: FocusIndexMut
+        {
+        self.type_check(addr as usize, Type::QFunction)?;
         self.get_addr_mut(addr)?
             .write_i32::<LittleEndian>(val.try_into().unwrap())?;
         Ok(())
     }
 
     /// Set this entity's minimum and maximum bounds and calculate its size.
-    pub fn set_min_max_size<V>(
-        &mut self,
-        type_def: &EntityTypeDef,
-        min: V,
-        max: V,
-    ) -> Result<(), EntityError>
+    pub fn set_min_max_size<V>(&mut self, min: V, max: V) -> Result<(), EntityError>
     where
         V: Into<Vec3>,
+        Addrs: FocusIndexMut
     {
         let min = min.into();
         let max = max.into();
         let size = max - min;
 
         debug!("Setting entity min: {:?}", min);
-        self.put_vector(type_def, min.into(), FieldAddrVector::Mins as i16)?;
+        self.put_vector(min.into(), FieldAddrVector::Mins as i16)?;
 
         debug!("Setting entity max: {:?}", max);
-        self.put_vector(type_def, max.into(), FieldAddrVector::Maxs as i16)?;
+        self.put_vector(max.into(), FieldAddrVector::Maxs as i16)?;
 
         debug!("Setting entity size: {:?}", size);
-        self.put_vector(type_def, size.into(), FieldAddrVector::Size as i16)?;
+        self.put_vector(size.into(), FieldAddrVector::Size as i16)?;
         Ok(())
     }
 
-    pub fn solid(&self, type_def: &EntityTypeDef) -> Result<EntitySolid, EntityError> {
-        let solid_i = self.load(type_def, FieldAddrFloat::Solid)? as i32;
+    pub fn solid(&mut self) -> Result<EntitySolid, EntityError> {
+        let solid_i = self.load(FieldAddrFloat::Solid)? as i32;
         match EntitySolid::from_i32(solid_i) {
             Some(s) => Ok(s),
             None => Err(EntityError::with_msg(format!(
@@ -923,6 +905,7 @@ impl Entity {
     }
 
     field_accessors! {
+        Addrs;
         origin, set_origin => FieldAddrVector::Origin;
         angles, set_angles => FieldAddrVector::Angles;
         view_ofs, set_view_ofs => FieldAddrVector::ViewOffset;
@@ -955,10 +938,10 @@ impl Entity {
         velocity, set_velocity => FieldAddrVector::Velocity;
     }
 
-    pub fn abs_bounding_box(&self, type_def: &EntityTypeDef) -> Result<Aabb3d, EntityError> {
+    pub fn abs_bounding_box(&mut self) -> Result<Aabb3d, EntityError> {
         Ok(Aabb3d {
-            min: self.abs_min(type_def)?.into(),
-            max: self.abs_max(type_def)?.into(),
+            min: self.abs_min()?.into(),
+            max: self.abs_max()?.into(),
         })
     }
 
@@ -969,41 +952,47 @@ impl Entity {
     /// value.
     pub fn apply_gravity(
         &mut self,
-        type_def: &EntityTypeDef,
         string_table: &StringTable,
         sv_gravity: f32,
         frame_time: Duration,
-    ) -> Result<(), EntityError> {
-        let ent_gravity = match type_def.find(string_table, "gravity") {
-            Some(def) => self.get_float(type_def, def.offset as i16)?,
+    ) -> Result<(), EntityError>
+    where
+        Addrs: FocusIndexMut
+    {
+        let ent_gravity = match self.type_def.find(string_table, "gravity") {
+            Some(def) => self.get_float(def.offset as i16)?,
             None => 1.0,
         };
 
-        let mut vel = self.velocity(type_def)?;
+        let mut vel = self.velocity()?;
         vel.z -= ent_gravity * sv_gravity * duration_to_f32(frame_time);
-        self.store(type_def, FieldAddrVector::Velocity, vel.into())?;
+        self.store(FieldAddrVector::Velocity, vel.into())?;
 
         Ok(())
     }
 
     /// Limits the entity's velocity by clamping each component (not the
     /// magnitude!) to an absolute value of `sv_maxvelocity`.
-    pub fn limit_velocity(
-        &mut self,
-        type_def: &EntityTypeDef,
-        sv_maxvelocity: f32,
-    ) -> Result<(), EntityError> {
-        let vel = self.velocity(type_def)?;
+    pub fn limit_velocity(&mut self, sv_maxvelocity: f32) -> Result<(), EntityError>
+    where Addrs: FocusIndexMut
+        {
+        let vel = self.velocity()?;
         for c in &mut vel.to_array()[..] {
             *c = c.clamp(-sv_maxvelocity, sv_maxvelocity);
         }
-        self.put_vector(type_def, vel.into(), FieldAddrVector::Velocity as i16)?;
+        let vel = if vel.to_array().iter().all(|v| v.is_finite()) {
+            vel
+        } else {
+            warn!("NaN found in velocity");
+            Vec3::ZERO
+        };
+        self.set_velocity(vel)?;
 
         Ok(())
     }
 
-    pub fn move_kind(&self, type_def: &EntityTypeDef) -> Result<MoveKind, EntityError> {
-        let move_kind_f = self.get_float(type_def, FieldAddrFloat::MoveKind as i16)?;
+    pub fn move_kind(&mut self) -> Result<MoveKind, EntityError> {
+        let move_kind_f = self.get_float(FieldAddrFloat::MoveKind as i16)?;
         let move_kind_i = move_kind_f as i32;
         match MoveKind::from_i32(move_kind_i) {
             Some(m) => Ok(m),
@@ -1014,8 +1003,8 @@ impl Entity {
         }
     }
 
-    pub fn flags(&self, type_def: &EntityTypeDef) -> Result<EntityFlags, EntityError> {
-        let flags_i = self.get_float(type_def, FieldAddrFloat::Flags as i16)? as u16;
+    pub fn flags(&mut self) -> Result<EntityFlags, EntityError> {
+        let flags_i = self.get_float(FieldAddrFloat::Flags as i16)? as u16;
         match EntityFlags::from_bits(flags_i) {
             Some(f) => Ok(f),
             None => Err(EntityError::with_msg(format!(
@@ -1025,31 +1014,19 @@ impl Entity {
         }
     }
 
-    pub fn has_flag(
-        &self,
-        type_def: &EntityTypeDef,
-        flag: EntityFlags,
-    ) -> Result<bool, EntityError> {
-        Ok(self.flags(type_def)?.contains(flag))
+    pub fn has_flag(&mut self, flag: EntityFlags) -> Result<bool, EntityError> {
+        Ok(self.flags()?.contains(flag))
     }
 
-    pub fn add_flags(
-        &mut self,
-        type_def: &EntityTypeDef,
-        flags: EntityFlags,
-    ) -> Result<(), EntityError> {
-        let result = self.flags(type_def)? | flags;
-        self.put_float(type_def, result.bits() as f32, FieldAddrFloat::Flags as i16)?;
+    pub fn add_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError> where Addrs: FocusIndexMut{
+        let result = self.flags()? | flags;
+        self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 
-    pub fn remove_flags(
-        &mut self,
-        type_def: &EntityTypeDef,
-        flags: EntityFlags,
-    ) -> Result<(), EntityError> {
-        let result = self.flags(type_def)? | !flags;
-        self.put_float(type_def, result.bits() as f32, FieldAddrFloat::Flags as i16)?;
+    pub fn remove_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError> where Addrs: FocusIndexMut{
+        let result = self.flags()? | !flags;
+        self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 }

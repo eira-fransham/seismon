@@ -530,8 +530,9 @@ impl TempEntity {
     }
 }
 
-#[derive(Copy, Clone, Ord, Debug, Eq, FromPrimitive, PartialOrd, PartialEq)]
+#[derive(Default, Copy, Clone, Ord, Debug, Eq, FromPrimitive, PartialOrd, PartialEq)]
 pub enum SignOnStage {
+    #[default]
     Not = 0,
     Prespawn = 1,
     ClientInfo = 2,
@@ -540,7 +541,7 @@ pub enum SignOnStage {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
+    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
     pub struct EntityEffects: u8 {
         const BRIGHT_FIELD = 0b0001;
         const MUZZLE_FLASH = 0b0010;
@@ -549,7 +550,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EntityState {
     pub origin: Vec3,
     pub angles: Vec3,
