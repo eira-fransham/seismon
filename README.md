@@ -73,12 +73,11 @@ client connected to the local Seismon server running `e3m6`:
 
 ![Preview of running server](content/seismon-server.png)
 
-`map` works the first time, although there are still bugs when changing maps (presumably due to state being incorrectly carried
-over between map runs), and `changelevel` is still unimplemented.
-
 Networking is untested since beginning the rewrite, and I've been only using demos as a testcase. It is a priority to get this
 working again once the client update code is ported to use the ECS. I haven't touched most of the networking code, so in
-theory it should still work or only require minor changes.
+theory it should still work or only require minor changes. The main issue is that the very old version of the protocol
+implemented by Richter is not used by any servers I could find - hopefully soon I can implement protocol 666 (FitzQuake's
+protocol version) which will rectify this issue.
 
 I've implemented mod support outside of the original `id1` directory, and so far all the mods that are designed to work with the
 original Quake release work. I have tried Hipnotic, Rogue, Soul of Evil, Xmen: Ravages of Apocalypse, MALICE (all the cutscenes
