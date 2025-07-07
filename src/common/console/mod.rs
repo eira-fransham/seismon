@@ -2124,14 +2124,16 @@ mod console_text {
 
         pub fn update_atlas_text(
             mut commands: Commands,
-            text: Query<(Entity, &AtlasText), Changed<AtlasText>>,
+            text: Query<(Entity, &AtlasText, Option<&Children>), Changed<AtlasText>>,
         ) {
-            for (entity, text) in text.iter() {
-                commands.entity(entity).despawn();
+            for (entity, text, children) in text.iter() {
+                if let Some(children) = children {
+                    for child in children {
+                        commands.entity(*child).despawn();
+                    }
+                }
 
-                let mut commands = commands.entity(entity);
-
-                commands.with_children(|commands| {
+                commands.entity(entity).with_children(|commands| {
                     for line in text.text.lines() {
                         commands
                             .spawn(Node {
@@ -2139,8 +2141,8 @@ mod console_text {
                                 min_height: text.glyph_size.1,
                                 width: Val::Percent(100.),
                                 flex_wrap: FlexWrap::Wrap,
-                                padding: text.line_padding.clone(),
-                                justify_content: text.justify.clone(),
+                                padding: text.line_padding,
+                                justify_content: text.justify,
                                 ..default()
                             })
                             .with_children(|commands| {
@@ -2259,7 +2261,7 @@ mod systems {
 
             // TODO: validate conchars dimensions
 
-            let (diffuse_data, _) = gfx.palette.translate(&conback.indices());
+            let (diffuse_data, _) = gfx.palette.translate(conback.indices());
             let diffuse_data = TextureData::Diffuse(diffuse_data);
 
             let image = assets
@@ -2273,8 +2275,7 @@ mod systems {
                     diffuse_data.data().to_owned(),
                     diffuse_data.format(),
                     RenderAssetUsages::RENDER_WORLD,
-                ))
-                .into();
+                ));
 
             commands
                 .spawn((
