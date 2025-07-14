@@ -1702,7 +1702,7 @@ impl LevelState {
                     None => {
                         // Entity is wedged in a corner, so it simply stops.
                         self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-//
+                        //
                         return Ok((
                             CollisionFlags::HORIZONTAL
                                 | CollisionFlags::VERTICAL
@@ -1714,9 +1714,7 @@ impl LevelState {
 
             if init_velocity.dot(end_velocity) <= 0.0 {
                 // Avoid bouncing the entity at a sharp angle.
-                self.world
-                    .get_mut(ent_id)?
-                    .set_velocity(Vec3::ZERO)?;
+                self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
                 return Ok((flags, out_trace));
             }
 
@@ -1764,14 +1762,15 @@ impl LevelState {
         let drop_dist = 256.0;
         let actual_dist = (trace.end_point() - origin).length();
 
-        if collide_entity.is_none() || actual_dist == drop_dist || trace.all_solid() {
+        if collide_entity.is_none()
+            || (actual_dist - drop_dist).abs() < f32::EPSILON
+            || trace.all_solid()
+        {
             // Entity didn't hit the floor or is stuck.
             Ok(false)
         } else {
             // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
-            self.world
-                .get_mut(ent_id)?
-                .put_vector(trace.end_point().into(), FieldAddrVector::Origin as i16)?;
+            self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
             self.link_entity(ent_id, false, registry, vfs)?;
             self.world
                 .get_mut(ent_id)?
@@ -2644,6 +2643,16 @@ impl LevelState {
         let mut ent = self.world.get(ent_id)?;
         let ent_flags = ent.flags()?;
 
+        let ent_is_ogre =
+            self.string_table.get(ent.model_name()?).unwrap().to_str() == "progs/ogre.mdl";
+        let dbg_hack = |msg: &str| {
+            if ent_is_ogre {
+                info!("{msg}")
+            } else {
+                debug!("{msg}")
+            }
+        };
+
         let min = ent.min()?;
         let max = ent.max()?;
 
@@ -2682,8 +2691,8 @@ impl LevelState {
                         return Ok(false);
                     }
 
-                    let mut ent = self.world.get_mut(ent_id)?;
-                    ent.set_origin(trace.end_point())?;
+                    info!("{} -> {}", old_origin, trace.end_point());
+                    self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
 
                     if relink {
                         self.link_entity(ent_id, true, registry, vfs)?;
@@ -2709,7 +2718,7 @@ impl LevelState {
 
         let end = new_origin - step;
 
-        let (trace, mut ground_ent) = self.world.trace_entity_move(
+        let (mut trace, mut ground_ent) = self.world.trace_entity_move(
             ent_id,
             new_origin + step,
             min,
@@ -2720,11 +2729,12 @@ impl LevelState {
         )?;
 
         if trace.all_solid() {
+            dbg_hack("Step trace failed");
             return Ok(false);
         }
 
         if trace.start_solid() {
-            let (trace, temp_ground_ent) = self.world.trace_entity_move(
+            let (temp_trace, temp_ground_ent) = self.world.trace_entity_move(
                 ent_id,
                 new_origin,
                 min,
@@ -2734,17 +2744,20 @@ impl LevelState {
                 |_| true,
             )?;
 
-            ground_ent = temp_ground_ent;
-
             if trace.all_solid() || trace.start_solid() {
+                dbg_hack("Non-step trace failed");
                 return Ok(false);
             }
+
+            trace = temp_trace;
+            ground_ent = temp_ground_ent;
         }
 
         if trace.is_terminal() {
             // The entity had the ground move out from beneath it.
             return Ok(if ent_flags.contains(EntityFlags::PARTIAL_GROUND) {
                 let mut ent = self.world.get_mut(ent_id)?;
+                debug!("{} -> {}", old_origin, new_origin);
                 ent.set_origin(new_origin)?;
 
                 ent.remove_flags(EntityFlags::ON_GROUND)?;
@@ -2753,13 +2766,16 @@ impl LevelState {
                     self.link_entity(ent_id, true, registry, vfs)?;
                 }
 
+                dbg_hack("Entity had ground moved out from underneath");
                 true
             } else {
+                dbg_hack("Entity walked off edge(?)");
                 false
             });
         }
 
         let mut ent = self.world.get_mut(ent_id)?;
+        debug!("{} -> {}", old_origin, trace.end_point());
         ent.set_origin(trace.end_point())?;
 
         debug!("TODO: SV_CheckBottom");
@@ -2768,6 +2784,11 @@ impl LevelState {
 
         ent.set_ground(ground_ent.unwrap_or_default())?;
 
+        if relink {
+            self.link_entity(ent_id, true, registry, vfs)?;
+        }
+
+        dbg_hack("Successful move");
         Ok(true)
     }
 
@@ -2782,7 +2803,6 @@ impl LevelState {
         let mut ent = self.world.get_mut(ent_id)?;
         let old_origin = ent.origin()?;
         ent.set_ideal_yaw(yaw)?;
-
         self.change_yaw(ent_id)?;
 
         // Quake sometimes has differences in units from Bevy but this is the same as the Quake code (i.e. x = cos, y = sin)

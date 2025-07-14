@@ -847,10 +847,10 @@ where
         // them from plane IDs)
         let contents_id = -reader.read_i32::<LittleEndian>()?;
 
-        let contents = match BspLeafContents::from_i32(contents_id) {
+        let contents = dbg!(match BspLeafContents::from_i32(contents_id) {
             Some(c) => c,
             None => bail!("Invalid leaf contents ({})", contents_id),
-        };
+        });
 
         let vis_offset = match reader.read_i32::<LittleEndian>()? {
             x if x < -1 => bail!("Invalid visibility data offset"),

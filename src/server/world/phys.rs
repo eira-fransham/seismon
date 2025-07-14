@@ -285,24 +285,22 @@ impl Trace {
 
         // combine traces with the same contents
         if self.contents == other.contents {
-            return Trace {
+            Trace {
                 start: self.start,
                 end: other.end,
                 contents: self.contents,
                 start_solid: self.start_solid,
-            };
-        }
-
-        if self.contents == BspLeafContents::Solid && other.contents != BspLeafContents::Solid {
-            return Trace {
+            }
+        } else if other.contents != BspLeafContents::Solid {
+            Trace {
                 start: self.start,
                 end: other.end,
                 contents: other.contents,
                 start_solid: true,
-            };
+            }
+        } else {
+            self
         }
-
-        self
     }
 
     /// Adjusts the start and end points of the trace by an offset.
@@ -338,12 +336,16 @@ impl Trace {
 
     /// Returns true if the entire trace is within solid leaves.
     pub fn all_solid(&self) -> bool {
-        self.contents == BspLeafContents::Solid
+        self.start_solid && self.contents == BspLeafContents::Solid
     }
 
     /// Returns true if the trace began in a solid leaf but ended outside it.
     pub fn start_solid(&self) -> bool {
         self.start_solid
+    }
+
+    pub fn set_start_solid(&mut self, start_solid: bool) {
+        self.start_solid = start_solid;
     }
 
     pub fn in_open(&self) -> bool {

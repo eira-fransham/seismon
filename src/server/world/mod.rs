@@ -930,17 +930,19 @@ impl World {
         let solid = self.get(e_id).unwrap().solid()?;
         debug!("Entity solid type: {:?}", solid);
 
+        let mut ent = self.get(e_id)?;
+
         match solid {
             EntitySolid::Bsp => {
                 if self.get(e_id).unwrap().move_kind()? != MoveKind::Push {
                     return Err(ProgsError::with_msg(format!(
                         "Brush entities must have MoveKind::Push (has {:?})",
-                        self.get(e_id)?.move_kind()
+                        ent.move_kind()
                     )));
                 }
 
                 let size = max - min;
-                match self.models[self.get(e_id)?.model_index()? as usize].kind() {
+                match self.models[ent.model_index()? as usize].kind() {
                     ModelKind::Brush(bmodel) => {
                         let hull_index;
 
@@ -958,7 +960,7 @@ impl World {
 
                         let hull = bmodel.hull(hull_index)?;
 
-                        let offset = hull.min() - min + self.get(e_id)?.origin()?;
+                        let offset = hull.min() - min + ent.origin()?;
 
                         Ok((hull, offset))
                     }
@@ -969,9 +971,8 @@ impl World {
             }
 
             _ => {
-                let hull =
-                    BspCollisionHull::for_bounds(self.get(e_id)?.min()?, self.get(e_id)?.max()?)?;
-                let offset = self.get(e_id)?.origin()?;
+                let hull = BspCollisionHull::for_bounds(ent.min()?, ent.max()?)?;
+                let offset = ent.origin()?;
 
                 Ok((hull, offset))
             }
@@ -1080,12 +1081,12 @@ impl World {
 
         let area = &self.area_nodes[area_id];
 
-        for touch in area.solids.iter().filter(|e| filter(**e)) {
+        'collide_entity: for touch in area.solids.iter().filter(|e| filter(**e)) {
             // don't collide an entity with itself
-            if let Some(e) = collide.e_id {
-                if e == *touch {
-                    continue;
-                }
+            if let Some(e) = collide.e_id
+                && e == *touch
+            {
+                continue;
             }
 
             match self.get(*touch)?.solid()? {
@@ -1109,18 +1110,22 @@ impl World {
             }
 
             // if bounding boxes never intersect, skip this entity
-            for i in 0..3 {
-                if collide.move_min[i] > self.get(*touch)?.abs_max()?[i]
-                    || collide.move_max[i] < self.get(*touch)?.abs_min()?[i]
-                {
-                    continue;
+            {
+                let mut touch_ent = self.get(*touch)?;
+                let abs_max = touch_ent.abs_max()?;
+                let abs_min = touch_ent.abs_min()?;
+                for i in 0..3 {
+                    if collide.move_min[i] > abs_max[i] || collide.move_max[i] < abs_min[i] {
+                        continue 'collide_entity;
+                    }
                 }
             }
 
-            if let Some(e) = collide.e_id {
-                if self.get(e)?.size()?[0] != 0.0 && self.get(*touch)?.size()?[0] == 0.0 {
-                    continue;
-                }
+            if let Some(e) = collide.e_id
+                && self.get(e)?.size()?[0] != 0.0
+                && self.get(*touch)?.size()?[0] == 0.0
+            {
+                continue;
             }
 
             if trace.all_solid() {
@@ -1153,27 +1158,41 @@ impl World {
                 )?
             };
 
-            let old_dist = (trace.end_point() - collide.start).length();
-            let new_dist = (tmp_trace.end_point() - collide.start).length();
+            let old_dist = trace.ratio();
+            let new_dist = tmp_trace.ratio();
+
+            let start_solid = trace.start_solid() || tmp_trace.start_solid();
 
             // check to see if this candidate is the closest yet and update trace if so
             if tmp_trace.all_solid() || tmp_trace.start_solid() || new_dist < old_dist {
                 collide_entity = Some(*touch);
                 trace = tmp_trace;
             }
+
+            trace.set_start_solid(start_solid);
         }
 
         match area.kind {
             AreaNodeKind::Leaf => (),
 
             AreaNodeKind::Branch(ref b) => {
+                let mut start_solid = trace.start_solid();
+
                 if collide.move_max[b.axis as usize] > b.dist {
-                    self.collide_area(b.front, collide, filter)?;
+                    let (tmp_trace, ent) = self.collide_area(b.front, collide, filter)?;
+                    start_solid |= tmp_trace.start_solid();
+                    trace = tmp_trace;
+                    collide_entity = ent.or(collide_entity);
                 }
 
                 if collide.move_min[b.axis as usize] < b.dist {
-                    self.collide_area(b.back, collide, filter)?;
+                    let (tmp_trace, ent) = self.collide_area(b.back, collide, filter)?;
+                    start_solid |= tmp_trace.start_solid();
+                    trace = tmp_trace;
+                    collide_entity = ent.or(collide_entity);
                 }
+
+                trace.set_start_solid(start_solid);
             }
         }
 
@@ -1201,7 +1220,6 @@ impl World {
             .adjust(offset))
     }
 
-    // TODO: This doesn't take entities into account
     pub fn trace(&self, start: Vec3, min: Vec3, max: Vec3, end: Vec3) -> Result<Trace, ProgsError> {
         self.collide_move_with_entity(EntityId(0), start, min, max, end)
     }

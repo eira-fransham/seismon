@@ -937,13 +937,13 @@ where
         let size = max - min;
 
         debug!("Setting entity min: {:?}", min);
-        self.put_vector(min.into(), FieldAddrVector::Mins as i16)?;
+        self.put_vector(min, FieldAddrVector::Mins as i16)?;
 
         debug!("Setting entity max: {:?}", max);
-        self.put_vector(max.into(), FieldAddrVector::Maxs as i16)?;
+        self.put_vector(max, FieldAddrVector::Maxs as i16)?;
 
         debug!("Setting entity size: {:?}", size);
-        self.put_vector(size.into(), FieldAddrVector::Size as i16)?;
+        self.put_vector(size, FieldAddrVector::Size as i16)?;
         Ok(())
     }
 
