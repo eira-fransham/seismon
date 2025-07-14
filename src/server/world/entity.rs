@@ -88,10 +88,18 @@ pub trait FieldAddr {
     type Value;
 
     /// Loads the value at this address.
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>;
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>;
 
     /// Stores a value at this address.
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>;
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive)]
@@ -292,11 +300,17 @@ impl fmt::Display for FieldAddrFloat {
 impl FieldAddr for FieldAddrFloat {
     type Value = f32;
 
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>,
+    {
         ent.get_float(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>,
+    {
         ent.put_float(value, *self as i16)
     }
 }
@@ -322,11 +336,17 @@ pub enum FieldAddrVector {
 impl FieldAddr for FieldAddrVector {
     type Value = Vec3;
 
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>,
+    {
         ent.get_vector(*self as i16).map(Into::into)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>,
+    {
         ent.put_vector(value.into(), *self as i16)
     }
 }
@@ -367,12 +387,18 @@ impl fmt::Display for FieldAddrStringId {
 impl FieldAddr for FieldAddrStringId {
     type Value = StringId;
 
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>,
+    {
         ent.get_int(*self as i16)
             .map(|val| StringId(val.try_into().unwrap()))
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>,
+    {
         ent.put_int(value.0.try_into().unwrap(), *self as i16)
     }
 }
@@ -392,11 +418,17 @@ pub enum FieldAddrEntityId {
 impl FieldAddr for FieldAddrEntityId {
     type Value = EntityId;
 
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>,
+    {
         ent.entity_id(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>,
+    {
         ent.put_entity_id(value, *self as i16)
     }
 }
@@ -412,11 +444,17 @@ pub enum FieldAddrFunctionId {
 impl FieldAddr for FieldAddrFunctionId {
     type Value = FunctionId;
 
-    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError> where A: FocusIndex<Output = EntityField>{
+    fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
+    where
+        A: FocusIndex<Output = EntityField>,
+    {
         ent.function_id(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>where A: FocusIndexMut<Output = EntityField>{
+    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    where
+        A: FocusIndexMut<Output = EntityField>,
+    {
         ent.put_function_id(value, *self as i16)
     }
 }
@@ -595,7 +633,10 @@ pub trait FocusIndexMut: FocusIndex {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output;
 }
 
-impl<T> FocusIndex for Focus<'_, T> where T: Clone{
+impl<T> FocusIndex for Focus<'_, T>
+where
+    T: Clone,
+{
     type Output = T;
 
     fn index(&mut self, index: usize) -> &Self::Output {
@@ -603,7 +644,10 @@ impl<T> FocusIndex for Focus<'_, T> where T: Clone{
     }
 }
 
-impl<T> FocusIndex for FocusMut<'_, T> where T: Clone{
+impl<T> FocusIndex for FocusMut<'_, T>
+where
+    T: Clone,
+{
     type Output = T;
 
     fn index(&mut self, index: usize) -> &Self::Output {
@@ -611,7 +655,10 @@ impl<T> FocusIndex for FocusMut<'_, T> where T: Clone{
     }
 }
 
-impl<T> FocusIndexMut for FocusMut<'_, T> where T: Clone{
+impl<T> FocusIndexMut for FocusMut<'_, T>
+where
+    T: Clone,
+{
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         FocusMut::index_mut(self, index)
     }
@@ -761,8 +808,9 @@ where
 
     /// Loads an `i32` from the given virtual address.
     pub fn put_int(&mut self, val: i32, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val)?;
         Ok(())
     }
@@ -781,8 +829,9 @@ where
 
     /// Stores an `f32` at the given virtual address.
     pub fn put_float(&mut self, val: f32, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.type_check(addr as usize, Type::QFloat)?;
         self.get_addr_mut(addr)?.write_f32::<LittleEndian>(val)?;
         Ok(())
@@ -803,8 +852,9 @@ where
 
     /// Stores an `[f32; 3]` at the given virtual address.
     pub fn put_vector(&mut self, val: Vec3, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.type_check(addr as usize, Type::QVector)?;
 
         for i in 0..3 {
@@ -825,8 +875,9 @@ where
 
     /// Stores a `StringId` at the given virtual address.
     pub fn put_string_id(&mut self, val: StringId, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.type_check(addr as usize, Type::QString)?;
 
         self.get_addr_mut(addr)?
@@ -846,8 +897,9 @@ where
 
     /// Stores an `EntityId` at the given virtual address.
     pub fn put_entity_id(&mut self, val: EntityId, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.type_check(addr as usize, Type::QEntity)?;
 
         self.get_addr_mut(addr)?
@@ -865,8 +917,9 @@ where
 
     /// Stores a `FunctionId` at the given virtual address.
     pub fn put_function_id(&mut self, val: FunctionId, addr: i16) -> Result<(), EntityError>
-        where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         self.type_check(addr as usize, Type::QFunction)?;
         self.get_addr_mut(addr)?
             .write_i32::<LittleEndian>(val.try_into().unwrap())?;
@@ -877,7 +930,7 @@ where
     pub fn set_min_max_size<V>(&mut self, min: V, max: V) -> Result<(), EntityError>
     where
         V: Into<Vec3>,
-        Addrs: FocusIndexMut
+        Addrs: FocusIndexMut,
     {
         let min = min.into();
         let max = max.into();
@@ -917,11 +970,13 @@ where
         model_name, set_model_name => FieldAddrStringId::ModelName;
         ideal_pitch, set_ideal_pitch => FieldAddrFloat::IdealPitch;
         ideal_yaw, set_ideal_yaw => FieldAddrFloat::IdealYaw;
+        yaw_speed, set_yaw_speed => FieldAddrFloat::YawSpeed;
         punch_angle, set_punch_angle => FieldAddrVector::PunchAngle;
         items, set_items => FieldAddrFloat::Items;
         ground, set_ground => FieldAddrEntityId::Ground;
         owner, set_owner => FieldAddrEntityId::Owner;
         enemy, set_enemy => FieldAddrEntityId::Enemy;
+        goal, set_goal => FieldAddrEntityId::Goal;
         weapon_frame, set_weapon_frame => FieldAddrFloat::WeaponFrame;
         armor, set_armor => FieldAddrFloat::ArmorStrength;
         weapon_model_name, set_weapon_model_name => FieldAddrStringId::WeaponModelName;
@@ -957,7 +1012,7 @@ where
         frame_time: Duration,
     ) -> Result<(), EntityError>
     where
-        Addrs: FocusIndexMut
+        Addrs: FocusIndexMut,
     {
         let ent_gravity = match self.type_def.find(string_table, "gravity") {
             Some(def) => self.get_float(def.offset as i16)?,
@@ -974,8 +1029,9 @@ where
     /// Limits the entity's velocity by clamping each component (not the
     /// magnitude!) to an absolute value of `sv_maxvelocity`.
     pub fn limit_velocity(&mut self, sv_maxvelocity: f32) -> Result<(), EntityError>
-    where Addrs: FocusIndexMut
-        {
+    where
+        Addrs: FocusIndexMut,
+    {
         let vel = self.velocity()?;
         for c in &mut vel.to_array()[..] {
             *c = c.clamp(-sv_maxvelocity, sv_maxvelocity);
@@ -1018,13 +1074,19 @@ where
         Ok(self.flags()?.contains(flag))
     }
 
-    pub fn add_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError> where Addrs: FocusIndexMut{
+    pub fn add_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError>
+    where
+        Addrs: FocusIndexMut,
+    {
         let result = self.flags()? | flags;
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 
-    pub fn remove_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError> where Addrs: FocusIndexMut{
+    pub fn remove_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError>
+    where
+        Addrs: FocusIndexMut,
+    {
         let result = self.flags()? | !flags;
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())

@@ -279,7 +279,7 @@ impl Trace {
         }
 
         // don't allow joining disjoint traces
-        if self.end.point != other.start.point {
+        if (self.end.point - other.start.point).length_squared() > f32::EPSILON {
             panic!("Attempted to join disjoint traces");
         }
 

@@ -427,7 +427,10 @@ impl ViewNode for DeferredPass {
             ..default()
         });
 
-        assert_eq!(std::alloc::Layout::new::<PointLight>(), std::alloc::Layout::new::<[f32; 4]>());
+        assert_eq!(
+            std::alloc::Layout::new::<PointLight>(),
+            std::alloc::Layout::new::<[f32; 4]>()
+        );
 
         let mut deferred_pass = TrackedRenderPass::new(device, deferred_pass);
 

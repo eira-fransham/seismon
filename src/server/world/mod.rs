@@ -24,16 +24,16 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use self::{
-    entity::{EntityMut, EntityRef},
-    phys::{Collide, CollideKind},
-};
 pub use self::{
     entity::{
         EntityError, EntityFlags, EntitySolid, EntityTypeDef, FieldAddrEntityId, FieldAddrFloat,
         FieldAddrFunctionId, FieldAddrStringId, FieldAddrVector,
     },
     phys::{MoveKind, Trace, TraceEnd, TraceEndKind, TraceStart},
+};
+use self::{
+    entity::{EntityMut, EntityRef},
+    phys::{Collide, CollideKind},
 };
 
 use crate::{
@@ -237,6 +237,13 @@ impl World {
     {
         self.entities.range(range)
     }
+
+    pub fn contents_at_point(&self, point: Vec3) -> BspLeafContents {
+        match self.models[1].kind() {
+            ModelKind::Brush(brush) => brush.hull(0).unwrap().contents_at_point(point).unwrap(),
+            _ => unimplemented!("Non-brush worldmodel"),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -288,8 +295,9 @@ impl Entities {
 
         Ok(EntityRef::new(
             type_def,
-            self.fields.focus()
-                .narrow(entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count()),
+            self.fields.focus().narrow(
+                entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count(),
+            ),
             entity,
         ))
     }
@@ -317,13 +325,18 @@ impl Entities {
 
         Ok(EntityMut::new(
             type_def,
-            self.fields.focus_mut()
-                .narrow(entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count()),
+            self.fields.focus_mut().narrow(
+                entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count(),
+            ),
             entity,
         ))
     }
 
-    pub fn insert<'a>(&'a mut self, entity_id: EntityId, type_def: &'a EntityTypeDef) -> EntityMut<'a> {
+    pub fn insert<'a>(
+        &'a mut self,
+        entity_id: EntityId,
+        type_def: &'a EntityTypeDef,
+    ) -> EntityMut<'a> {
         self.slots[entity_id.0] = AreaEntitySlot::Occupied(default());
 
         self.get_mut(entity_id, type_def).unwrap()
@@ -419,7 +432,11 @@ impl Entities {
 
         self.slots[slot_id] = AreaEntitySlot::Occupied(default());
         // TODO: Maybe unnecessary? Does Quake do this or just leave them with the previous values?
-        for field in self.fields.focus_mut().narrow(slot_id * type_def.addr_count()..(slot_id + 1) * type_def.addr_count()) {
+        for field in self
+            .fields
+            .focus_mut()
+            .narrow(slot_id * type_def.addr_count()..(slot_id + 1) * type_def.addr_count())
+        {
             *field = default();
         }
 
@@ -434,7 +451,11 @@ impl Entities {
 
         self.slots[slot_id] = AreaEntitySlot::Occupied(default());
         // TODO: Maybe unnecessary? Does Quake do this or just leave them with the previous values?
-        for field in self.fields.focus_mut().narrow(slot_id * type_def.addr_count()..(slot_id + 1) * type_def.addr_count()) {
+        for field in self
+            .fields
+            .focus_mut()
+            .narrow(slot_id * type_def.addr_count()..(slot_id + 1) * type_def.addr_count())
+        {
             *field = default();
         }
 
@@ -652,19 +673,15 @@ impl World {
                     // only the yaw (Y) value is given. see
                     // https://github.com/id-Software/Quake/blob/master/WinQuake/pr_edict.c#L826-L834
                     let def = self.find_def(string_table, "angles")?;
-                    self.get_mut(ent_id)?.put_vector(
-                        Vec3::new(0.0, val.parse().unwrap(), 0.0),
-                        def.offset as i16,
-                    )?;
+                    self.get_mut(ent_id)?
+                        .put_vector(Vec3::new(0.0, val.parse().unwrap(), 0.0), def.offset as i16)?;
                 }
 
                 "light" => {
                     // more fun hacks brought to you by Carmack & Friends
                     let def = self.find_def(string_table, "light_lev")?;
-                    self.get_mut(ent_id)?.put_float(
-                        val.trim().parse().unwrap(),
-                        def.offset as i16,
-                    )?;
+                    self.get_mut(ent_id)?
+                        .put_float(val.trim().parse().unwrap(), def.offset as i16)?;
                 }
 
                 k => {
@@ -683,9 +700,7 @@ impl World {
                             ent.put_string_id(s_id, def.offset as i16)?;
                         }
 
-                        Type::QFloat => {
-                            ent.put_float(val.parse().unwrap(), def.offset as i16)?
-                        }
+                        Type::QFloat => ent.put_float(val.parse().unwrap(), def.offset as i16)?,
                         Type::QVector => ent.put_vector(
                             parse::vector3_components(val).unwrap(),
                             def.offset as i16,
@@ -739,8 +754,7 @@ impl World {
             };
 
             let trigger_touch = trigger.load(FieldAddrFunctionId::Touch)?;
-            if trigger_touch == FunctionId(0) || trigger.solid()? == EntitySolid::Not
-            {
+            if trigger_touch == FunctionId(0) || trigger.solid()? == EntitySolid::Not {
                 continue;
             }
 
@@ -811,15 +825,14 @@ impl World {
 
             let mut ent = self.get_mut(e_id)?;
 
-            let origin =
-                Vec3::from(ent.get_vector( FieldAddrVector::Origin as i16)?);
-            let mins = Vec3::from(ent.get_vector( FieldAddrVector::Mins as i16)?);
-            let maxs = Vec3::from(ent.get_vector( FieldAddrVector::Maxs as i16)?);
+            let origin = Vec3::from(ent.get_vector(FieldAddrVector::Origin as i16)?);
+            let mins = Vec3::from(ent.get_vector(FieldAddrVector::Mins as i16)?);
+            let maxs = Vec3::from(ent.get_vector(FieldAddrVector::Maxs as i16)?);
             debug!("origin = {:?} mins = {:?} maxs = {:?}", origin, mins, maxs);
             abs_min = origin + mins;
             abs_max = origin + maxs;
 
-            let flags_f = ent.get_float( FieldAddrFloat::Flags as i16)?;
+            let flags_f = ent.get_float(FieldAddrFloat::Flags as i16)?;
             let flags = EntityFlags::from_bits(flags_f as u16).unwrap();
 
             let bounds_offset = if flags.contains(EntityFlags::ITEM) {
@@ -831,8 +844,8 @@ impl World {
             abs_min -= bounds_offset;
             abs_max += bounds_offset;
 
-            ent.set_abs_min( abs_min)?;
-            ent.set_abs_max( abs_max)?;
+            ent.set_abs_min(abs_min)?;
+            ent.set_abs_max(abs_max)?;
 
             // Mark leaves containing entity for PVS.
             ent.leaf_count = 0;
@@ -927,12 +940,7 @@ impl World {
                 }
 
                 let size = max - min;
-                match self.models[self
-                    .get(e_id)
-                    ?
-                    .model_index()? as usize]
-                    .kind()
-                {
+                match self.models[self.get(e_id)?.model_index()? as usize].kind() {
                     ModelKind::Brush(bmodel) => {
                         let hull_index;
 
@@ -950,8 +958,7 @@ impl World {
 
                         let hull = bmodel.hull(hull_index)?;
 
-                        let offset = hull.min() - min
-                            + self.get(e_id)?.origin()?;
+                        let offset = hull.min() - min + self.get(e_id)?.origin()?;
 
                         Ok((hull, offset))
                     }
@@ -962,10 +969,8 @@ impl World {
             }
 
             _ => {
-                let hull = BspCollisionHull::for_bounds(
-                    self.get(e_id)?.min()?,
-                    self.get(e_id)?.max()?,
-                )?;
+                let hull =
+                    BspCollisionHull::for_bounds(self.get(e_id)?.min()?, self.get(e_id)?.max()?)?;
                 let offset = self.get(e_id)?.origin()?;
 
                 Ok((hull, offset))
@@ -1105,19 +1110,15 @@ impl World {
 
             // if bounding boxes never intersect, skip this entity
             for i in 0..3 {
-                if collide.move_min[i]
-                    > self.get(*touch)?.abs_max()?[i]
-                    || collide.move_max[i]
-                        < self.get(*touch)?.abs_min()?[i]
+                if collide.move_min[i] > self.get(*touch)?.abs_max()?[i]
+                    || collide.move_max[i] < self.get(*touch)?.abs_min()?[i]
                 {
                     continue;
                 }
             }
 
             if let Some(e) = collide.e_id {
-                if self.get(e)?.size()?[0] != 0.0
-                    && self.get(*touch)?.size()?[0] == 0.0
-                {
+                if self.get(e)?.size()?[0] != 0.0 && self.get(*touch)?.size()?[0] == 0.0 {
                     continue;
                 }
             }
@@ -1128,20 +1129,13 @@ impl World {
 
             if let Some(e) = collide.e_id {
                 // don't collide against owner or owned entities
-                if self.get(*touch)?.owner()? == e
-                    || self.get(e)?.owner()? == *touch
-                {
+                if self.get(*touch)?.owner()? == e || self.get(e)?.owner()? == *touch {
                     continue;
                 }
             }
 
             // select bounding boxes based on whether or not candidate is a monster
-            let tmp_trace = if self
-                .get(*touch)
-                ?
-                .flags()?
-                .contains(EntityFlags::MONSTER)
-            {
+            let tmp_trace = if self.get(*touch)?.flags()?.contains(EntityFlags::MONSTER) {
                 self.collide_move_with_entity(
                     *touch,
                     collide.start,

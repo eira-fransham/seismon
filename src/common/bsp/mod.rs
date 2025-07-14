@@ -360,8 +360,8 @@ pub struct BspCollisionNode {
 
 #[derive(Debug)]
 pub struct BspCollisionHull {
-    planes: Arc<Box<[Hyperplane]>>,
-    nodes: Arc<Box<[BspCollisionNode]>>,
+    planes: Arc<[Hyperplane]>,
+    nodes: Arc<[BspCollisionNode]>,
     node_id: usize,
     mins: Vec3,
     maxs: Vec3,
@@ -447,8 +447,8 @@ impl BspCollisionHull {
         });
 
         Ok(BspCollisionHull {
-            planes: Arc::new(planes.into_boxed_slice()),
-            nodes: Arc::new(nodes.into_boxed_slice()),
+            planes: planes.into_boxed_slice().into(),
+            nodes: nodes.into_boxed_slice().into(),
             node_id: 0,
             mins,
             maxs,
@@ -476,7 +476,7 @@ impl BspCollisionHull {
         let mut current_node = &self.nodes[node];
 
         loop {
-            let ref plane = self.planes[current_node.plane_id];
+            let plane = &self.planes[current_node.plane_id];
 
             match current_node.children[plane.point_side(point) as usize] {
                 BspCollisionNodeChild::Contents(c) => return Ok(c),
@@ -693,7 +693,7 @@ impl<'a> BspLightmap<'a> {
 
 #[derive(Debug)]
 pub struct BspData {
-    pub(crate) planes: Arc<Box<[Hyperplane]>>,
+    pub(crate) planes: Arc<[Hyperplane]>,
     pub(crate) textures: Box<[BspTexture]>,
     pub(crate) vertices: Box<[Vec3]>,
     pub(crate) visibility: Box<[u8]>,

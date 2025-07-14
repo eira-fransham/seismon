@@ -461,7 +461,7 @@ where
     for _ in 0..plane_count {
         planes.push(read_hyperplane(&mut reader)?);
     }
-    let planes_rc = Arc::new(planes.into_boxed_slice());
+    let planes_rc: Arc<[_]> = planes.into_boxed_slice().into();
 
     table.check_end_position(&mut reader, BspFileSectionId::Planes)?;
 
@@ -803,7 +803,7 @@ where
         });
     }
 
-    let collision_nodes_rc = Arc::new(collision_nodes.into_boxed_slice());
+    let collision_nodes_rc: Arc<[_]> = collision_nodes.into_boxed_slice().into();
 
     let hull_1 = BspCollisionHull {
         planes: planes_rc.clone(),
@@ -992,7 +992,8 @@ where
             ],
         })
     }
-    let render_as_collision_nodes_rc = Arc::new(render_as_collision_nodes.into_boxed_slice());
+    let render_as_collision_nodes_rc: Arc<[_]> =
+        render_as_collision_nodes.into_boxed_slice().into();
 
     let hull_0 = BspCollisionHull {
         planes: planes_rc.clone(),

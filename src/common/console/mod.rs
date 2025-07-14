@@ -2264,18 +2264,17 @@ mod systems {
             let (diffuse_data, _) = gfx.palette.translate(conback.indices());
             let diffuse_data = TextureData::Diffuse(diffuse_data);
 
-            let image = assets
-                .add(Image::new(
-                    Extent3d {
-                        width: conback.width(),
-                        height: conback.height(),
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    diffuse_data.data().to_owned(),
-                    diffuse_data.format(),
-                    RenderAssetUsages::RENDER_WORLD,
-                ));
+            let image = assets.add(Image::new(
+                Extent3d {
+                    width: conback.width(),
+                    height: conback.height(),
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                diffuse_data.data().to_owned(),
+                diffuse_data.format(),
+                RenderAssetUsages::RENDER_WORLD,
+            ));
 
             commands
                 .spawn((

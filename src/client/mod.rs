@@ -708,7 +708,11 @@ impl Connection {
 
                 ServerCmd::LightStyle { id, value } => {
                     trace!("Inserting light style {} with value {}", id, &value);
-                    self.state.light_styles[id as usize] = value.to_str().into_owned();
+                    if let Some(light_style) = self.state.light_styles.get_mut(id as usize) {
+                        *light_style = value.to_str().into_owned();
+                    } else {
+                        warn!("Could not set non-existent lightstyle {id}");
+                    }
                 }
 
                 ServerCmd::Particle {

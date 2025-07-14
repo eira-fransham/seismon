@@ -1254,6 +1254,37 @@ impl Globals {
         Ok(())
     }
 
+    /// Calculate a yaw angle from a direction vector.
+    ///
+    /// Loads the direction vector from `GLOBAL_ADDR_ARG_0` and stores the yaw value at
+    /// `GLOBAL_ADDR_RETURN`.
+    pub fn builtin_vec_to_angles(&mut self) -> Result<(), GlobalsError> {
+        let v = self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
+
+        let mut yaw;
+        if v[0] == 0.0 || v[1] == 0.0 {
+            yaw = 0.0;
+        } else {
+            yaw = v[1].atan2(v[0]).to_degrees();
+            if yaw < 0.0 {
+                yaw += 360.0;
+            }
+        }
+
+        let mut pitch;
+        if v[1] == 0.0 || v[2] == 0.0 {
+            pitch = 0.0;
+        } else {
+            pitch = v[2].atan2(v[1]).to_degrees();
+            if pitch < 0.0 {
+                pitch += 360.0;
+            }
+        }
+
+        self.put_vector(Vec3::new(pitch, yaw, 0.), GLOBAL_ADDR_RETURN as i16)?;
+        Ok(())
+    }
+
     /// Round a float to the nearest integer.
     ///
     /// Loads the float from `GLOBAL_ADDR_ARG_0` and stores the rounded value at

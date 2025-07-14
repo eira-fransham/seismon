@@ -7,7 +7,11 @@ use bevy::{
 use crate::common::console::RegisterCmdExt;
 
 pub fn register_cvars(app: &mut App) {
+    // TODO: X-Men: Ravages of Apocalypse uses `temp1` as a cvar, we should have some way to explicitly cvars
+    //       that haven't been declared.
     app.cvar("sv_paused", "0", "1 if the server is paused, 0 otherwise")
+        // TODO: Have a way to have cvars be basic getter/setter pairs so we can implement `deathmatch` and `coop`
+        //       cvars in terms of this.
         .cvar(
             "teamplay",
             "1",

@@ -545,11 +545,8 @@ impl WorldRenderer {
                     pass,
                     Update(bump.alloc(brush::VertexPushConstants {
                         transform: camera.view_projection().to_cols_array_2d(),
-                                            inv_view: Mat3::from_mat4(
-                                                camera.view()
-                                            .inverse()
-                                            .transpose())
-                                            .to_cols_array_2d(),
+                        inv_view:
+                            Mat3::from_mat4(camera.view().inverse().transpose()).to_cols_array_2d(),
                     })),
                     Clear,
                     Clear,
@@ -589,8 +586,9 @@ impl WorldRenderer {
                                                 .to_cols_array_2d(),
                                             inv_view: Mat3::from_mat4(
                                                 self.calculate_mv_transform(camera, ent)
-                                            .inverse()
-                                            .transpose())
+                                                    .inverse()
+                                                    .transpose(),
+                                            )
                                             .to_cols_array_2d(),
                                         }),
                                     ),

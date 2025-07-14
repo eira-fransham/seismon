@@ -674,6 +674,11 @@ impl ExecutionContext {
         self.current_function
     }
 
+    /// Should only be used to reset the current function if progs are called (e.g. in `builtin_walk_move`).
+    pub fn set_current_function(&mut self, func: FunctionId) {
+        self.current_function = func;
+    }
+
     pub fn find_function_by_name<S: AsRef<str>>(
         &mut self,
         string_table: &StringTable,
