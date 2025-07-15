@@ -13,16 +13,8 @@ particularly the console system. Work to extract these pieces out is ongoing.
 
 Bevy has a lot of features related to rendering, audio and state management that in my [previous Quake-related project](https://github.com/eira-fransham/goeld)
 had to be implement manually - specifically, tonemapping/HDR and pipelined rendering. The audio system has also been completely
-overhauled, and I even implemented a rewrite of Bevy's default audio framework to allow adding custom DSP effects using
-[`fundsp`](https://github.com/SamiPerttu/fundsp). The way that it is currently written is very different from
-[`bevy_fundsp`](https://github.com/harudagondi/bevy_fundsp), which is essentially just a helper for writing DSP output
-to a buffer and then sending that buffer to Bevy's normal audio systems. All audio is now heirarchically organised into
-mixers, with each mixer having control over the internal audio processing. The use-case for this could be that game audio
-could have reverb applied while the menu audio could be left unchanged. Mixers are just normal components and can be
-accessed as such. The project for the fork of `bevy_audio` is at [`bevy-mod-dynamicaudio`](https://github.com/eira-fransham/bevy-mod-dynamicaudio).
-The audio effects in the build of the game at time of writing are a subtle reverb and filter delay, but most importantly
-I have added a limiter so that the game audio doesn't completly blow the speakers out when there are more than a couple of
-sounds playing at once.
+overhauled, originally with a custom-written Bevy module but now the system has been switched over to use
+[`bevy_seedling`](https://github.com/CorvusPrudens/bevy_seedling/).
 
 Based on [Richter](https://github.com/cormac-obrien/richter) by Cormac O'Brien, and still shares a lot of its DNA. Seismon
 originally started as a quick weekend project to make Richter run on macOS, but I've now ended up spending months on it and
@@ -44,7 +36,7 @@ and still have regular Quake clients connect to it, instead of being restricted 
 These goals are partially completed, as the audio, rendering and input handling are already separate plugins, although
 there are still some remaining interdependence issues.
 
-The QuakeC interpreter is currently very self-contained, but once the server is functional and all the relevant QuakeC functions
+The QuakeC interpreter is currently reasonably self-contained, but once the server is functional and all the relevant QuakeC functions
 are implemented I hope to move it to use `bevy_mod_scripting` and for the entity field storage to be done via the ECS. This
 will make it far easier to write Quake mods in languages other than QuakeC, such as Lua. The Quake networking protocol is
 fairly extensible and the client knows little about the server's game logic, so without the limitations of QuakeC it should
