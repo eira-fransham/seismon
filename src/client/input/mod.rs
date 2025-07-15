@@ -103,13 +103,14 @@ pub mod systems {
     }
 
     pub fn game_input(
-        mut keyboard_events: EventReader<KeyboardInput>,
+        mut reader: ResMut<InputEventReader<KeyboardInput>>,
+        keyboard_events: Res<Events<KeyboardInput>>,
         keyboard_input: Res<ButtonInput<KeyCode>>,
         mut mouse_events: EventReader<MouseMotion>,
         mut run_cmds: EventWriter<RunCmd<'static>>,
         input: Res<GameInput>,
     ) {
-        for key in keyboard_events.read() {
+        for key in reader.reader.read(&keyboard_events) {
             // TODO: Make this work better if we have arguments - currently we clone the arguments every time
             // TODO: Error handling
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {

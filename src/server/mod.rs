@@ -606,9 +606,9 @@ fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
     let sr = angle.sin();
     let cr = angle.cos();
 
-    movement.x * Vec3::new(cp * cy, cp * sy, -sp) +
-        movement.y * Vec3::new(-sr*sp*cy + cr*sy, -(sr*sp*sy + cr*cy), -sr*cp) +
-            movement.z * Vec3::new(cr*sp*cy + sr*sy, cr*sp*sy+-sr*cy, cr*cp)
+    movement.x * Vec3::new(cp * cy, cp * sy, -sp)
+        + movement.y * Vec3::new(-sr * sp * cy + cr * sy, -(sr * sp * sy + cr * cy), -sr * cp)
+        + movement.z * Vec3::new(cr * sp * cy + sr * sy, cr * sp * sy + -sr * cy, cr * cp)
 }
 
 impl LevelState {
@@ -1334,7 +1334,7 @@ impl LevelState {
         let mut ent = self.world.get_mut(ent_id)?;
         let angles = ent.view_angle()?;
         let target_vel = ent.move_dir()?;
-        let move_dir = angle_vectors(angles ,target_vel);
+        let move_dir = angle_vectors(angles, target_vel);
 
         let origin = ent.origin()?;
         let min = ent.min()?;
@@ -1445,9 +1445,9 @@ impl LevelState {
         let mut ent = self.world.get(ent_id)?;
 
         // if ent.has_flag(EntityFlags::ON_GROUND)? {
-            self.physics_player_ground(ent_id, target_vel, player_input, &server_vars)?;
+        self.physics_player_ground(ent_id, target_vel, player_input, &server_vars)?;
         // } else if ent.water_level()? < 2. {
-            // self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
+        // self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
         // }
 
         self.player_categorize_position(ent_id)?;

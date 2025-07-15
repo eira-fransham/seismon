@@ -53,7 +53,9 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
 
 fn build_menu_sp(builder: MenuBuilder) -> Result<Menu, Error> {
     Ok(builder
-        .add_action("New Game", || ())
+        .add_action("New Game", |mut commands: EventWriter<RunCmd<'static>>| {
+            commands.write("map start".parse().unwrap());
+        })
         .add_action("Load", || unimplemented!())
         .add_action("Save", || unimplemented!())
         .build(MenuView {
