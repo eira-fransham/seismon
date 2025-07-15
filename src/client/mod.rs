@@ -149,7 +149,7 @@ where
                 base_dir: self
                     .base_dir
                     .clone()
-                    .unwrap_or_else(|| common::default_base_dir()),
+                    .unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
             })
             .init_resource::<Vfs>()
@@ -681,12 +681,11 @@ impl Connection {
                     // first update signals the last sign-on stage
                     self.handle_signon(&client_vars, state.reborrow(), SignOnStage::Done)?;
 
-                    let ent_id = ent_update.ent_id as usize;
-                    self.state.update_entity(ent_id, ent_update)?;
+                    self.state.update_entity(&ent_update)?;
 
                     // patch view angles in demos
                     if let Some(angles) = demo_view_angles
-                        && ent_id == self.state.view_entity_id()
+                        && ent_update.ent_id as usize == self.state.view_entity_id()
                     {
                         self.state.update_view_angles(angles);
                     }
@@ -1262,7 +1261,7 @@ mod systems {
         }) = conn.as_deref_mut()
         {
             let move_cmd = state.handle_input(
-                &*registry,
+                &registry,
                 Duration::from_std(frame_time.delta()).unwrap(),
                 move_vars,
                 mouse_vars,

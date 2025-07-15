@@ -228,16 +228,18 @@ pub struct Trace {
     end: TraceEnd,
     contents: BspLeafContents,
     start_solid: bool,
+    all_solid: bool,
 }
 
 impl Trace {
     pub fn new(start: TraceStart, end: TraceEnd, contents: BspLeafContents) -> Trace {
-        let start_solid = contents == BspLeafContents::Solid;
+        let solid = contents == BspLeafContents::Solid;
         Trace {
             start,
             end,
             contents,
-            start_solid,
+            start_solid: solid,
+            all_solid: solid,
         }
     }
 
@@ -269,19 +271,18 @@ impl Trace {
     /// - If `self.end.point` does not equal `other.start.point`.
     pub fn join(self, other: Trace) -> Trace {
         debug!(
-            "start1={:?} end1={:?} start2={:?} end2={:?}",
+            "start1={} end1={} start2={} end2={}",
             self.start.point, self.end.point, other.start.point, other.end.point
         );
         // don't allow chaining after terminal
-        // TODO: impose this constraint with the type system
         if let TraceEndKind::Terminal = self.end.kind {
             panic!("Attempted to join after terminal trace");
         }
 
         // don't allow joining disjoint traces
-        if (self.end.point - other.start.point).length_squared() > f32::EPSILON {
-            panic!("Attempted to join disjoint traces");
-        }
+        // if (self.end.point - other.start.point).length_squared() > f32::EPSILON {
+        //     panic!("Attempted to join disjoint traces");
+        // }
 
         // combine traces with the same contents
         if self.contents == other.contents {
@@ -290,6 +291,7 @@ impl Trace {
                 end: other.end,
                 contents: self.contents,
                 start_solid: self.start_solid,
+                all_solid: self.all_solid && other.all_solid,
             }
         } else if other.contents != BspLeafContents::Solid {
             Trace {
@@ -297,6 +299,7 @@ impl Trace {
                 end: other.end,
                 contents: other.contents,
                 start_solid: true,
+                all_solid: self.all_solid && other.all_solid,
             }
         } else {
             self
@@ -316,6 +319,7 @@ impl Trace {
             },
             contents: self.contents,
             start_solid: self.start_solid,
+            all_solid: self.all_solid,
         }
     }
 
@@ -336,7 +340,7 @@ impl Trace {
 
     /// Returns true if the entire trace is within solid leaves.
     pub fn all_solid(&self) -> bool {
-        self.start_solid && self.contents == BspLeafContents::Solid
+        self.all_solid
     }
 
     /// Returns true if the trace began in a solid leaf but ended outside it.
@@ -386,13 +390,8 @@ pub fn bounds_for_move(start: Vec3, min: Vec3, max: Vec3, end: Vec3) -> (Vec3, V
     let mut box_max = Vec3::ZERO;
 
     for i in 0..3 {
-        if end[i] > start[i] {
-            box_min[i] = start[i] + min[i] - 1.0;
-            box_max[i] = end[i] + max[i] + 1.0;
-        } else {
-            box_min[i] = end[i] + min[i] - 1.0;
-            box_max[i] = start[i] + max[i] + 1.0;
-        }
+        box_min[i] = start[i].min(end[i]) + min[i] - 1.0;
+        box_max[i] = start[i].max(end[i]) + max[i] + 1.0;
     }
 
     (box_min, box_max)

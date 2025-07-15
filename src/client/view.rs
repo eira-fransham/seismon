@@ -7,7 +7,10 @@ use crate::common::{
 };
 
 use super::IntermissionKind;
-use bevy::math::Vec3;
+use bevy::{
+    log::error,
+    math::{Vec2, Vec3},
+};
 use chrono::Duration;
 use serde::Deserialize;
 
@@ -100,16 +103,16 @@ impl View {
     pub fn handle_input(
         &mut self,
         frame_time: Duration,
-        game_input: &Registry,
+        registry: &Registry,
         intermission: Option<&IntermissionKind>,
         mlook: bool,
         cl_anglespeedkey: f32,
         cl_pitchspeed: f32,
         cl_yawspeed: f32,
-        _mouse_vars: MouseVars,
+        mouse_vars: MouseVars,
     ) {
         let frame_time_f32 = duration_to_f32(frame_time);
-        let speed = if game_input.is_pressed("speed") {
+        let speed = if registry.is_pressed("speed") {
             frame_time_f32 * cl_anglespeedkey
         } else {
             frame_time_f32
@@ -120,23 +123,30 @@ impl View {
             return;
         }
 
-        if !game_input.is_pressed("strafe") {
-            let right_factor = game_input.is_pressed("right") as i32 as f32;
-            let left_factor = game_input.is_pressed("right") as i32 as f32;
+        if !registry.is_pressed("strafe") {
+            let right_factor = registry.is_pressed("right") as i32 as f32;
+            let left_factor = registry.is_pressed("left") as i32 as f32;
             self.input_angles.yaw += speed * cl_yawspeed * (left_factor - right_factor);
             self.input_angles.yaw = self.input_angles.yaw.rem_euclid(360.);
         }
 
-        let lookup_factor = game_input.is_pressed("lookup") as i32 as f32;
-        let lookdown_factor = game_input.is_pressed("lookup") as i32 as f32;
+        let lookup_factor = registry.is_pressed("lookup") as i32 as f32;
+        let lookdown_factor = registry.is_pressed("lookdown") as i32 as f32;
         self.input_angles.pitch += speed * cl_pitchspeed * (lookdown_factor - lookup_factor);
 
         if mlook {
-            todo!("Reimplement mouse look");
-            // let pitch_factor = mouse_vars.pitch_factor * mouse_vars.sensitivity;
-            // let yaw_factor = mouse_vars.yaw_factor * mouse_vars.sensitivity;
-            // self.input_angles.pitch += Rot2::degrees(game_input.mouse_delta().1 as f32 * pitch_factor);
-            // self.input_angles.yaw -= Rot2::degrees(game_input.mouse_delta().0 as f32 * yaw_factor);
+            let pitch_factor = mouse_vars.pitch_factor * mouse_vars.sensitivity;
+            let yaw_factor = mouse_vars.yaw_factor * mouse_vars.sensitivity;
+            match registry.read_cvar::<Vec2>("mousedelta") {
+                Ok(mouse_move) => {
+                    let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
+                    self.input_angles.yaw += mouse_move.x;
+                    self.input_angles.pitch += mouse_move.y;
+                }
+                Err(e) => {
+                    error!("Could not read mouse delta: {e}");
+                }
+            }
         }
 
         if lookup_factor != 0.0 || lookdown_factor != 0.0 {

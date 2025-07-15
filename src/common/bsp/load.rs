@@ -821,7 +821,7 @@ where
         maxs: Vec3::new(32.0, 32.0, 64.0),
     };
 
-    if reader.seek(SeekFrom::Current(0))?
+    if reader.stream_position()?
         != reader.seek(SeekFrom::Start(
             collision_node_section.offset + collision_node_section.size as u64,
         ))?
@@ -847,10 +847,10 @@ where
         // them from plane IDs)
         let contents_id = -reader.read_i32::<LittleEndian>()?;
 
-        let contents = dbg!(match BspLeafContents::from_i32(contents_id) {
+        let contents = match BspLeafContents::from_i32(contents_id) {
             Some(c) => c,
-            None => bail!("Invalid leaf contents ({})", contents_id),
-        });
+            None => bail!("Invalid leaf contents ({contents_id})"),
+        };
 
         let vis_offset = match reader.read_i32::<LittleEndian>()? {
             x if x < -1 => bail!("Invalid visibility data offset"),
@@ -864,7 +864,7 @@ where
         let facelist_id = reader.read_u16::<LittleEndian>()? as usize;
         let facelist_count = reader.read_u16::<LittleEndian>()? as usize;
         let mut sounds = [0u8; NUM_AMBIENTS];
-        reader.read(&mut sounds)?;
+        reader.read_exact(&mut sounds)?;
         leaves.push(BspLeaf {
             contents,
             vis_offset,

@@ -25,11 +25,12 @@ use std::{fmt, io::Write, ops::Bound};
 
 use crate::{
     common::{
+        bsp::BspLeafContents,
         console::{Registry, RunCmd},
         engine::{self, duration_from_f32, duration_to_f32},
         math::Hyperplane,
         model::Model,
-        net::{EntityState, ServerCmd},
+        net::{ButtonFlags, EntityState, ServerCmd, UpdateFlags},
         parse,
         util::{QStr, QString},
         vfs::Vfs,
@@ -66,6 +67,7 @@ use byteorder::{LittleEndian, WriteBytesExt as _};
 use chrono::Duration;
 use failure::bail;
 use hashbrown::{HashMap, HashSet};
+use itertools::Itertools;
 use num::FromPrimitive;
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
@@ -442,6 +444,9 @@ impl Session {
             .store(GlobalAddrEntity::Self_, client_entity)?;
         self.level
             .globals
+            .store(GlobalAddrEntity::World, EntityId(0))?;
+        self.level
+            .globals
             .store(GlobalAddrFloat::Time, duration_to_f32(self.level.time))?;
         let client_connect = self
             .level
@@ -453,6 +458,9 @@ impl Session {
         self.level
             .globals
             .store(GlobalAddrEntity::Self_, client_entity)?;
+        self.level
+            .globals
+            .store(GlobalAddrEntity::World, EntityId(0))?;
         self.level
             .globals
             .store(GlobalAddrFloat::Time, duration_to_f32(self.level.time))?;
@@ -515,12 +523,20 @@ impl Session {
     }
 }
 
+fn default_entity_gravity() -> f32 {
+    1.
+}
+
 #[derive(Copy, Clone, PartialEq, Deserialize)]
 pub struct ServerVars {
     #[serde(rename(deserialize = "sv_gravity"))]
     gravity: f32,
+    #[serde(skip, default = "default_entity_gravity")]
+    entity_gravity: f32,
     #[serde(rename(deserialize = "sv_maxvelocity"))]
     max_velocity: f32,
+    #[serde(rename(deserialize = "sv_stepheight"))]
+    max_step: f32,
 }
 
 /// Server-side level state.
@@ -563,6 +579,20 @@ pub struct LevelState {
 // TODO: Copied from Quake 1 source, can be done better.
 fn angle_mod(quake_angle: f32) -> f32 {
     (360.0 / u16::MAX as f32) * ((quake_angle * (u16::MAX as f32 / 360.0)) as u16) as f32
+}
+
+#[derive(Copy, Clone, Debug)]
+struct PlayerInput {
+    delta_time: Duration,
+    angles: Vec3,
+    ground_movement: Vec2,
+    up_movement: f32,
+    buttons: ButtonFlags,
+    impulse: u8,
+}
+
+struct PlayerMoveResult {
+    touch_indices: Vec<EntityId>,
 }
 
 impl LevelState {
@@ -742,7 +772,7 @@ impl LevelState {
                     let cond = self
                         .globals
                         .get_float(a)
-                        .map(|f| f as usize)
+                        .map(|f| f as i32)
                         .or_else(|_| self.globals.entity_id(a).map(|e| e.0))?
                         != 0;
                     debug!("{op}: cond == {cond}");
@@ -757,7 +787,7 @@ impl LevelState {
                     let cond = self
                         .globals
                         .get_float(a)
-                        .map(|f| f as usize)
+                        .map(|f| f as i32)
                         .or_else(|_| self.globals.entity_id(a).map(|e| e.0))?
                         != 0;
                     debug!("{op}: cond == {cond}");
@@ -863,7 +893,7 @@ impl LevelState {
                             RInt => self.globals.builtin_r_int()?,
                             Floor => self.globals.builtin_floor()?,
                             Ceil => self.globals.builtin_ceil()?,
-                            CheckBottom => todo_builtin!(CheckBottom),
+                            CheckBottom => self.builtin_check_bottom(&registry)?,
                             PointContents => self.builtin_point_contents()?,
                             FAbs => self.globals.builtin_f_abs()?,
                             Aim => todo_builtin!(Aim),
@@ -1035,6 +1065,7 @@ impl LevelState {
 
         // set `self` before calling spawn function
         self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
+        self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
         self.execute_program_by_name(classname, registry.reborrow(), vfs)?;
 
         #[cfg(debug_assertions)]
@@ -1140,6 +1171,7 @@ impl LevelState {
             self.globals.store(GlobalAddrFloat::Time, think_time)?;
             self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
             self.globals.store(GlobalAddrEntity::Other, EntityId(0))?;
+            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
             self.execute_program(think, registry.reborrow(), vfs)?;
 
             if !self.world.exists(ent_id) {
@@ -1157,6 +1189,7 @@ impl LevelState {
 
         self.globals.store(GlobalAddrEntity::Self_, EntityId(0))?;
         self.globals.store(GlobalAddrEntity::Other, EntityId(0))?;
+        self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
         self.globals
             .store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
 
@@ -1177,8 +1210,6 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         self.start_frame(registry.reborrow(), vfs)?;
 
-        let server_vars = registry.read_cvars::<ServerVars>()?;
-
         for ent_id in self.world.iter().collect::<Vec<_>>() {
             if self.globals.load(GlobalAddrFloat::ForceRetouch)? != 0.0 {
                 // Force all entities to touch triggers, even if they didn't
@@ -1196,8 +1227,9 @@ impl LevelState {
             }
 
             let max_clients = clients.limit();
-            if ent_id.0 != 0 && ent_id.0 < max_clients {
-                self.physics_player(clients, ent_id, &server_vars)?;
+            if ent_id.0 != 0 && ent_id.0 <= max_clients as i32 {
+                // Player movement handled by `recv_client_messages`.
+                continue;
             } else {
                 match self.world.get(ent_id)?.move_kind()? {
                     MoveKind::Walk => {
@@ -1242,24 +1274,173 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn physics_player(
-        &mut self,
-        clients: &ClientSlots,
-        ent_id: EntityId,
-        server_vars: &ServerVars,
-    ) -> Result<(), ProgsError> {
-        let client_id = ent_id
-            .0
-            .checked_sub(1)
-            .ok_or_else(|| ProgsError::with_msg(format!("Invalid client entity ID: {ent_id:?}")))?;
+    fn player_nudge(&mut self, ent_id: EntityId) -> Result<(), ProgsError> {
+        Ok(())
+    }
 
-        if clients.get(client_id).is_none() {
-            // No client in this slot.
-            return Ok(());
+    fn player_categorize_position(&mut self, ent_id: EntityId) -> Result<(), ProgsError> {
+        let mut ent = self.world.get(ent_id)?;
+        let origin = ent.origin()?;
+        let min = ent.min()?;
+        let max = ent.max()?;
+        let check_floor_pos = origin - Vec3::Z;
+
+        let (trace, floor_ent) = self.world.trace_entity_move(
+            ent_id,
+            origin,
+            min,
+            max,
+            check_floor_pos,
+            CollideKind::default(),
+            |_| true,
+        )?;
+        if trace.plane().map(|plane| plane.normal().z > 0.7) == Some(true) {
+            let mut ent = self.world.get_mut(ent_id)?;
+            ent.add_flags(EntityFlags::ON_GROUND)?;
+
+            if let Some(floor_ent) = floor_ent {
+                ent.set_ground(floor_ent)?;
+            } else {
+                ent.set_ground(EntityId(-1))?;
+            }
         }
 
+        Ok(())
+    }
+
+    fn physics_player_ground(
+        &mut self,
+        ent_id: EntityId,
+        target_vel: Vec3,
+        player_input: PlayerInput,
+        server_vars: &ServerVars,
+    ) -> Result<(), ProgsError> {
         let mut ent = self.world.get_mut(ent_id)?;
+        let angles = ent.view_angle()?;
+        let target_vel = Vec3::new(target_vel.x, target_vel.y, 0.);
+        let move_dir = Mat3::from_euler(
+            EulerRot::XYZ,
+            angles.x.to_radians(),
+            angles.y.to_radians(),
+            angles.z.to_radians(),
+        ) * target_vel;
+        ent.put_vector(move_dir, FieldAddrVector::MoveDirection as _)
+            .unwrap();
+
+        let origin = ent.origin()?;
+        let min = ent.min()?;
+        let max = ent.max()?;
+        ent.set_velocity(target_vel)?;
         ent.limit_velocity(server_vars.max_velocity)?;
+
+        let velocity = ent.velocity()?;
+
+        let (trace, _) = self.world.trace_entity_move(
+            ent_id,
+            origin,
+            min,
+            max,
+            origin + velocity * engine::duration_to_f32(player_input.delta_time),
+            CollideKind::default(),
+            |_| true,
+        )?;
+
+        if !trace.all_solid() {
+            let mut ent = self.world.get_mut(ent_id)?;
+            ent.set_origin(trace.end_point())?;
+        }
+
+        Ok(())
+    }
+
+    fn physics_player_air(
+        &mut self,
+        ent_id: EntityId,
+        target_vel: Vec3,
+        player_input: PlayerInput,
+        server_vars: &ServerVars,
+    ) -> Result<(), ProgsError> {
+        let mut ent = self.world.get_mut(ent_id)?;
+        let origin = ent.origin()?;
+        let min = ent.min()?;
+        let max = ent.max()?;
+        let angles = ent.view_angle()?;
+        let target_vel = Vec3::new(target_vel.x, target_vel.y, 0.);
+        let move_dir = Mat3::from_euler(
+            EulerRot::YZX,
+            angles.x.to_radians(),
+            angles.y.to_radians(),
+            angles.z.to_radians(),
+        ) * target_vel;
+        ent.put_vector(move_dir, FieldAddrVector::MoveDirection as _)
+            .unwrap();
+        let velocity = move_dir // velocity
+            - server_vars.entity_gravity
+                * server_vars.gravity;
+
+        ent.set_velocity(velocity)?;
+        ent.limit_velocity(server_vars.max_velocity)?;
+
+        let velocity = ent.velocity()?;
+
+        let (trace, _) = self.world.trace_entity_move(
+            ent_id,
+            origin,
+            min,
+            max,
+            origin + velocity * engine::duration_to_f32(player_input.delta_time),
+            CollideKind::default(),
+            |_| true,
+        )?;
+
+        if !trace.all_solid() {
+            let mut ent = self.world.get_mut(ent_id)?;
+            ent.set_origin(trace.end_point())?;
+        }
+
+        Ok(())
+    }
+
+    fn physics_player_water(
+        &mut self,
+        ent_id: EntityId,
+        player_input: PlayerInput,
+        server_vars: &ServerVars,
+    ) -> Result<(), ProgsError> {
+        Ok(())
+    }
+
+    pub fn physics_player(
+        &mut self,
+        ent_id: EntityId,
+        player_input: PlayerInput,
+        registry: &Registry,
+    ) -> Result<(), ProgsError> {
+        let server_vars: ServerVars = registry.read_cvars()?;
+
+        let target_vel = player_input.ground_movement.extend(0.);
+        let target_speed_raw = target_vel.length();
+        let target_dir = if target_speed_raw == 0. {
+            Vec3::ZERO
+        } else {
+            target_vel / target_speed_raw
+        };
+
+        let target_speed = target_speed_raw.min(server_vars.max_velocity);
+        let target_vel = target_dir * target_speed;
+
+        self.player_categorize_position(ent_id)?;
+
+        let mut ent = self.world.get(ent_id)?;
+
+        if ent.has_flag(EntityFlags::ON_GROUND)? {
+            self.physics_player_ground(ent_id, target_vel, player_input, &server_vars)?;
+        } else if ent.water_level()? < 2. {
+            self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
+        }
+
+        self.player_categorize_position(ent_id)?;
+
         debug!("TODO: Player physics not fully implemented");
         Ok(())
     }
@@ -1331,6 +1512,7 @@ impl LevelState {
                 .put_entity_id(ent_id, GlobalAddrEntity::Self_ as i16)?;
             self.globals
                 .put_entity_id(EntityId(0), GlobalAddrEntity::Other as i16)?;
+            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
 
             self.think(ent_id, frame_time, registry, vfs)?;
         }
@@ -1348,6 +1530,7 @@ impl LevelState {
         let ServerVars {
             gravity,
             max_velocity,
+            ..
         } = registry.read_cvars()?;
 
         let in_freefall = !self
@@ -1400,6 +1583,7 @@ impl LevelState {
         let ServerVars {
             gravity,
             max_velocity,
+            ..
         } = registry.read_cvars()?;
 
         if !self.think(ent_id, frame_time, registry, vfs)? {
@@ -1543,6 +1727,7 @@ impl LevelState {
             if !pusher_blocked_fn.is_none() {
                 self.globals.store(GlobalAddrEntity::Self_, pusher_id)?;
                 self.globals.store(GlobalAddrEntity::Other, other_id)?;
+                self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
                 self.execute_program(pusher_blocked_fn, registry, vfs)?;
             }
 
@@ -1742,11 +1927,12 @@ impl LevelState {
         vfs: &Vfs,
     ) -> Result<bool, ProgsError> {
         debug!("Finding floor for entity with ID {}", ent_id.0);
-        let origin = self.world.get(ent_id)?.origin()?;
+        let mut ent = self.world.get(ent_id)?;
+        let origin = ent.origin()?;
 
         let end = Vec3::new(origin.x, origin.y, origin.z - Self::DROP_TO_FLOOR_DIST);
-        let min = self.world.get(ent_id)?.min()?;
-        let max = self.world.get(ent_id)?.max()?;
+        let min = ent.min()?;
+        let max = ent.max()?;
 
         let (trace, collide_entity) = self.world.trace_entity_move(
             ent_id,
@@ -1759,11 +1945,10 @@ impl LevelState {
         )?;
         debug!("End position after drop: {:?}", trace.end_point());
 
-        let drop_dist = 256.0;
         let actual_dist = (trace.end_point() - origin).length();
 
         if collide_entity.is_none()
-            || (actual_dist - drop_dist).abs() < f32::EPSILON
+            || (actual_dist - Self::DROP_TO_FLOOR_DIST).abs() < f32::EPSILON
             || trace.all_solid()
         {
             // Entity didn't hit the floor or is stuck.
@@ -1772,12 +1957,9 @@ impl LevelState {
             // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
             self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
             self.link_entity(ent_id, false, registry, vfs)?;
-            self.world
-                .get_mut(ent_id)?
-                .add_flags(EntityFlags::ON_GROUND)?;
-            self.world
-                .get_mut(ent_id)?
-                .put_entity_id(collide_entity.unwrap(), FieldAddrEntityId::Ground as i16)?;
+            let mut ent = self.world.get_mut(ent_id)?;
+            ent.add_flags(EntityFlags::ON_GROUND)?;
+            ent.set_ground(collide_entity.unwrap())?;
 
             Ok(true)
         }
@@ -1806,12 +1988,14 @@ impl LevelState {
 
             self.globals.store(GlobalAddrEntity::Self_, trigger_id)?;
             self.globals.store(GlobalAddrEntity::Other, ent_id)?;
+            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
             self.execute_program(trigger_touch, registry.reborrow(), vfs)?;
         }
 
         // Restore state.
         self.globals.store(GlobalAddrEntity::Self_, restore_self)?;
         self.globals.store(GlobalAddrEntity::Other, restore_other)?;
+        self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
 
         Ok(())
     }
@@ -1836,6 +2020,7 @@ impl LevelState {
         if touch_a.0 != 0 && solid_a != EntitySolid::Not {
             self.globals.store(GlobalAddrEntity::Self_, ent_a)?;
             self.globals.store(GlobalAddrEntity::Other, ent_b)?;
+            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
             self.execute_program(touch_a, registry.reborrow(), vfs)?;
         }
 
@@ -1845,11 +2030,13 @@ impl LevelState {
         if touch_b.0 != 0 && solid_b != EntitySolid::Not {
             self.globals.store(GlobalAddrEntity::Self_, ent_b)?;
             self.globals.store(GlobalAddrEntity::Other, ent_a)?;
+            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
             self.execute_program(touch_b, registry.reborrow(), vfs)?;
         }
 
         self.globals.store(GlobalAddrEntity::Self_, restore_self)?;
         self.globals.store(GlobalAddrEntity::Other, restore_other)?;
+        self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
 
         Ok(())
     }
@@ -2268,12 +2455,11 @@ impl LevelState {
 
     pub fn builtin_sprint(&mut self) -> Result<(), ProgsError> {
         let strs = &self.string_table;
-        let _client_id = self.globals.entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
-        let string = strs.get(s_id).unwrap();
-        debug!("SPRINT: {string}");
+        let text = strs.get(s_id).unwrap().into_owned();
+        let mut dest = self.write_dest()?;
 
-        // TODO: Send print to client
+        ServerCmd::Print { text }.serialize(&mut dest)?;
 
         Ok(())
     }
@@ -2319,6 +2505,21 @@ impl LevelState {
         let val = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         self.set_lightstyle(index, val);
 
+        Ok(())
+    }
+
+    pub fn builtin_check_bottom(&mut self, registry: &Registry) -> Result<(), ProgsError> {
+        let server_vars = registry.read_cvars::<ServerVars>()?;
+        let ent_id = self.globals.entity_id(GLOBAL_ADDR_ARG_0 as _)?;
+
+        self.globals.put_float(
+            if self.check_bottom(ent_id, &server_vars)? {
+                1.
+            } else {
+                0.
+            },
+            GLOBAL_ADDR_RETURN as _,
+        )?;
         Ok(())
     }
 
@@ -2399,7 +2600,7 @@ impl LevelState {
     }
 
     pub fn builtin_ambient_sound(&mut self) -> Result<(), ProgsError> {
-        let pos = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
+        let origin = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
         let sample = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let volume = (self.globals.get_float(GLOBAL_ADDR_ARG_2 as i16)? * 255.) as _;
         let attenuation = (self.globals.get_float(GLOBAL_ADDR_ARG_3 as i16)? * 255.) as _;
@@ -2413,7 +2614,7 @@ impl LevelState {
         };
 
         ServerCmd::SpawnStaticSound {
-            origin: pos.into(),
+            origin,
             sound_id: sound_id as _,
             volume,
             attenuation,
@@ -2440,7 +2641,7 @@ impl LevelState {
 
         for ent in self
             .world
-            .range((Bound::Excluded(entity.0), Bound::Unbounded))
+            .range((Bound::Excluded(entity.0.max(0) as usize), Bound::Unbounded))
         {
             let Ok(field) = self.world.get(ent)?.load(field) else {
                 debug!("No field {} on {:?}", field, ent);
@@ -2495,6 +2696,7 @@ impl LevelState {
         // Restore after `move_step`.
         self.cx.set_current_function(func);
         self.globals.store(GlobalAddrEntity::Self_, this_id)?;
+        self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
 
         Ok(())
     }
@@ -2613,7 +2815,7 @@ impl LevelState {
         // TODO: `into_owned` not necessary here, `broadcast`/`frame_client_messages` should be extracted into a single field.
         let string = self.string_table.get(val).unwrap_or_default().into_owned();
         let mut dest = self.write_dest()?;
-        dest.write_all(&*string.raw)?;
+        dest.write_all(&string.raw)?;
         dest.write_u8(0)?;
         Ok(())
     }
@@ -2632,6 +2834,76 @@ impl LevelState {
         Ok(a.grow(Vec3A::splat(dist)).intersects(&b))
     }
 
+    fn check_bottom(&self, ent_id: EntityId, server_vars: &ServerVars) -> Result<bool, ProgsError> {
+        let mut ent = self.world.get(ent_id)?;
+
+        let origin = ent.origin()?;
+        let min = origin + ent.min()?;
+        let max = origin + ent.max()?;
+
+        let start_z = min.z - 1.;
+        let mut to_check = [max.x, min.x]
+            .into_iter()
+            .cartesian_product([max.y, min.y])
+            .map(|(x, y)| Vec3::new(x, y, start_z));
+
+        let all_solid =
+            to_check.all(|start| self.world.contents_at_point(start) == BspLeafContents::Solid);
+
+        if all_solid {
+            return Ok(true);
+        }
+
+        let start_z = min.z;
+
+        let start = Vec3::new((min.x + max.x) / 2., (min.y + max.y) / 2., start_z);
+        let stop = start - Vec3::Z * server_vars.max_step * 2.;
+
+        let (trace, _) = self.world.trace_entity_move(
+            ent_id,
+            start,
+            Vec3::ZERO,
+            Vec3::ZERO,
+            stop,
+            CollideKind::default(),
+            |_| true,
+        )?;
+
+        if trace.is_terminal() {
+            return Ok(false);
+        }
+
+        let mid = trace.end_point().z;
+        let mut bottom = mid;
+
+        let mut to_check = [max.x, min.x]
+            .into_iter()
+            .cartesian_product([max.y, min.y])
+            .map(|(x, y)| Vec3::new(x, y, start_z));
+
+        Ok(to_check.all(|start| {
+            let Ok((trace, _)) = self.world.trace_entity_move(
+                ent_id,
+                start,
+                Vec3::ZERO,
+                Vec3::ZERO,
+                start,
+                CollideKind::default(),
+                |_| true,
+            ) else {
+                return false;
+            };
+
+            if !trace.is_terminal() {
+                bottom = bottom.max(trace.end_point().z);
+
+                mid - trace.end_point().z <= server_vars.max_step
+            } else {
+                true
+            }
+        }))
+    }
+
     fn move_step(
         &mut self,
         ent_id: EntityId,
@@ -2640,23 +2912,16 @@ impl LevelState {
         registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<bool, ProgsError> {
+        let server_vars = registry.read_cvars::<ServerVars>()?;
+
         let mut ent = self.world.get(ent_id)?;
         let ent_flags = ent.flags()?;
 
-        let ent_is_ogre =
-            self.string_table.get(ent.model_name()?).unwrap().to_str() == "progs/ogre.mdl";
-        let dbg_hack = |msg: &str| {
-            if ent_is_ogre {
-                info!("{msg}")
-            } else {
-                debug!("{msg}")
-            }
-        };
-
         let min = ent.min()?;
         let max = ent.max()?;
+        let old_origin = ent.origin()?;
 
-        if ent_flags.contains(EntityFlags::SWIM) | ent_flags.contains(EntityFlags::FLY) {
+        if ent_flags.intersects(EntityFlags::SWIM | EntityFlags::FLY) {
             // Try move with/without vertical motion
             for i in 0..2 {
                 let mut ent = self.world.get(ent_id)?;
@@ -2708,13 +2973,9 @@ impl LevelState {
             }
         }
 
-        let mut ent = self.world.get(ent_id)?;
-
-        let old_origin = ent.origin()?;
         let new_origin = old_origin + move_dir;
 
-        let max_step: f32 = registry.read_cvar("sv_stepheight")?;
-        let step = Vec3::Z * max_step;
+        let step = Vec3::Z * server_vars.max_step;
 
         let end = new_origin - step;
 
@@ -2729,7 +2990,7 @@ impl LevelState {
         )?;
 
         if trace.all_solid() {
-            dbg_hack("Step trace failed");
+            debug!("Step trace failed: {ground_ent:?}");
             return Ok(false);
         }
 
@@ -2744,8 +3005,8 @@ impl LevelState {
                 |_| true,
             )?;
 
-            if trace.all_solid() || trace.start_solid() {
-                dbg_hack("Non-step trace failed");
+            if temp_trace.all_solid() || temp_trace.start_solid() {
+                debug!("Non-step trace failed: {ground_ent:?}");
                 return Ok(false);
             }
 
@@ -2766,10 +3027,10 @@ impl LevelState {
                     self.link_entity(ent_id, true, registry, vfs)?;
                 }
 
-                dbg_hack("Entity had ground moved out from underneath");
+                debug!("Entity had ground moved out from underneath: {ground_ent:?}");
                 true
             } else {
-                dbg_hack("Entity walked off edge(?)");
+                debug!("Entity walked off edge(?): {ground_ent:?}");
                 false
             });
         }
@@ -2778,17 +3039,29 @@ impl LevelState {
         debug!("{} -> {}", old_origin, trace.end_point());
         ent.set_origin(trace.end_point())?;
 
-        debug!("TODO: SV_CheckBottom");
+        if !self.check_bottom(ent_id, &server_vars)? {
+            let mut ent = self.world.get_mut(ent_id)?;
+            return Ok(if ent.has_flag(EntityFlags::PARTIAL_GROUND)? {
+                if relink {
+                    self.link_entity(ent_id, true, registry, vfs)?;
+                }
 
+                true
+            } else {
+                ent.set_origin(old_origin)?;
+                false
+            });
+        }
+
+        let mut ent = self.world.get_mut(ent_id)?;
         ent.remove_flags(EntityFlags::PARTIAL_GROUND)?;
 
-        ent.set_ground(ground_ent.unwrap_or_default())?;
+        ent.set_ground(ground_ent.unwrap_or(EntityId(-1)))?;
 
         if relink {
             self.link_entity(ent_id, true, registry, vfs)?;
         }
 
-        dbg_hack("Successful move");
         Ok(true)
     }
 
@@ -2833,6 +3106,8 @@ impl LevelState {
         mut registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<(), ProgsError> {
+        let server_vars: ServerVars = registry.read_cvars()?;
+
         let mut this = self.world.get(this_id)?;
         let old_dir = angle_mod(((this.ideal_yaw()? / 45.) as i32) as f32 * 45.);
         let turn_around = old_dir - 180.;
@@ -2915,7 +3190,11 @@ impl LevelState {
 
         self.world.get_mut(this_id)?.set_ideal_yaw(old_dir)?;
 
-        debug!("TODO: SV_CheckBottom");
+        if !self.check_bottom(this_id, &server_vars)? {
+            self.world
+                .get_mut(this_id)?
+                .add_flags(EntityFlags::PARTIAL_GROUND)?;
+        }
 
         Ok(())
     }
@@ -2932,17 +3211,12 @@ impl LevelState {
 
         let flags = this.flags()?;
 
-        if !(flags.contains(EntityFlags::ON_GROUND)
-            || flags.contains(EntityFlags::FLY)
-            || flags.contains(EntityFlags::SWIM))
-        {
+        if !flags.intersects(EntityFlags::ON_GROUND | EntityFlags::FLY | EntityFlags::SWIM) {
             self.globals.put_float(0., GLOBAL_ADDR_RETURN as i16)?;
             return Ok(());
         }
 
-        if !this.load(FieldAddrEntityId::Enemy)?.is_none()
-            && self.close_enough(this_id, goal_id, dist)?
-        {
+        if !this.enemy()?.is_none() && self.close_enough(this_id, goal_id, dist)? {
             self.globals.put_float(0., GLOBAL_ADDR_RETURN as i16)?;
             return Ok(());
         }
@@ -3003,13 +3277,12 @@ impl LevelState {
             GlobalAddrFloat::TraceInOpen as _,
         )?;
         self.globals
-            .put_vector(trace.end_point().into(), GlobalAddrVector::TraceEndPos as _)?;
+            .put_vector(trace.end_point(), GlobalAddrVector::TraceEndPos as _)?;
         self.globals.put_vector(
             trace
                 .plane()
                 .map(|plane| plane.normal())
-                .unwrap_or(Vec3::ZERO)
-                .into(),
+                .unwrap_or(Vec3::ZERO),
             GlobalAddrVector::TracePlaneNormal as _,
         )?;
         self.globals.put_float(
@@ -3026,7 +3299,7 @@ impl LevelState {
 
     pub fn builtin_normalize(&mut self) -> Result<(), ProgsError> {
         let vec = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
-        let normalized = Vec3::from(vec).normalize();
+        let normalized = vec.normalize();
         let normalized = if normalized.is_finite() {
             normalized
         } else {
@@ -3034,7 +3307,7 @@ impl LevelState {
         };
 
         self.globals
-            .put_vector(normalized.into(), GLOBAL_ADDR_RETURN as _)?;
+            .put_vector(normalized, GLOBAL_ADDR_RETURN as _)?;
         Ok(())
     }
 }
@@ -3091,7 +3364,7 @@ pub mod systems {
                                             .clientcmd_prespawn(
                                                 client_id,
                                                 registry.reborrow(),
-                                                &*vfs,
+                                                &vfs,
                                             )
                                             .unwrap();
 
@@ -3160,25 +3433,38 @@ pub mod systems {
                             }
                         }
                         ClientCmd::Move {
-                            send_time: _,
-                            angles: _,
+                            delta_time,
+                            angles,
                             fwd_move,
                             side_move,
                             up_move,
-                            button_flags: _,
-                            impulse: _,
+                            button_flags,
+                            impulse,
                         } => {
                             let Session { persist, level, .. } = &mut *server;
 
-                            if let Some(mut entity) = persist
-                                .client(client_id)
-                                .and_then(|c| c.entity())
-                                .and_then(|ent_id| level.world.get_mut(ent_id).ok())
+                            if let Some(ent_id) = persist.client(client_id).and_then(|c| c.entity())
                             {
-                                entity
-                                    .put_vector(
-                                        Vec3::new(fwd_move as _, side_move as _, up_move as _),
-                                        FieldAddrVector::MoveDirection as _,
+                                let mut entity = level.world.get_mut(ent_id).ok().unwrap();
+
+                                entity.set_view_angle(angles).unwrap();
+                                entity.set_buttons(button_flags).unwrap();
+
+                                level
+                                    .physics_player(
+                                        ent_id,
+                                        PlayerInput {
+                                            delta_time,
+                                            angles,
+                                            ground_movement: Vec2::new(
+                                                fwd_move as f32,
+                                                side_move as f32,
+                                            ),
+                                            up_movement: up_move as f32,
+                                            buttons: button_flags,
+                                            impulse,
+                                        },
+                                        &registry,
                                     )
                                     .unwrap();
                             }
@@ -3367,7 +3653,7 @@ pub mod systems {
                 }
 
                 // Skip world entity
-                for ent in level.world.iter().skip(1) {
+                for ent in level.world.range(1..) {
                     // TODO: Handle deletions
                     let Ok(mut entity) = level.world.get(ent) else {
                         continue;

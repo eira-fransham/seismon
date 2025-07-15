@@ -133,7 +133,7 @@ impl ClientEntity {
     ///
     /// `msg_times` specifies the last two message times from the server, where
     /// `msg_times[0]` is more recent.
-    pub fn update(&mut self, msg_times: [Duration; 2], update: EntityUpdate) {
+    pub fn update(&mut self, msg_times: [Duration; 2], update: &EntityUpdate) {
         // enable lerping
         self.force_link = false;
 
@@ -279,10 +279,10 @@ impl Light {
         let decay = self.decay_rate * engine::duration_to_f32(lived);
         let radius = (self.init_radius - decay).max(0.0);
 
-        if let Some(min) = self.min_radius {
-            if radius < min {
-                return 0.0;
-            }
+        if let Some(min) = self.min_radius
+            && radius < min
+        {
+            return 0.0;
         }
 
         radius

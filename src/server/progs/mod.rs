@@ -238,7 +238,7 @@ impl fmt::Display for StringId {
 
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[repr(C)]
-pub struct EntityId(pub usize);
+pub struct EntityId(pub i32);
 
 impl fmt::Display for EntityId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

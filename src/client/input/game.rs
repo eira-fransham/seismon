@@ -23,6 +23,7 @@ use bevy::{
     input::{keyboard::Key, prelude::*},
     prelude::*,
 };
+use bitflags::bitflags;
 use failure::{Error, bail, format_err};
 use hashbrown::HashMap;
 use smol_str::SmolStr;
@@ -254,6 +255,31 @@ pub enum Action {
     ShowTeamScores = 18,
 }
 
+bitflags! {
+    #[derive(Resource, Default, Clone, Ord, Debug, Eq, PartialOrd, PartialEq, Hash)]
+    pub struct Actions: u32 {
+        const FORWARD = 1 << 0;
+        const BACK = 1 << 1;
+        const MOVE_LEFT = 1 << 2;
+        const MOVE_RIGHT = 1 << 3;
+        const MOVE_UP = 1 << 4;
+        const MOVE_DOWN = 1 << 5;
+        const LOOK_UP = 1 << 6;
+        const LOOK_DOWN = 1 << 7;
+        const LEFT = 1 << 8;
+        const RIGHT = 1 << 9;
+        const SPEED = 1 << 10;
+        const JUMP = 1 << 11;
+        const STRAFE = 1 << 12;
+        const ATTACK = 1 << 13;
+        const USE = 1 << 14;
+        const K_LOOK = 1 << 15;
+        const M_LOOK = 1 << 16;
+        const SHOW_SCORES = 1 << 17;
+        const SHOW_TEAM_SCORES = 1 << 18;
+    }
+}
+
 impl FromStr for Action {
     type Err = Error;
 
@@ -365,10 +391,10 @@ impl From<Key> for AnyInput {
     fn from(mut value: Key) -> Self {
         // TODO: This means we allocate for every single input, unless the compiler can elide the
         //       allocation.
-        if let Key::Character(k) = &mut value {
-            if k.chars().any(|c| c.is_ascii_lowercase()) {
-                *k = k.to_ascii_uppercase().into();
-            }
+        if let Key::Character(k) = &mut value
+            && k.chars().any(|c| c.is_ascii_lowercase())
+        {
+            *k = k.to_ascii_uppercase().into();
         }
 
         Self::Keyboard(value)
@@ -494,10 +520,10 @@ impl Display for Binding<'_> {
 
         let mut cmds = self.commands.iter();
         if let Some(first_cmd) = cmds.next() {
-            write!(f, "{}", first_cmd)?;
+            write!(f, "{first_cmd}")?;
 
             for cmd in cmds {
-                write!(f, "; {}", cmd)?;
+                write!(f, "; {cmd}")?;
             }
         }
 

@@ -434,13 +434,7 @@ impl Globals {
     pub fn entity_id(&self, addr: i16) -> Result<EntityId, GlobalsError> {
         self.type_check(addr as usize, Type::QEntity)?;
 
-        match self.get_addr(addr)?.read_i32::<LittleEndian>()? {
-            e if e < 0 => Err(GlobalsError::with_msg(format!(
-                "Negative entity ID ({})",
-                e
-            ))),
-            e => Ok(EntityId(e as usize)),
-        }
+        Ok(EntityId(self.get_addr(addr)?.read_i32::<LittleEndian>()?))
     }
 
     /// Stores an `EntityId` at the given virtual address.
@@ -457,10 +451,7 @@ impl Globals {
         self.type_check(addr as usize, Type::QField)?;
 
         match self.get_addr(addr)?.read_i32::<LittleEndian>()? {
-            f if f < 0 => Err(GlobalsError::with_msg(format!(
-                "Negative entity ID ({})",
-                f
-            ))),
+            f if f < 0 => Err(GlobalsError::with_msg(format!("Negative entity ID ({f})"))),
             f => Ok(FieldAddr(f as usize)),
         }
     }

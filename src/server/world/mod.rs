@@ -277,14 +277,14 @@ impl Entities {
         entity_id: EntityId,
         type_def: &'a EntityTypeDef,
     ) -> Result<EntityRef<'a>, ProgsError> {
-        if entity_id.0 > self.slots.len() {
+        if !(0..self.slots.len() as i32).contains(&entity_id.0) {
             return Err(ProgsError::with_msg(format!(
                 "Invalid entity ID ({})",
                 entity_id.0
             )));
         }
 
-        let entity = match self.slots.get(entity_id.0) {
+        let entity = match self.slots.get(entity_id.0 as usize) {
             None | Some(AreaEntitySlot::Vacant) => Err(ProgsError::with_msg(format!(
                 "No entity at list entry {}",
                 entity_id.0
@@ -296,7 +296,8 @@ impl Entities {
         Ok(EntityRef::new(
             type_def,
             self.fields.focus().narrow(
-                entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count(),
+                entity_id.0 as usize * type_def.addr_count()
+                    ..(entity_id.0 as usize + 1) * type_def.addr_count(),
             ),
             entity,
         ))
@@ -307,14 +308,14 @@ impl Entities {
         entity_id: EntityId,
         type_def: &'a EntityTypeDef,
     ) -> Result<EntityMut<'a>, ProgsError> {
-        if entity_id.0 > self.slots.len() {
+        if !(0..self.slots.len() as i32).contains(&entity_id.0) {
             return Err(ProgsError::with_msg(format!(
                 "Invalid entity ID ({})",
                 entity_id.0
             )));
         }
 
-        let entity = match self.slots.get_mut(entity_id.0) {
+        let entity = match self.slots.get_mut(entity_id.0 as usize) {
             None | Some(AreaEntitySlot::Vacant) => Err(ProgsError::with_msg(format!(
                 "No entity at list entry {}",
                 entity_id.0
@@ -326,7 +327,8 @@ impl Entities {
         Ok(EntityMut::new(
             type_def,
             self.fields.focus_mut().narrow(
-                entity_id.0 * type_def.addr_count()..(entity_id.0 + 1) * type_def.addr_count(),
+                entity_id.0 as usize * type_def.addr_count()
+                    ..(entity_id.0 as usize + 1) * type_def.addr_count(),
             ),
             entity,
         ))
@@ -337,13 +339,24 @@ impl Entities {
         entity_id: EntityId,
         type_def: &'a EntityTypeDef,
     ) -> EntityMut<'a> {
-        self.slots[entity_id.0] = AreaEntitySlot::Occupied(default());
+        if entity_id.0 < 0 {
+            panic!("Invalid entity_id {entity_id}");
+        }
+
+        self.slots[entity_id.0 as usize] = AreaEntitySlot::Occupied(default());
 
         self.get_mut(entity_id, type_def).unwrap()
     }
 
     pub fn exists(&self, entity_id: EntityId) -> bool {
-        matches!(self.slots[entity_id.0], AreaEntitySlot::Occupied(_))
+        if entity_id.0 < 0 {
+            false
+        } else {
+            matches!(
+                self.slots[entity_id.0 as usize],
+                AreaEntitySlot::Occupied(_)
+            )
+        }
     }
 
     pub fn list(&self) -> impl Iterator<Item = EntityId> + use<> {
@@ -351,7 +364,7 @@ impl Entities {
             .iter()
             .enumerate()
             .filter(|(_, slot)| matches!(slot, &AreaEntitySlot::Occupied(_)))
-            .map(|(id, _)| EntityId(id))
+            .map(|(id, _)| EntityId(id as i32))
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -376,7 +389,7 @@ impl Entities {
             .enumerate()
             .filter_map(move |(id, slot)| {
                 if let &AreaEntitySlot::Occupied(_) = slot {
-                    Some(EntityId(id + start))
+                    Some(EntityId((id + start) as i32))
                 } else {
                     None
                 }
@@ -393,7 +406,7 @@ impl Entities {
                     if matches!(cur, AreaEntitySlot::Occupied(_))
                         || matches!(last, AreaEntitySlot::Occupied(_))
                     {
-                        Some(EntityId(i))
+                        Some(EntityId(i as i32))
                     } else {
                         None
                     }
@@ -440,7 +453,7 @@ impl Entities {
             *field = default();
         }
 
-        Ok(EntityId(slot_id))
+        Ok(EntityId(slot_id as i32))
     }
 
     pub fn alloc_uninitialized_reserved(
@@ -459,33 +472,33 @@ impl Entities {
             *field = default();
         }
 
-        Ok(EntityId(slot_id))
+        Ok(EntityId(slot_id as i32))
     }
 
     fn free(&mut self, entity_id: EntityId) -> Result<(), ProgsError> {
-        if entity_id.0 > self.slots.len() {
+        if !(0..self.slots.len() as i32).contains(&entity_id.0) {
             return Err(ProgsError::with_msg(format!(
                 "Invalid entity ID ({entity_id:?})"
             )));
         }
 
-        if let AreaEntitySlot::Vacant = self.slots[entity_id.0] {
+        if let AreaEntitySlot::Vacant = self.slots[entity_id.0 as usize] {
             return Ok(());
         }
 
-        self.slots[entity_id.0] = AreaEntitySlot::Vacant;
+        self.slots[entity_id.0 as usize] = AreaEntitySlot::Vacant;
         Ok(())
     }
 
     fn area_entity(&self, entity_id: EntityId) -> Result<&AreaEntity, ProgsError> {
-        if entity_id.0 > self.slots.len() {
+        if !(0..self.slots.len() as i32).contains(&entity_id.0) {
             return Err(ProgsError::with_msg(format!(
                 "Invalid entity ID ({})",
                 entity_id.0
             )));
         }
 
-        match self.slots.get(entity_id.0) {
+        match self.slots.get(entity_id.0 as usize) {
             None | Some(AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_)) => Err(
                 ProgsError::with_msg(format!("No entity at list entry {}", entity_id.0)),
             ),
@@ -494,14 +507,14 @@ impl Entities {
     }
 
     fn area_entity_mut(&mut self, entity_id: EntityId) -> Result<&mut AreaEntity, ProgsError> {
-        if entity_id.0 > self.slots.len() {
+        if !(0..self.slots.len() as i32).contains(&entity_id.0) {
             return Err(ProgsError::with_msg(format!(
                 "Invalid entity ID ({})",
                 entity_id.0
             )));
         }
 
-        match self.slots.get_mut(entity_id.0) {
+        match self.slots.get_mut(entity_id.0 as usize) {
             None | Some(AreaEntitySlot::Vacant | AreaEntitySlot::Reserved(_)) => Err(
                 ProgsError::with_msg(format!("No entity at list entry {}", entity_id.0)),
             ),
@@ -613,30 +626,26 @@ impl World {
     ///
     /// This representation should be compatible with the one used by the original Quake.
     pub fn ent_fld_addr_to_i32(&self, ent_fld_addr: EntityFieldAddr) -> i32 {
-        let total_addr = (ent_fld_addr.entity_id.0 * self.type_def.addr_count()
-            + ent_fld_addr.field_addr.0)
-            * mem::size_of::<f32>();
+        let total_addr = (ent_fld_addr.entity_id.0 * self.type_def.addr_count() as i32
+            + ent_fld_addr.field_addr.0 as i32)
+            * mem::size_of::<f32>() as i32;
 
-        if total_addr > ::std::i32::MAX as usize {
-            panic!("ent_fld_addr_to_i32: total_addr overflow");
-        }
-
-        total_addr as i32
+        total_addr
     }
 
     /// Convert the internal representation of a field offset back to struct form.
     pub fn ent_fld_addr_from_i32(&self, val: i32) -> EntityFieldAddr {
         if val < 0 {
-            panic!("ent_fld_addr_from_i32: negative value ({})", val);
+            panic!("ent_fld_addr_from_i32: negative value ({val})");
         }
 
         if val % 4 != 0 {
-            panic!("ent_fld_addr_from_i32: value % 4 != 0 ({})", val);
+            panic!("ent_fld_addr_from_i32: value % 4 != 0 ({val})");
         }
 
         let total_addr = val as usize / mem::size_of::<f32>();
         EntityFieldAddr {
-            entity_id: EntityId(total_addr / self.type_def.addr_count()),
+            entity_id: EntityId((total_addr / self.type_def.addr_count()) as i32),
             field_addr: FieldAddr(total_addr % self.type_def.addr_count()),
         }
     }
@@ -706,9 +715,9 @@ impl World {
                             def.offset as i16,
                         )?,
                         Type::QEntity => {
-                            let id: usize = val.parse().unwrap();
+                            let id: i32 = val.parse().unwrap();
 
-                            if id > MAX_ENTITIES {
+                            if id > MAX_ENTITIES as i32 {
                                 return Err(ProgsError::with_msg("out-of-bounds entity access"));
                             }
 
@@ -781,8 +790,12 @@ impl World {
     }
 
     pub fn unlink_entity(&mut self, e_id: EntityId) -> Result<(), ProgsError> {
+        if e_id.0 < 0 {
+            return Ok(());
+        }
+
         // if this entity has been removed or freed, do nothing
-        if let AreaEntitySlot::Vacant = self.entities.slots[e_id.0] {
+        if let AreaEntitySlot::Vacant = self.entities.slots[e_id.0 as usize] {
             return Ok(());
         }
 
@@ -811,7 +824,7 @@ impl World {
         }
 
         // if this entity has been removed or freed, do nothing
-        if let AreaEntitySlot::Vacant = self.entities.slots[e_id.0] {
+        if let AreaEntitySlot::Vacant = self.entities.slots[e_id.0 as usize] {
             return Ok(());
         }
 
@@ -971,7 +984,7 @@ impl World {
             }
 
             _ => {
-                let hull = BspCollisionHull::for_bounds(ent.min()?, ent.max()?)?;
+                let hull = BspCollisionHull::for_bounds(ent.min()? - max, ent.max()? - min)?;
                 let offset = ent.origin()?;
 
                 Ok((hull, offset))
@@ -1019,7 +1032,7 @@ impl World {
 
         // if this is a rocket or a grenade, expand the monster collision box
         let (monster_min, monster_max) = match kind {
-            CollideKind::Missile => (min - Vec3::splat(15.0), max + Vec3::splat(15.0)),
+            CollideKind::Missile => (Vec3::splat(15.0), Vec3::splat(15.0)),
             _ => (min, max),
         };
 
@@ -1208,7 +1221,7 @@ impl World {
         end: Vec3,
     ) -> Result<Trace, ProgsError> {
         let (hull, offset) = self.hull_for_entity(e_id, min, max)?;
-        debug!("hull offset: {:?}", offset);
+        debug!("hull offset for {e_id}: {offset}");
         debug!(
             "hull contents at start: {:?}",
             hull.contents_at_point(start).unwrap()

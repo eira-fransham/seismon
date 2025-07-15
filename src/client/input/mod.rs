@@ -62,7 +62,7 @@ pub enum InputFocus {
 pub mod systems {
     use bevy::{
         ecs::event::EventCursor,
-        input::{ButtonState, keyboard::KeyboardInput},
+        input::{ButtonState, keyboard::KeyboardInput, mouse::MouseMotion},
         prelude::*,
         window::PrimaryWindow,
     };
@@ -98,12 +98,12 @@ pub mod systems {
     }
 
     pub fn game_input(
-        mut reader: ResMut<InputEventReader<KeyboardInput>>,
-        keyboard_events: Res<Events<KeyboardInput>>,
+        mut keyboard_events: EventReader<KeyboardInput>,
+        mut mouse_events: EventReader<MouseMotion>,
         mut run_cmds: EventWriter<RunCmd<'static>>,
         input: Res<GameInput>,
     ) {
-        for key in reader.reader.read(&keyboard_events) {
+        for key in keyboard_events.read() {
             // TODO: Make this work better if we have arguments - currently we clone the arguments every time
             // TODO: Error handling
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {
@@ -119,6 +119,17 @@ pub mod systems {
                     }
                 }));
             }
+        }
+
+        let mouse_total: Vec2 = mouse_events.read().map(|motion| motion.delta).sum();
+        let mouse_x = mouse_total.x;
+        let mouse_y = mouse_total.y;
+
+        match format!("mousedelta #({mouse_x} {mouse_y})").parse() {
+            Ok(cmd) => {
+                run_cmds.write(cmd);
+            }
+            Err(e) => error!("Invalid mouse movement: {mouse_total}"),
         }
     }
 
@@ -200,7 +211,6 @@ pub mod systems {
                         Err(e) => warn!("Console error: {}", e),
                     }
                 }
-                // TODO: Print these to console
                 Err(e) => warn!("Console error: {}", e),
             }
         }

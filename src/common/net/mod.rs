@@ -245,10 +245,11 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
+    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
     pub struct ButtonFlags: u8 {
         const ATTACK = 0x01;
-        const JUMP = 0x02;
+        const USE = 0x02;
+        const JUMP = 0x04;
     }
 }
 
@@ -596,14 +597,14 @@ impl EntityState {
             colormap: Some(self.colormap as _).filter(|v| *v != baseline.colormap),
             skin_id: Some(self.skin_id as _).filter(|v| *v != baseline.skin_id as u8),
             effects: Some(self.effects).filter(|v| *v != baseline.effects),
-            origin_x: Some(self.origin[0]).filter(|v| *v != baseline.origin[0]),
-            pitch: Some(self.angles[0]).filter(|v| *v != baseline.angles[0]),
-            origin_y: Some(self.origin[1]).filter(|v| *v != baseline.origin[1]),
-            yaw: Some(self.angles[1]).filter(|v| *v != baseline.angles[1]),
-            origin_z: Some(self.origin[2]).filter(|v| *v != baseline.origin[2]),
-            roll: Some(self.angles[2]).filter(|v| *v != baseline.angles[2]),
+            origin_x: Some(self.origin.x).filter(|v| *v != baseline.origin.x),
+            pitch: Some(self.angles.x).filter(|v| *v != baseline.angles.x),
+            origin_y: Some(self.origin.y).filter(|v| *v != baseline.origin.y),
+            yaw: Some(self.angles.y).filter(|v| *v != baseline.angles.y),
+            origin_z: Some(self.origin.z).filter(|v| *v != baseline.origin.z),
+            roll: Some(self.angles.z).filter(|v| *v != baseline.angles.z),
             // TODO: When should this be set?
-            no_lerp: true,
+            no_lerp: false,
         }
     }
 }
@@ -2044,7 +2045,7 @@ pub enum ClientCmd {
     NoOp,
     Disconnect,
     Move {
-        send_time: Duration,
+        delta_time: Duration,
         angles: Vec3,
         fwd_move: i16,
         side_move: i16,
@@ -2081,8 +2082,7 @@ impl ClientCmd {
             Some(c) => c,
             None => {
                 return Err(NetError::invalid_data(format!(
-                    "Invalid client command code: {}",
-                    code_val
+                    "Invalid client command code: {code_val}"
                 )));
             }
         };
@@ -2092,28 +2092,28 @@ impl ClientCmd {
             ClientCmdCode::NoOp => ClientCmd::NoOp,
             ClientCmdCode::Disconnect => ClientCmd::Disconnect,
             ClientCmdCode::Move => {
-                let send_time = engine::duration_from_f32(reader.read_f32::<LittleEndian>()?);
+                let delta_time =
+                    engine::duration_from_f32(reader.read_f32::<LittleEndian>()? / 1000.);
                 let angles = Vec3::new(
                     read_angle(reader)?,
                     read_angle(reader)?,
                     read_angle(reader)?,
                 );
+                let angles = Vec3::new(angles.x, angles.z, angles.y + 90.);
                 let fwd_move = reader.read_i16::<LittleEndian>()?;
-                let side_move = reader.read_i16::<LittleEndian>()?;
+                let side_move = -reader.read_i16::<LittleEndian>()?;
                 let up_move = reader.read_i16::<LittleEndian>()?;
                 let button_flags_val = reader.read_u8()?;
                 let button_flags = match ButtonFlags::from_bits(button_flags_val) {
                     Some(bf) => bf,
                     None => {
-                        return Err(NetError::invalid_data(format!(
-                            "Invalid value for button flags: {}",
-                            button_flags_val
-                        )));
+                        error!("Invalid value for button flags: {button_flags_val:x}");
+                        ButtonFlags::from_bits_truncate(button_flags_val)
                     }
                 };
                 let impulse = reader.read_u8()?;
                 ClientCmd::Move {
-                    send_time,
+                    delta_time,
                     angles,
                     fwd_move,
                     side_move,
@@ -2142,7 +2142,7 @@ impl ClientCmd {
             ClientCmd::NoOp => {}
             ClientCmd::Disconnect => {}
             ClientCmd::Move {
-                send_time,
+                delta_time,
                 angles,
                 fwd_move,
                 side_move,
@@ -2150,7 +2150,8 @@ impl ClientCmd {
                 button_flags,
                 impulse,
             } => {
-                writer.write_f32::<LittleEndian>(engine::duration_to_f32(send_time))?;
+                // Delta time is in ms for this field.
+                writer.write_f32::<LittleEndian>(engine::duration_to_f32(delta_time) * 1000.)?;
                 write_angle_vector3(writer, angles)?;
                 writer.write_i16::<LittleEndian>(fwd_move)?;
                 writer.write_i16::<LittleEndian>(side_move)?;
@@ -2835,7 +2836,7 @@ mod test {
     #[test]
     fn test_client_cmd_move_read_write_eq() {
         let src = ClientCmd::Move {
-            send_time: Duration::try_milliseconds(1234).unwrap(),
+            delta_time: Duration::try_milliseconds(1234).unwrap(),
             // have to use angles that won't lose precision from write_angle
             angles: Vec3::new(90.0, -90.0, 0.0),
             fwd_move: 27,

@@ -699,7 +699,7 @@ impl ClientState {
         let mlook = registry.is_pressed("mlook");
         self.view.handle_input(
             frame_time,
-            &*registry,
+            registry,
             self.intermission.as_ref(),
             mlook,
             move_vars.cl_anglespeedkey,
@@ -743,16 +743,20 @@ impl ClientState {
             button_flags |= ButtonFlags::JUMP;
         }
 
+        if registry.is_pressed("use") {
+            button_flags |= ButtonFlags::USE;
+        }
+
         if !mlook {
             // TODO: IN_Move (mouse / joystick / gamepad)
         }
 
-        let send_time = self.msg_times[0];
+        let delta_time = frame_time;
         // send "raw" angles without any pitch/roll from movement or damage
         let angles = self.view.input_angles();
 
         ClientCmd::Move {
-            send_time,
+            delta_time,
             angles: Vec3::new(angles.pitch, angles.yaw, angles.roll),
             fwd_move: forwardmove as i16,
             side_move: sidemove as i16,
@@ -841,8 +845,10 @@ impl ClientState {
         }));
 
         debug!(
-            "Spawning entity with id {} from baseline {:?}",
-            id, baseline
+            "Spawning entity with id {} (real: {}) from baseline {:?}",
+            id,
+            self.entities.len(),
+            baseline
         );
         self.entities
             .push_back(ClientEntity::from_baseline(id, baseline));
@@ -850,7 +856,8 @@ impl ClientState {
         Ok(())
     }
 
-    pub fn update_entity(&mut self, id: usize, update: EntityUpdate) -> Result<(), ClientError> {
+    pub fn update_entity(&mut self, update: &EntityUpdate) -> Result<(), ClientError> {
+        let id = update.ent_id as usize;
         if id >= self.entities.len() {
             let baseline = EntityState {
                 origin: Vec3::new(
@@ -871,6 +878,7 @@ impl ClientState {
             };
 
             self.spawn_entities(id, baseline)?;
+            return Ok(());
         }
 
         let entity = &mut self.entities[id];

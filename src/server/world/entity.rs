@@ -20,7 +20,7 @@ use std::{error::Error, fmt, ops};
 use crate::{
     common::{
         engine::duration_to_f32,
-        net::{EntityEffects, EntityState},
+        net::{ButtonFlags, EntityEffects, EntityState},
     },
     server::{
         progs::{EntityId, FieldDef, FunctionId, StringId, StringTable, Type},
@@ -694,16 +694,14 @@ where
 
     pub fn state(&mut self) -> Option<EntityState> {
         let (model_id, frame_id, colormap, skin_id, effects, origin, angles) = (
-            self.get_float(FieldAddrFloat::ModelIndex as i16).ok()? as _,
-            self.get_float(FieldAddrFloat::FrameId as i16).ok()? as _,
-            self.get_float(FieldAddrFloat::Colormap as i16).ok()? as _,
-            self.get_float(FieldAddrFloat::SkinId as i16).ok()? as _,
-            EntityEffects::from_bits(self.get_float(FieldAddrFloat::SkinId as i16).ok()? as _)?,
-            self.get_vector(FieldAddrVector::Origin as i16).ok()?.into(),
-            self.get_vector(FieldAddrVector::Angles as i16).ok()?,
+            self.load(FieldAddrFloat::ModelIndex).ok()? as _,
+            self.load(FieldAddrFloat::FrameId).ok()? as _,
+            self.load(FieldAddrFloat::Colormap).ok()? as _,
+            self.load(FieldAddrFloat::SkinId).ok()? as _,
+            EntityEffects::from_bits(self.load(FieldAddrFloat::Effects).ok()? as _)?,
+            self.origin().ok()?,
+            self.angles().ok()?,
         );
-
-        let angles: Vec3 = angles.into();
 
         Some(EntityState {
             model_id,
@@ -889,10 +887,7 @@ where
     pub fn entity_id(&mut self, addr: i16) -> Result<EntityId, EntityError> {
         self.type_check(addr as usize, Type::QEntity)?;
 
-        match self.get_addr(addr)?.read_i32::<LittleEndian>()? {
-            e if e < 0 => Err(EntityError::with_msg(format!("Negative entity ID ({})", e))),
-            e => Ok(EntityId(e as usize)),
-        }
+        Ok(EntityId(self.get_addr(addr)?.read_i32::<LittleEndian>()?))
     }
 
     /// Stores an `EntityId` at the given virtual address.
@@ -960,6 +955,10 @@ where
     field_accessors! {
         Addrs;
         origin, set_origin => FieldAddrVector::Origin;
+        old_origin, set_old_origin => FieldAddrVector::OldOrigin;
+        old_origin_x, set_old_origin_x => FieldAddrFloat::OldOriginX;
+        old_origin_y, set_old_origin_y => FieldAddrFloat::OldOriginY;
+        old_origin_z, set_old_origin_z => FieldAddrFloat::OldOriginZ;
         angles, set_angles => FieldAddrVector::Angles;
         view_ofs, set_view_ofs => FieldAddrVector::ViewOffset;
         min, set_min => FieldAddrVector::Mins;
@@ -989,8 +988,57 @@ where
         ammo_rockets, set_ammo_rockets => FieldAddrFloat::AmmoRockets;
         water_level, set_water_level => FieldAddrFloat::WaterLevel;
         view_angle, set_view_angle => FieldAddrVector::ViewAngle;
+        button_0, set_button_0 => FieldAddrFloat::Button0;
+        button_1, set_button_1 => FieldAddrFloat::Button1;
+        button_2, set_button_2 => FieldAddrFloat::Button2;
         size, set_size => FieldAddrVector::Size;
         velocity, set_velocity => FieldAddrVector::Velocity;
+        velocity_x, set_velocity_x => FieldAddrFloat::VelocityX;
+        velocity_y, set_velocity_y => FieldAddrFloat::VelocityY;
+        velocity_z, set_velocity_z => FieldAddrFloat::VelocityZ;
+    }
+
+    pub fn buttons(&mut self) -> Result<ButtonFlags, EntityError> {
+        let mut out = ButtonFlags::default();
+
+        if self.button_0()? != 0. {
+            out |= ButtonFlags::ATTACK;
+        }
+
+        if self.button_1()? != 0. {
+            out |= ButtonFlags::USE;
+        }
+
+        if self.button_2()? != 0. {
+            out |= ButtonFlags::JUMP;
+        }
+
+        Ok(out)
+    }
+
+    pub fn set_buttons(&mut self, buttons: ButtonFlags) -> Result<(), EntityError>
+    where
+        Addrs: FocusIndexMut<Output = EntityField>,
+    {
+        self.set_button_0(if buttons.contains(ButtonFlags::ATTACK) {
+            1.
+        } else {
+            0.
+        })?;
+
+        self.set_button_1(if buttons.contains(ButtonFlags::USE) {
+            1.
+        } else {
+            0.
+        })?;
+
+        self.set_button_2(if buttons.contains(ButtonFlags::JUMP) {
+            1.
+        } else {
+            0.
+        })?;
+
+        Ok(())
     }
 
     pub fn abs_bounding_box(&mut self) -> Result<Aabb3d, EntityError> {

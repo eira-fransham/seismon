@@ -21,6 +21,20 @@ use super::{
 };
 
 pub fn register_commands(app: &mut App) {
+    app.action("forward")
+        .action("moveleft")
+        .action("back")
+        .action("moveright")
+        .action("jump")
+        .action("lookup")
+        .action("left")
+        .action("lookdown")
+        .action("right")
+        .action("attack")
+        .action("use");
+
+    app.cvar("mousedelta", "#(0 0)", "Mouse delta amount for this frame.");
+
     #[derive(Parser)]
     #[command(name = "toggleconsole", about = "Open or close the console")]
     struct ToggleConsole;

@@ -504,13 +504,12 @@ impl Hyperplane {
 
         let start_dist = start_dist - start_dist.signum() * DISTANCE_EPSILON;
 
-        // calculate how far along the segment the intersection occurred
-        let ratio = start_ratio.lerp(
-            end_ratio,
-            (start_dist / (start_dist - end_dist)).clamp(0., 1.),
-        );
+        let relative_ratio = (start_dist / (start_dist - end_dist)).clamp(0., 1.);
 
-        let point = start.lerp(end, ratio);
+        // calculate how far along the segment the intersection occurred
+        let absolute_ratio = start_ratio.lerp(end_ratio, relative_ratio);
+
+        let point = start.lerp(end, relative_ratio);
 
         let plane = match start_side {
             HyperplaneSide::Positive => self.to_owned(),
@@ -518,7 +517,7 @@ impl Hyperplane {
         };
 
         LinePlaneIntersect::PointIntersection(PointIntersection {
-            ratio,
+            ratio: absolute_ratio,
             point,
             plane,
         })

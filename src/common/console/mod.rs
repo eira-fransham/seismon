@@ -441,6 +441,10 @@ pub trait RegisterCmdExt {
         A: Parser + 'static,
         S: IntoSystem<In<A>, ExecResult, M> + 'static;
 
+    fn action<N>(&mut self, name: N) -> &mut Self
+    where
+        N: Into<CName>;
+
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
         S: IntoSystem<In<Value>, (), M> + 'static,
@@ -468,6 +472,14 @@ impl RegisterCmdExt for App {
     {
         self.world_mut().command::<A, S, M>(run);
 
+        self
+    }
+
+    fn action<N>(&mut self, name: N) -> &mut Self
+    where
+        N: Into<CName>,
+    {
+        self.world_mut().action(name);
         self
     }
 
@@ -656,6 +668,24 @@ impl RegisterCmdExt for World {
         self
     }
 
+    fn action<N>(&mut self, name: N) -> &mut Self
+    where
+        N: Into<CName>,
+    {
+        self.resource_mut::<Registry>().insert(
+            name,
+            CommandImpl {
+                kind: CmdKind::Action {
+                    system: None,
+                    state: Trigger::Negative,
+                },
+                help: Default::default(),
+            },
+        );
+
+        self
+    }
+
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
@@ -806,7 +836,7 @@ impl Registry {
             match &cmd.kind {
                 CmdKind::Alias(target) => Some(AliasInfo {
                     name,
-                    target: &target,
+                    target,
                     help: &cmd.help,
                 }),
                 _ => None,
@@ -962,7 +992,7 @@ impl Registry {
         name: S,
     ) -> Option<(&mut Cvar, Option<SystemId<In<Value>>>)> {
         self.get_mut(name).and_then(|info| match &mut info.kind {
-            CmdKind::Cvar { cvar, on_set } => Some((cvar, on_set.clone())),
+            CmdKind::Cvar { cvar, on_set } => Some((cvar, *on_set)),
             _ => None,
         })
     }
@@ -2183,7 +2213,10 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::client::{ConnectionState, input::game::Action};
+    use crate::client::{
+        ConnectionState,
+        input::game::{Action, Actions},
+    };
 
     use self::console_text::AtlasText;
 
@@ -2617,17 +2650,10 @@ mod systems {
                             ),
                         }
                     }
-                    None => {
-                        // TODO: Entirely replace `GameInput` with triggers.
-                        if trigger.is_some() && Action::from_str(&name).is_err() {
-                            (
-                                Cow::from(format!("Unrecognized command \"{name}\"")),
-                                OutputType::Console,
-                            )
-                        } else {
-                            default()
-                        }
-                    }
+                    None => (
+                        Cow::from(format!("Unrecognized comand \"{name}\"")),
+                        OutputType::Console,
+                    ),
                 };
 
                 if !output.is_empty() {
