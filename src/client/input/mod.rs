@@ -137,7 +137,7 @@ pub mod systems {
         let mouse_x = mouse_total.x;
         let mouse_y = mouse_total.y;
 
-        match format!("mousedelta ({mouse_x} {mouse_y})").parse() {
+        match format!("mousedelta #({mouse_x} {mouse_y})").parse() {
             Ok(cmd) => {
                 run_cmds.write(cmd);
             }

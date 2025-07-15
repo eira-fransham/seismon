@@ -104,7 +104,7 @@ pub fn register_commands(app: &mut App) {
                     commands.insert_resource(new_state);
                     default()
                 }
-                Err(e) => format!("{}", e).into(),
+                Err(e) => e.to_string().into(),
             }
         },
     );

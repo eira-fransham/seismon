@@ -1237,10 +1237,11 @@ mod systems {
     pub fn lock_cursor(
         mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
         registry: Res<Registry>,
+        focus: Res<InputFocus>,
     ) {
         let mut primary_window = q_windows.single_mut().unwrap();
 
-        if registry.is_pressed("mlook") {
+        if *focus == InputFocus::Game && registry.is_pressed("mlook") {
             primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
             primary_window.cursor_options.visible = false;
         } else {
