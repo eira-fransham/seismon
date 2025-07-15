@@ -595,6 +595,22 @@ struct PlayerMoveResult {
     touch_indices: Vec<EntityId>,
 }
 
+fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
+    let angle = angles.x.to_radians();
+    let sy = angle.sin();
+    let cy = angle.cos();
+    let angle = angles.y.to_radians();
+    let sp = angle.sin();
+    let cp = angle.cos();
+    let angle = angles.z.to_radians();
+    let sr = angle.sin();
+    let cr = angle.cos();
+
+    movement.x * Vec3::new(cp * cy, cp * sy, -sp) +
+        movement.y * Vec3::new(-sr*sp*cy + cr*sy, -(sr*sp*sy + cr*cy), -sr*cp) +
+            movement.z * Vec3::new(cr*sp*cy + sr*sy, cr*sp*sy+-sr*cy, cr*cp)
+}
+
 impl LevelState {
     pub fn new(
         map_path: String,
@@ -1317,20 +1333,13 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let mut ent = self.world.get_mut(ent_id)?;
         let angles = ent.view_angle()?;
-        let target_vel = Vec3::new(target_vel.x, target_vel.y, 0.);
-        let move_dir = Mat3::from_euler(
-            EulerRot::XYZ,
-            angles.x.to_radians(),
-            angles.y.to_radians(),
-            angles.z.to_radians(),
-        ) * target_vel;
-        ent.put_vector(move_dir, FieldAddrVector::MoveDirection as _)
-            .unwrap();
+        let target_vel = ent.move_dir()?;
+        let move_dir = angle_vectors(angles ,target_vel);
 
         let origin = ent.origin()?;
         let min = ent.min()?;
         let max = ent.max()?;
-        ent.set_velocity(target_vel)?;
+        ent.set_velocity(move_dir)?;
         ent.limit_velocity(server_vars.max_velocity)?;
 
         let velocity = ent.velocity()?;
@@ -1418,7 +1427,9 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let server_vars: ServerVars = registry.read_cvars()?;
 
-        let target_vel = player_input.ground_movement.extend(0.);
+        let mut ent = self.world.get(ent_id)?;
+
+        let target_vel = ent.move_dir()?;
         let target_speed_raw = target_vel.length();
         let target_dir = if target_speed_raw == 0. {
             Vec3::ZERO
@@ -1433,11 +1444,11 @@ impl LevelState {
 
         let mut ent = self.world.get(ent_id)?;
 
-        if ent.has_flag(EntityFlags::ON_GROUND)? {
+        // if ent.has_flag(EntityFlags::ON_GROUND)? {
             self.physics_player_ground(ent_id, target_vel, player_input, &server_vars)?;
-        } else if ent.water_level()? < 2. {
-            self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
-        }
+        // } else if ent.water_level()? < 2. {
+            // self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
+        // }
 
         self.player_categorize_position(ent_id)?;
 
@@ -3447,6 +3458,13 @@ pub mod systems {
                             {
                                 let mut entity = level.world.get_mut(ent_id).ok().unwrap();
 
+                                entity
+                                    .set_move_dir(Vec3::new(
+                                        fwd_move as f32,
+                                        side_move as f32,
+                                        up_move as f32,
+                                    ))
+                                    .unwrap();
                                 entity.set_view_angle(angles).unwrap();
                                 entity.set_buttons(button_flags).unwrap();
 

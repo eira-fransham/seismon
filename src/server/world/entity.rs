@@ -988,6 +988,7 @@ where
         ammo_rockets, set_ammo_rockets => FieldAddrFloat::AmmoRockets;
         water_level, set_water_level => FieldAddrFloat::WaterLevel;
         view_angle, set_view_angle => FieldAddrVector::ViewAngle;
+        move_dir, set_move_dir => FieldAddrVector::MoveDirection;
         button_0, set_button_0 => FieldAddrFloat::Button0;
         button_1, set_button_1 => FieldAddrFloat::Button1;
         button_2, set_button_2 => FieldAddrFloat::Button2;

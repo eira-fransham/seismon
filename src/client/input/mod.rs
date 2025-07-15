@@ -43,6 +43,7 @@ impl Plugin for SeismonInputPlugin {
                     )),
                     systems::menu_input
                         .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Menu)),
+                    systems::reset_mouse_delta.run_if(resource_exists_and_changed::<InputFocus>),
                 )
                     .run_if(systems::window_is_focused),
             );
@@ -62,11 +63,7 @@ pub enum InputFocus {
 pub mod systems {
     use bevy::{
         ecs::event::EventCursor,
-        input::{
-            ButtonState,
-            keyboard::KeyboardInput,
-            mouse::MouseMotion,
-        },
+        input::{ButtonState, keyboard::KeyboardInput, mouse::MouseMotion},
         prelude::*,
         window::PrimaryWindow,
     };
@@ -99,6 +96,10 @@ pub mod systems {
         fn default() -> Self {
             Self { reader: default() }
         }
+    }
+
+    pub fn reset_mouse_delta(mut run_cmds: EventWriter<RunCmd<'static>>) {
+        run_cmds.write(RunCmd("mousedelta".into(), Box::new(["#(0 0)".into()])));
     }
 
     pub fn game_input(

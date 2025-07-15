@@ -2099,9 +2099,9 @@ impl ClientCmd {
                     read_angle(reader)?,
                     read_angle(reader)?,
                 );
-                let angles = Vec3::new(angles.x, angles.z, angles.y + 90.);
+                let angles = Vec3::new(angles.x, angles.y, angles.z);
                 let fwd_move = reader.read_i16::<LittleEndian>()?;
-                let side_move = -reader.read_i16::<LittleEndian>()?;
+                let side_move = reader.read_i16::<LittleEndian>()?;
                 let up_move = reader.read_i16::<LittleEndian>()?;
                 let button_flags_val = reader.read_u8()?;
                 let button_flags = match ButtonFlags::from_bits(button_flags_val) {

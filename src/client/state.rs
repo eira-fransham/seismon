@@ -757,7 +757,7 @@ impl ClientState {
 
         ClientCmd::Move {
             delta_time,
-            angles: Vec3::new(angles.pitch, angles.yaw, angles.roll),
+            angles: Vec3::new(angles.yaw, angles.pitch, angles.roll),
             fwd_move: forwardmove as i16,
             side_move: sidemove as i16,
             up_move: upmove as i16,
@@ -774,10 +774,10 @@ impl ClientState {
 
         let dmg_factor = (armor + health).min(20) as f32 / 2.0;
         let mut cshift = self.color_shifts[ColorShiftCode::Damage as usize];
-        cshift.density += DMG_DENSITY * dmg_factor as f32;
+        cshift.density += DMG_DENSITY * dmg_factor;
         cshift.density = cshift.density.clamp(0., 1.5);
         // Takes one second to decay no matter how intense.
-        cshift.decay = cshift.density as f32;
+        cshift.decay = cshift.density;
 
         if armor > health {
             cshift.dest_color = [200, 100, 100];
