@@ -64,7 +64,7 @@ pub mod systems {
         ecs::event::EventCursor,
         input::{
             ButtonState,
-            keyboard::{Key, KeyboardInput},
+            keyboard::KeyboardInput,
             mouse::MouseMotion,
         },
         prelude::*,

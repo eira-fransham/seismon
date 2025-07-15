@@ -23,7 +23,6 @@ use bevy::{
     input::{keyboard::Key, prelude::*},
     prelude::*,
 };
-use bitflags::bitflags;
 use failure::{Error, bail, format_err};
 use hashbrown::HashMap;
 use smol_str::SmolStr;

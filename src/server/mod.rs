@@ -30,7 +30,7 @@ use crate::{
         engine::{self, duration_from_f32, duration_to_f32},
         math::Hyperplane,
         model::Model,
-        net::{ButtonFlags, EntityState, ServerCmd, UpdateFlags},
+        net::{ButtonFlags, EntityState, ServerCmd},
         parse,
         util::{QStr, QString},
         vfs::Vfs,
