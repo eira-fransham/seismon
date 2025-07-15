@@ -163,6 +163,7 @@ where
             .add_systems(
                 Main,
                 (
+                    systems::lock_cursor,
                     systems::set_resolution.run_if(any_with_component::<PrimaryWindow>),
                     systems::handle_input.pipe(|In(res)| {
                         // TODO: Error handling
@@ -1225,12 +1226,28 @@ where
 pub struct Impulse(pub u8);
 
 mod systems {
+    use bevy::window::CursorGrabMode;
     use common::net::MessageKind;
     use serde::Deserialize;
 
     use self::common::console::Registry;
 
     use super::*;
+
+    pub fn lock_cursor(
+        mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+        registry: Res<Registry>,
+    ) {
+        let mut primary_window = q_windows.single_mut().unwrap();
+
+        if registry.is_pressed("mlook") {
+            primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
+            primary_window.cursor_options.visible = false;
+        } else {
+            primary_window.cursor_options.grab_mode = CursorGrabMode::None;
+            primary_window.cursor_options.visible = true;
+        }
+    }
 
     pub fn handle_input(
         // mut console: ResMut<Console>,

@@ -67,7 +67,7 @@ pub fn basic_arg_terminator(input: &str) -> nom::IResult<&str, &str> {
 /// ending with whitespace, a line comment or a line terminator.
 pub fn basic_arg(input: &str) -> nom::IResult<&str, &str> {
     // break on comment, semicolon, quote, or whitespace
-    let patterns = ["//", ";", "\"", " ", "\t", "\r\n", "\n"];
+    let patterns = ["//", ";", "\"", ")", "(", " ", "\t", "\r\n", "\n"];
 
     // length in bytes of matched sequence
     let mut match_len = 0;
@@ -102,9 +102,13 @@ pub fn basic_arg(input: &str) -> nom::IResult<&str, &str> {
     }
 }
 
+pub fn list(input: &str) -> nom::IResult<&str, &str> {
+    recognize(tuple((opt(tag("#")), tag("("), arg_list, tag(")"))))(input)
+}
+
 /// Match a basic argument or a quoted string.
 pub fn arg(input: &str) -> nom::IResult<&str, &str> {
-    alt((quoted, basic_arg))(input)
+    alt((quoted, list, basic_arg))(input)
 }
 
 /// Match a command terminator.
@@ -142,18 +146,19 @@ pub fn terminated_command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
     terminated(command, command_terminator)(input)
 }
 
+pub fn arg_list(input: &str) -> nom::IResult<&str, Vec<String>> {
+    many0(preceded(space0, arg.map(|arg| arg.to_owned())))(input)
+}
+
 /// Match a single command.
 ///
 /// A command is considered to be composed of:
 /// - Zero or more leading non-newline whitespace characters
 /// - One or more arguments, separated by non-newline whitespace characters
 pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
-    tuple((
-        command_name,
-        many0(preceded(space0, arg.map(|arg| arg.to_owned()))),
-    ))
-    .map(|(cmd, rest)| RunCmd(cmd, rest.into()))
-    .parse(input)
+    tuple((command_name, arg_list))
+        .map(|(cmd, rest)| RunCmd(cmd, rest.into()))
+        .parse(input)
 }
 
 /// Match a binding - command set possibly preceded by `*` in order to make the binding valid for any focus state.

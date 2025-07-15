@@ -140,7 +140,7 @@ impl View {
             match registry.read_cvar::<Vec2>("mousedelta") {
                 Ok(mouse_move) => {
                     let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
-                    self.input_angles.yaw += mouse_move.x;
+                    self.input_angles.yaw -= mouse_move.x;
                     self.input_angles.pitch += mouse_move.y;
                 }
                 Err(e) => {

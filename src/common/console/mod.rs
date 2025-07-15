@@ -2213,10 +2213,7 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::client::{
-        ConnectionState,
-        input::game::{Action, Actions},
-    };
+    use crate::client::ConnectionState;
 
     use self::console_text::AtlasText;
 

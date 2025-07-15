@@ -22,6 +22,7 @@ use super::{
 
 pub fn register_commands(app: &mut App) {
     app.action("forward")
+        .action("mlook")
         .action("moveleft")
         .action("back")
         .action("moveright")

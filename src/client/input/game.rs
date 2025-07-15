@@ -64,28 +64,28 @@ impl Hash for UppercaseStr<'_> {
         for block in chars.chunks(BLOCKS) {
             buf.clear();
             buf.extend(block.iter().copied());
-            (&mut *buf).make_ascii_uppercase();
-            std::str::from_utf8(&*buf).unwrap().hash(state);
+            (&mut buf).make_ascii_uppercase();
+            std::str::from_utf8(&buf).unwrap().hash(state);
         }
     }
 }
 
 impl PartialEq for UppercaseStr<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.eq_ignore_ascii_case(&other.0)
+        self.0.eq_ignore_ascii_case(other.0)
     }
 }
 
 static KEYMAP: LazyLock<HashMap<UppercaseStr<'static>, AnyInput>> = LazyLock::new(|| {
     KEYBOARD_NAMES
-        .into_iter()
+        .iter()
         .chain(MOUSE_NAMES)
         .map(|(n, i)| (UppercaseStr(n), i.clone()))
         .collect()
 });
 static INVERSE_KEYMAP: LazyLock<HashMap<AnyInput, UppercaseStr<'static>>> = LazyLock::new(|| {
     KEYBOARD_NAMES
-        .into_iter()
+        .iter()
         .chain(MOUSE_NAMES)
         .map(|(n, i)| (i.clone(), UppercaseStr(n)))
         .collect()
@@ -253,94 +253,6 @@ pub enum Action {
     ShowScores = 17,
     /// Show the team scoreboard.
     ShowTeamScores = 18,
-}
-
-bitflags! {
-    #[derive(Resource, Default, Clone, Ord, Debug, Eq, PartialOrd, PartialEq, Hash)]
-    pub struct Actions: u32 {
-        const FORWARD = 1 << 0;
-        const BACK = 1 << 1;
-        const MOVE_LEFT = 1 << 2;
-        const MOVE_RIGHT = 1 << 3;
-        const MOVE_UP = 1 << 4;
-        const MOVE_DOWN = 1 << 5;
-        const LOOK_UP = 1 << 6;
-        const LOOK_DOWN = 1 << 7;
-        const LEFT = 1 << 8;
-        const RIGHT = 1 << 9;
-        const SPEED = 1 << 10;
-        const JUMP = 1 << 11;
-        const STRAFE = 1 << 12;
-        const ATTACK = 1 << 13;
-        const USE = 1 << 14;
-        const K_LOOK = 1 << 15;
-        const M_LOOK = 1 << 16;
-        const SHOW_SCORES = 1 << 17;
-        const SHOW_TEAM_SCORES = 1 << 18;
-    }
-}
-
-impl FromStr for Action {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let action = match s.to_lowercase().as_str() {
-            "forward" => Action::Forward,
-            "back" => Action::Back,
-            "moveleft" => Action::MoveLeft,
-            "moveright" => Action::MoveRight,
-            "moveup" => Action::MoveUp,
-            "movedown" => Action::MoveDown,
-            "lookup" => Action::LookUp,
-            "lookdown" => Action::LookDown,
-            "left" => Action::Left,
-            "right" => Action::Right,
-            "speed" => Action::Speed,
-            "jump" => Action::Jump,
-            "strafe" => Action::Strafe,
-            "attack" => Action::Attack,
-            "use" => Action::Use,
-            "klook" => Action::KLook,
-            "mlook" => Action::MLook,
-            "showscores" => Action::ShowScores,
-            "showteamscores" => Action::ShowTeamScores,
-            _ => bail!("Invalid action name: {}", s),
-        };
-
-        Ok(action)
-    }
-}
-
-impl AsRef<str> for Action {
-    fn as_ref(&self) -> &str {
-        match *self {
-            Action::Forward => "forward",
-            Action::Back => "back",
-            Action::MoveLeft => "moveleft",
-            Action::MoveRight => "moveright",
-            Action::MoveUp => "moveup",
-            Action::MoveDown => "movedown",
-            Action::LookUp => "lookup",
-            Action::LookDown => "lookdown",
-            Action::Left => "left",
-            Action::Right => "right",
-            Action::Speed => "speed",
-            Action::Jump => "jump",
-            Action::Strafe => "strafe",
-            Action::Attack => "attack",
-            Action::Use => "use",
-            Action::KLook => "klook",
-            Action::MLook => "mlook",
-            Action::ShowScores => "showscores",
-            Action::ShowTeamScores => "showteamscores",
-        }
-    }
-}
-
-impl ToString for Action {
-    fn to_string(&self) -> String {
-        self.as_ref().to_owned()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -614,28 +526,5 @@ impl GameInput {
                 .try_into()
                 .map_err(|e| format_err!("Failed to parse input: {}", e))?,
         ))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::common::console::CmdName;
-
-    use super::*;
-
-    #[test]
-    fn test_action_to_string() {
-        let act = Action::Forward;
-        assert_eq!(act.to_string(), "forward");
-    }
-
-    #[test]
-    fn test_bind_target_action_to_string() {
-        let target = CmdName {
-            trigger: Some(Trigger::Positive),
-            name: "forward".into(),
-        };
-
-        assert_eq!(target.to_string(), "+forward");
     }
 }

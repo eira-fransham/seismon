@@ -62,7 +62,11 @@ pub enum InputFocus {
 pub mod systems {
     use bevy::{
         ecs::event::EventCursor,
-        input::{ButtonState, keyboard::KeyboardInput, mouse::MouseMotion},
+        input::{
+            ButtonState,
+            keyboard::{Key, KeyboardInput},
+            mouse::MouseMotion,
+        },
         prelude::*,
         window::PrimaryWindow,
     };
@@ -99,6 +103,7 @@ pub mod systems {
 
     pub fn game_input(
         mut keyboard_events: EventReader<KeyboardInput>,
+        keyboard_input: Res<ButtonInput<KeyCode>>,
         mut mouse_events: EventReader<MouseMotion>,
         mut run_cmds: EventWriter<RunCmd<'static>>,
         input: Res<GameInput>,
@@ -109,13 +114,20 @@ pub mod systems {
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {
                 run_cmds.write_batch(binding.commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, key.state) {
-                        (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
-                        (Some(Trigger::Positive) | None, ButtonState::Released) => {
+                        (Some(Trigger::Positive) | None, ButtonState::Pressed)
+                            if keyboard_input.just_pressed(key.key_code) =>
+                        {
+                            Some(cmd.clone())
+                        }
+                        (Some(Trigger::Positive) | None, ButtonState::Released)
+                            if keyboard_input.just_released(key.key_code) =>
+                        {
                             cmd.clone().invert()
                         }
                         (Some(Trigger::Negative), _) => unreachable!(
                             "Binding found to a negative edge! TODO: Do we want to support this?"
                         ),
+                        _ => None,
                     }
                 }));
             }
@@ -125,11 +137,11 @@ pub mod systems {
         let mouse_x = mouse_total.x;
         let mouse_y = mouse_total.y;
 
-        match format!("mousedelta #({mouse_x} {mouse_y})").parse() {
+        match format!("mousedelta ({mouse_x} {mouse_y})").parse() {
             Ok(cmd) => {
                 run_cmds.write(cmd);
             }
-            Err(e) => error!("Invalid mouse movement: {mouse_total}"),
+            Err(e) => error!("Invalid mouse movement: {mouse_total} ({e})"),
         }
     }
 
