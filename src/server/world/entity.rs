@@ -340,14 +340,14 @@ impl FieldAddr for FieldAddrVector {
     where
         A: FocusIndex<Output = EntityField>,
     {
-        ent.get_vector(*self as i16).map(Into::into)
+        ent.get_vector(*self as i16)
     }
 
     fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
-        ent.put_vector(value.into(), *self as i16)
+        ent.put_vector(value, *self as i16)
     }
 }
 
@@ -576,7 +576,7 @@ where
     type Target = <M as ops::Deref>::Target;
 
     fn deref(&self) -> &Self::Target {
-        &*self.meta
+        &self.meta
     }
 }
 
@@ -585,7 +585,7 @@ where
     M: ops::DerefMut,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.meta
+        &mut self.meta
     }
 }
 

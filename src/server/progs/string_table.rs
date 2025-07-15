@@ -88,7 +88,7 @@ impl StringTable {
         }
     }
 
-    pub fn insert<S>(&mut self, s: S) -> StringId
+    fn insert<S>(&mut self, s: S) -> StringId
     where
         S: AsRef<str>,
     {

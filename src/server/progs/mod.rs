@@ -216,7 +216,7 @@ impl TryInto<i32> for StringId {
     type Error = ProgsError;
 
     fn try_into(self) -> Result<i32, Self::Error> {
-        if self.0 > ::std::i32::MAX as usize {
+        if self.0 > i32::MAX as usize {
             Err(ProgsError::with_msg("string id out of i32 range"))
         } else {
             Ok(self.0 as i32)

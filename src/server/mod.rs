@@ -69,6 +69,7 @@ use failure::bail;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use num::FromPrimitive;
+use progs::globals::GlobalAddrString;
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
 
@@ -2486,9 +2487,10 @@ impl LevelState {
 
     pub fn builtin_vtos(&mut self) -> Result<(), ProgsError> {
         let vec = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
+        // TODO: This leaks data in the string table! We should have a separate temp string area.
         let out = self
             .string_table
-            .insert(format!("{:5.1} {:5.1} {:5.1}", vec[0], vec[1], vec[2]));
+            .find_or_insert(format!("{:5.1} {:5.1} {:5.1}", vec[0], vec[1], vec[2]));
 
         self.globals.put_string_id(out, GLOBAL_ADDR_RETURN as i16)?;
 
