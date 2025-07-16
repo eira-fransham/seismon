@@ -19,9 +19,11 @@ use std::{error::Error, fmt};
 
 use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, Opcode, StringId, Type};
 
-use bevy::math::{EulerRot, Mat3, Vec3};
+use bevy::math::{EulerRot, Mat3, Vec2, Vec3, Vec3Swizzles as _};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::FromPrimitive;
+
+use super::StringTable;
 
 pub const GLOBAL_STATIC_START: usize = 28;
 pub const GLOBAL_DYNAMIC_START: usize = 64;
@@ -483,11 +485,11 @@ impl Globals {
     // TODO: typecheck these with QPointer?
 
     pub fn get_entity_field(&self, addr: i16) -> Result<i32, GlobalsError> {
-        Ok(self.get_addr(addr)?.read_i32::<LittleEndian>()?)
+        Ok(self.get_int(addr)?)
     }
 
     pub fn put_entity_field(&mut self, val: i32, addr: i16) -> Result<(), GlobalsError> {
-        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val)?;
+        self.put_int(val, addr)?;
         Ok(())
     }
 
@@ -655,13 +657,26 @@ impl Globals {
     }
 
     // EQ_S: Test equality of two strings
-    pub fn op_eq_s(&mut self, s1_ofs: i16, s2_ofs: i16, eq_ofs: i16) -> Result<(), GlobalsError> {
+    pub fn op_eq_s(
+        &mut self,
+        string_table: &StringTable,
+        s1_ofs: i16,
+        s2_ofs: i16,
+        eq_ofs: i16,
+    ) -> Result<(), GlobalsError> {
         if s1_ofs < 0 || s2_ofs < 0 {
             return Err(GlobalsError::with_msg("eq_s: negative string offset"));
         }
 
         let s1 = self.string_id(s1_ofs)?;
         let s2 = self.string_id(s2_ofs)?;
+
+        let s1 = string_table
+            .get(s1)
+            .ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
+        let s2 = string_table
+            .get(s2)
+            .ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
 
         log_op!(self; eq_ofs = EqS(s1, s2));
 
@@ -747,13 +762,26 @@ impl Globals {
     }
 
     // NE_S: Test inequality of two strings
-    pub fn op_ne_s(&mut self, s1_ofs: i16, s2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
+    pub fn op_ne_s(
+        &mut self,
+        string_table: &StringTable,
+        s1_ofs: i16,
+        s2_ofs: i16,
+        ne_ofs: i16,
+    ) -> Result<(), GlobalsError> {
         if s1_ofs < 0 || s2_ofs < 0 {
             return Err(GlobalsError::with_msg("eq_s: negative string offset"));
         }
 
         let s1 = self.string_id(s1_ofs)?;
         let s2 = self.string_id(s2_ofs)?;
+
+        let s1 = string_table
+            .get(s1)
+            .ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
+        let s2 = string_table
+            .get(s2)
+            .ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
 
         log_op!(self; ne_ofs = NeS(s1, s2));
 
@@ -1232,10 +1260,10 @@ impl Globals {
         let v = self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
 
         let mut yaw;
-        if v[0] == 0.0 || v[1] == 0.0 {
+        if v.xy() == Vec2::ZERO {
             yaw = 0.0;
         } else {
-            yaw = v[1].atan2(v[0]).to_degrees();
+            yaw = v.y.atan2(v.x).to_degrees();
             if yaw < 0.0 {
                 yaw += 360.0;
             }
@@ -1253,20 +1281,20 @@ impl Globals {
         let v = self.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
 
         let mut yaw;
-        if v[0] == 0.0 || v[1] == 0.0 {
+        if v.xy() == Vec2::ZERO {
             yaw = 0.0;
         } else {
-            yaw = v[1].atan2(v[0]).to_degrees();
+            yaw = v.y.atan2(v.x).to_degrees();
             if yaw < 0.0 {
                 yaw += 360.0;
             }
         }
 
         let mut pitch;
-        if v[1] == 0.0 || v[2] == 0.0 {
+        if v.yz() == Vec2::ZERO {
             pitch = 0.0;
         } else {
-            pitch = v[2].atan2(v[1]).to_degrees();
+            pitch = v.z.atan2(v.y).to_degrees();
             if pitch < 0.0 {
                 pitch += 360.0;
             }

@@ -460,6 +460,7 @@ impl FieldAddr for FieldAddrFunctionId {
 }
 
 bitflags! {
+    #[derive(Debug)]
     pub struct EntityFlags: u16 {
         const FLY            = 0b0000000000001;
         const SWIM           = 0b0000000000010;
@@ -954,6 +955,7 @@ where
 
     field_accessors! {
         Addrs;
+        classname, set_classname => FieldAddrStringId::ClassName;
         origin, set_origin => FieldAddrVector::Origin;
         old_origin, set_old_origin => FieldAddrVector::OldOrigin;
         old_origin_x, set_old_origin_x => FieldAddrFloat::OldOriginX;
@@ -1102,8 +1104,7 @@ where
         match MoveKind::from_i32(move_kind_i) {
             Some(m) => Ok(m),
             None => Err(EntityError::with_msg(format!(
-                "Invalid value for entity.move_kind ({})",
-                move_kind_f,
+                "Invalid value for entity.move_kind ({move_kind_f})"
             ))),
         }
     }
@@ -1113,8 +1114,7 @@ where
         match EntityFlags::from_bits(flags_i) {
             Some(f) => Ok(f),
             None => Err(EntityError::with_msg(format!(
-                "Invalid internal flags value ({})",
-                flags_i
+                "Invalid internal flags value ({flags_i})"
             ))),
         }
     }

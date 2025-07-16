@@ -1009,9 +1009,12 @@ pub enum ServerCmd {
     Print {
         text: QString,
     },
+    /// Send a command to a client's console.
     StuffText {
+        /// The text to write to the console.
         text: QString,
     },
+    /// Set the player's angle directly.
     SetAngle {
         angles: Vec3,
     },

@@ -589,7 +589,7 @@ where
     let mut addrs = Vec::with_capacity(globals_lump.count);
     for _ in 0..globals_lump.count {
         let mut block = [0; 4];
-        src.read(&mut block)?;
+        src.read_exact(&mut block)?;
 
         // TODO: handle endian conversions (BigEndian systems should use BigEndian internally)
         addrs.push(block);

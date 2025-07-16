@@ -14,7 +14,7 @@ use bevy::{
 use chrono::Duration;
 use serde::Deserialize;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct View {
     // entity "holding" the camera
     entity_id: usize,
@@ -46,17 +46,7 @@ pub struct View {
 
 impl View {
     pub fn new() -> View {
-        View {
-            entity_id: 0,
-            view_height: 0.0,
-            ideal_pitch: 0.0,
-            input_angles: Angles::zero(),
-            damage_angles: Angles::zero(),
-            damage_time: Duration::zero(),
-            punch_angles: Angles::zero(),
-            final_angles: Angles::zero(),
-            final_origin: Vec3::ZERO,
-        }
+        Self::default()
     }
 
     pub fn entity_id(&self) -> usize {

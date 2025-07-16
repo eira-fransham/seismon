@@ -125,7 +125,7 @@ pub struct ClientState {
     pub item_get_time: [Duration; net::MAX_ITEMS],
     pub face_anim_time: Duration,
     pub color_shifts: [ColorShift; 5],
-    pub view: View,
+    pub view: Option<View>,
 
     pub msg_velocity: [Vec3; 2],
     pub velocity: Vec3,
@@ -177,7 +177,7 @@ impl ClientState {
             items: ItemFlags::empty(),
             item_get_time: [Duration::zero(); net::MAX_ITEMS],
             color_shifts: default(),
-            view: View::new(),
+            view: None,
             face_anim_time: Duration::zero(),
             msg_velocity: [Vec3::ZERO, Vec3::ZERO],
             velocity: Vec3::ZERO,
@@ -551,7 +551,7 @@ impl ClientState {
             }
 
             // don't render the player model
-            if self.view.entity_id() != ent.id {
+            if self.view.as_ref().map(|v| v.entity_id()) != Some(ent.id) {
                 // mark entity for rendering
                 self.visible_entity_ids.push_back(ent.id);
             }
@@ -601,6 +601,9 @@ impl ClientState {
             LazyLock::new(|| Uniform::new(0.0, 360.0).unwrap());
 
         self.temp_entities.clear();
+        let Some(view_ent) = self.view_entity_id() else {
+            return Ok(());
+        };
         for id in 0..self.beams.len() {
             // remove beam if expired
             if self.beams[id].is_some_and(|b| b.expire < self.time) {
@@ -608,8 +611,7 @@ impl ClientState {
                 continue;
             }
 
-            let view_ent = self.view_entity_id();
-            if let Some(ref mut beam) = self.beams[id] {
+            if let Some(beam) = &mut self.beams[id] {
                 // keep lightning gun bolts fixed to player
                 if beam.entity_id == view_ent {
                     beam.start = self.entities[view_ent].origin;
@@ -641,10 +643,10 @@ impl ClientState {
     }
 
     pub fn update_player(&mut self, update: PlayerData) {
-        self.view
-            .set_view_height(update.view_height.unwrap_or(net::DEFAULT_VIEWHEIGHT));
-        self.view.set_ideal_pitch(update.ideal_pitch.unwrap_or(0.));
-        self.view.set_punch_angles(Angles {
+        let view = self.view.get_or_insert_default();
+        view.set_view_height(update.view_height.unwrap_or(net::DEFAULT_VIEWHEIGHT));
+        view.set_ideal_pitch(update.ideal_pitch.unwrap_or(0.));
+        view.set_punch_angles(Angles {
             pitch: update.punch_pitch.unwrap_or(0.),
             roll: update.punch_roll.unwrap_or(0.),
             yaw: update.punch_yaw.unwrap_or(0.),
@@ -695,9 +697,10 @@ impl ClientState {
         move_vars: MoveVars,
         mouse_vars: MouseVars,
         impulse: Option<u8>,
-    ) -> ClientCmd {
+    ) -> Option<ClientCmd> {
         let mlook = registry.is_pressed("mlook");
-        self.view.handle_input(
+        let view = self.view.as_mut()?;
+        view.handle_input(
             frame_time,
             registry,
             self.intermission.as_ref(),
@@ -753,9 +756,9 @@ impl ClientState {
 
         let delta_time = frame_time;
         // send "raw" angles without any pitch/roll from movement or damage
-        let angles = self.view.input_angles();
+        let angles = view.input_angles();
 
-        ClientCmd::Move {
+        Some(ClientCmd::Move {
             delta_time,
             angles: Vec3::new(angles.yaw, angles.pitch, angles.roll),
             fwd_move: forwardmove as i16,
@@ -764,7 +767,7 @@ impl ClientState {
             button_flags,
             // TODO: Is `impulse 0` correct?
             impulse: impulse.unwrap_or_default(),
-        }
+        })
     }
 
     pub fn handle_damage(&mut self, armor: u8, health: u8, source: Vec3, kick_vars: KickVars) {
@@ -787,7 +790,10 @@ impl ClientState {
             cshift.dest_color = [255, 0, 0];
         }
 
-        let v_ent = &self.entities[self.view.entity_id()];
+        let Some(view) = self.view.as_mut() else {
+            return;
+        };
+        let v_ent = &self.entities[view.entity_id()];
 
         let v_angles = Angles {
             pitch: v_ent.angles.x,
@@ -795,7 +801,7 @@ impl ClientState {
             yaw: v_ent.angles.y,
         };
 
-        self.view.handle_damage(
+        view.handle_damage(
             self.time,
             armor as f32,
             health as f32,
@@ -813,7 +819,11 @@ impl ClientState {
         roll_vars: RollVars,
         bob_vars: BobVars,
     ) {
-        self.view.calc_final_angles(
+        let Some(view) = self.view.as_mut() else {
+            return;
+        };
+
+        view.calc_final_angles(
             self.time,
             self.intermission.as_ref(),
             self.velocity,
@@ -821,9 +831,9 @@ impl ClientState {
             kick_vars,
             roll_vars,
         );
-        if let Some(e) = self.entities.get(self.view.entity_id()) {
-            self.view
-                .calc_final_origin(self.time, e.origin, self.velocity, bob_vars);
+
+        if let Some(e) = self.entities.get(view.entity_id()) {
+            view.calc_final_origin(self.time, e.origin, self.velocity, bob_vars);
         }
     }
 
@@ -1120,14 +1130,15 @@ impl ClientState {
 
     #[must_use]
     pub fn update_listener(&self) -> Option<Listener> {
+        let view = self.view.as_ref()?;
         // TODO: update to self.view_origin()
-        let origin = self.entities.get(self.view.entity_id()).map(|e| e.origin)?;
+        let origin = self.entities.get(view.entity_id()).map(|e| e.origin)?;
         let world_translate = Mat4::from_translation(origin);
 
-        let left_base = Vec3::new(0., 4., self.view.view_height());
-        let right_base = Vec3::new(0., -4., self.view.view_height());
+        let left_base = Vec3::new(0., 4., view.view_height());
+        let right_base = Vec3::new(0., -4., view.view_height());
 
-        let rotation = Quat::from_mat4(&self.view.input_angles().mat4_quake());
+        let rotation = Quat::from_mat4(&view.input_angles().mat4_quake());
 
         let left_ear = (world_translate * (rotation * left_base).extend(1.)).truncate();
         let right_ear = (world_translate * (rotation * right_base).extend(1.)).truncate();
@@ -1145,8 +1156,9 @@ impl ClientState {
             Some(ModelKind::Brush(bmodel)) => {
                 let bsp_data = bmodel.bsp_data();
                 if let Some(leaf_id) = self
-                    .entities
-                    .get(self.view.entity_id())
+                    .view
+                    .as_ref()
+                    .and_then(|view| self.entities.get(view.entity_id()))
                     .map(|e| bsp_data.find_leaf(e.origin))
                 {
                     let leaf = &bsp_data.leaves()[leaf_id];
@@ -1231,13 +1243,14 @@ impl ClientState {
 
     /// Update the view angles to the specified value, enabling interpolation.
     pub fn update_view_angles(&mut self, angles: Vec3) {
-        self.view.update_input_angles(Angles {
+        let view = self.view.get_or_insert_default();
+        view.update_input_angles(Angles {
             pitch: angles.x,
             roll: angles.z,
             yaw: angles.y,
         });
-        let final_angles = self.view.final_angles();
-        let Some(ent) = self.entities.get_mut(self.view.entity_id()) else {
+        let final_angles = view.final_angles();
+        let Some(ent) = self.entities.get_mut(view.entity_id()) else {
             return;
         };
         // Update with interpolation.
@@ -1255,7 +1268,7 @@ impl ClientState {
         if entity_id > self.max_players && entity_id >= self.entities.len() {
             Err(ClientError::InvalidViewEntity(entity_id))?;
         }
-        self.view.set_entity_id(entity_id);
+        self.view.get_or_insert_default().set_entity_id(entity_id);
         Ok(())
     }
 
@@ -1287,15 +1300,21 @@ impl ClientState {
         self.time
     }
 
-    pub fn view_entity_id(&self) -> usize {
-        self.view.entity_id()
+    pub fn view_entity_id(&self) -> Option<usize> {
+        self.view.as_ref().map(|v| v.entity_id())
     }
 
     pub fn camera(&self, aspect: f32, fov_deg: f32) -> Camera {
         let fov_y = math::fov_x_to_fov_y(fov_deg, aspect).unwrap();
         Camera::new(
-            self.view.final_origin(),
-            self.view.final_angles(),
+            self.view
+                .as_ref()
+                .map(|view| view.final_origin())
+                .unwrap_or_default(),
+            self.view
+                .as_ref()
+                .map(|view| view.final_angles())
+                .unwrap_or_default(),
             Mat4::perspective_rh_gl(fov_y, aspect, 4.0, 4096.0),
         )
     }
@@ -1303,8 +1322,9 @@ impl ClientState {
     pub fn demo_camera(&self, aspect: f32, fov_deg: f32) -> Camera {
         let fov_y = math::fov_x_to_fov_y(fov_deg, aspect).unwrap();
         let angles = self
-            .entities
-            .get(self.view.entity_id())
+            .view
+            .as_ref()
+            .and_then(|view| self.entities.get(view.entity_id()))
             .map(|e| Angles {
                 pitch: e.angles.x,
                 roll: e.angles.z,
@@ -1312,7 +1332,10 @@ impl ClientState {
             })
             .unwrap_or_default();
         Camera::new(
-            self.view.final_origin(),
+            self.view
+                .as_ref()
+                .map(|view| view.final_origin())
+                .unwrap_or_default(),
             angles,
             Mat4::perspective_rh_gl(fov_y, aspect, 4.0, 4096.0),
         )

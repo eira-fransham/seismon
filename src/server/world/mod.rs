@@ -215,6 +215,10 @@ pub struct World {
 }
 
 impl World {
+    pub fn type_def(&self) -> &EntityTypeDef {
+        &self.type_def
+    }
+
     pub fn get(&self, entity_id: EntityId) -> Result<EntityRef<'_>, ProgsError> {
         self.entities.get(entity_id, &self.type_def)
     }
@@ -618,7 +622,7 @@ impl World {
             .find(|def| &*strs.get(def.name_id).unwrap() == name.as_bytes())
         {
             Some(d) => Ok(*d),
-            None => Err(ProgsError::with_msg(format!("no field with name {}", name))),
+            None => Err(ProgsError::with_msg(format!("no field with name {name}"))),
         }
     }
 
@@ -671,6 +675,10 @@ impl World {
     ) -> Result<EntityId, ProgsError> {
         let ent_id = self.alloc_uninitialized()?;
 
+        if map["classname"].starts_with("weapon_") {
+            info!("{map:?}");
+        }
+
         for (key, val) in map.iter() {
             debug!(".{} = {}", key, val);
             match *key {
@@ -695,6 +703,8 @@ impl World {
 
                 k => {
                     let def = self.find_def(string_table, k)?;
+
+                    info!("{k} = {def:?}");
 
                     let mut ent = self.get_mut(ent_id)?;
                     match def.type_ {
@@ -957,20 +967,15 @@ impl World {
                 let size = max - min;
                 match self.models[ent.model_index()? as usize].kind() {
                     ModelKind::Brush(bmodel) => {
-                        let hull_index;
-
-                        // TODO: replace these magic constants
-                        if size[0] < 3.0 {
-                            debug!("Using hull 0");
-                            hull_index = 0;
-                        } else if size[0] <= 32.0 {
-                            debug!("Using hull 1");
-                            hull_index = 1;
+                        let hull_index = if size.x < 3.0 {
+                            0
+                        } else if size.x <= 32.0 {
+                            1
                         } else {
-                            debug!("Using hull 2");
-                            hull_index = 2;
-                        }
+                            2
+                        };
 
+                        debug!("Using hull {hull_index}");
                         let hull = bmodel.hull(hull_index)?;
 
                         let offset = hull.min() - min + ent.origin()?;
@@ -1085,7 +1090,7 @@ impl World {
         F: Fn(EntityId) -> bool + Copy,
     {
         let mut trace = Trace::new(
-            TraceStart::new(Vec3::ZERO, 0.0),
+            TraceStart::new(Vec3::ZERO, 0.),
             TraceEnd::terminal(Vec3::ZERO),
             BspLeafContents::Empty,
         );
@@ -1094,14 +1099,11 @@ impl World {
 
         let area = &self.area_nodes[area_id];
 
-        'collide_entity: for touch in area.solids.iter().filter(|e| filter(**e)) {
-            // don't collide an entity with itself
-            if let Some(e) = collide.e_id
-                && e == *touch
-            {
-                continue;
-            }
-
+        'collide_entity: for touch in area
+            .solids
+            .iter()
+            .filter(|e| filter(**e) && Some(**e) != collide.e_id)
+        {
             match self.get(*touch)?.solid()? {
                 // if the other entity has no collision, skip it
                 EntitySolid::Not => continue,

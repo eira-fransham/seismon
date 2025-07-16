@@ -32,7 +32,7 @@ impl StringTable {
         if id.0 < self.data.len() {
             Ok(id)
         } else {
-            Err(ProgsError::with_msg(format!("no string with ID {}", value)))
+            Err(ProgsError::with_msg(format!("no string with ID {value}")))
         }
     }
 

@@ -686,7 +686,7 @@ impl Connection {
 
                     // patch view angles in demos
                     if let Some(angles) = demo_view_angles
-                        && ent_update.ent_id as usize == self.state.view_entity_id()
+                        && self.state.view_entity_id() == Some(ent_update.ent_id as usize)
                     {
                         self.state.update_view_angles(angles);
                     }
@@ -1278,13 +1278,15 @@ mod systems {
             ..
         }) = conn.as_deref_mut()
         {
-            let move_cmd = state.handle_input(
+            let Some(move_cmd) = state.handle_input(
                 &registry,
                 Duration::from_std(frame_time.delta()).unwrap(),
                 move_vars,
                 mouse_vars,
                 impulse,
-            );
+            ) else {
+                return Ok(());
+            };
             let mut msg = Vec::new();
             move_cmd.serialize(&mut msg)?;
             client_events.write(ClientMessage {
