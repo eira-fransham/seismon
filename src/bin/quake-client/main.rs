@@ -22,7 +22,12 @@
 
 mod menu;
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    ffi::OsStr,
+    fs::File,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use bevy::{
     audio::AudioPlugin,
@@ -35,10 +40,15 @@ use bevy::{
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
     render::{
+        RenderPlugin,
         camera::Exposure,
         view::{ColorGrading, ColorGradingGlobal},
     },
     window::{PresentMode, PrimaryWindow},
+};
+use bevy_capture::{
+    Capture, CaptureBundle, CapturePlugin,
+    encoder::{gif::GifEncoder, mp4_openh264::Mp4Openh264Encoder},
 };
 use clap::Parser;
 use seismon::{
@@ -158,6 +168,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
                 hdr: true,
                 ..default()
             },
+            CaptureBundle::default(),
             TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
@@ -235,6 +246,12 @@ fn main() -> ExitCode {
         })
         .set(ImagePlugin::default_nearest());
 
+    #[cfg(feature = "capture")]
+    let default_plugins = default_plugins.set(RenderPlugin {
+        synchronous_pipeline_compilation: true,
+        ..default()
+    });
+
     let default_plugins = default_plugins
         .disable::<AudioPlugin>()
         .add(bevy_seedling::SeedlingPlugin::default());
@@ -246,7 +263,11 @@ fn main() -> ExitCode {
             game: opt.game.clone(),
             main_menu: menu::build_main_menu,
         })
+        .add_plugins(
+            CapturePlugin,
+        )
         .add_plugins(SeismonServerPlugin)
+        
         .cvar_on_set(
             "cl_title",
             "Quake",
@@ -285,6 +306,56 @@ fn main() -> ExitCode {
         ).insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 
+    #[cfg(feature = "capture")]
+    {
+        #[derive(Parser)]
+        #[command(name = "startcapture", about = "Starts a new capture.")]
+        struct StartCapture {
+            file: String,
+        }
+
+        #[derive(Parser)]
+        #[command(name = "stopcapture", about = "Stops the current capture.")]
+        struct StopCapture {}
+
+        app.command(
+            |In(StartCapture { file }), mut capture: Query<&mut Capture>| {
+                let mut capture = capture.single_mut().unwrap();
+                let mut filename = Path::new(&file);
+                let filename = if filename.extension().is_none() {
+                    filename.with_extension("mp4")
+                } else {
+                    filename.to_owned()
+                };
+
+                if !capture.is_capturing() {
+                    match filename.extension().and_then(OsStr::to_str) {
+                        Some("mp4") => capture.start(
+                            Mp4Openh264Encoder::new(File::create(filename).unwrap(), 1366, 768)
+                                .unwrap(),
+                        ),
+                        Some("gif") => {
+                            capture.start(GifEncoder::new(File::create(filename).unwrap()))
+                        }
+                        Some(other) => {
+                            return format!("Unsupported file extension {other}",).into();
+                        }
+                        None => unreachable!(),
+                    }
+                }
+
+                default()
+            },
+        )
+        .command(|In(StopCapture {}), mut capture: Query<&mut Capture>| {
+            let mut capture = capture.single_mut().unwrap();
+            if capture.is_capturing() {
+                capture.stop();
+            }
+
+            default()
+        });
+    }
     app.run();
 
     0.into()

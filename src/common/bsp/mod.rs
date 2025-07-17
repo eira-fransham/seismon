@@ -910,7 +910,7 @@ impl BspData {
         for rank in rank_lists {
             dot += "    {rank=same;";
             for node_id in rank {
-                dot += &format!("n{},", node_id);
+                dot += &format!("n{node_id},");
             }
             // discard trailing comma
             dot.pop().unwrap();

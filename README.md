@@ -8,8 +8,9 @@
 
 Seismon is a Quake engine written in Rust, based on the [Bevy](https://bevyengine.org/) framework. It is extensible,
 written in a modern ECS style, has a modern deferred and pipelined rendering system, and includes a modern audio
-framework. The engine is built of a set of plugins, and much of the work could be extracted to work in other games,
-particularly the console system. Work to extract these pieces out is ongoing.
+framework. The engine is built as a set of plugins, and much of the work could be extracted to work in other games,
+particularly the console system. Work to extract these pieces out is ongoing (see
+[#30](https://github.com/eira-fransham/seismon/issues/30)).
 
 Bevy has a lot of features related to rendering, audio and state management that in my [previous Quake-related project](https://github.com/eira-fransham/goeld)
 had to be implement manually - specifically, tonemapping/HDR and pipelined rendering. The audio system has also been completely
@@ -114,7 +115,7 @@ cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
   - [x] Basic physics
   - [ ] Complete physics
   - [ ] All builtins implemented
-  - [ ] Input handling
+  - [x] Input handling
   - [x] Basic client connection handling
   - [ ] Full client connection
   - [x] Single-player clients

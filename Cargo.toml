@@ -9,6 +9,7 @@ resolver = "2"
 arrayvec = "0.7"
 beef = "0.5"
 bevy = { version = "0.16" }
+bevy_capture = { version = "0.3", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { version = "0.4", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "74a5568" }
 bitflags = "2.4"
 bimap = "0.6"
@@ -64,6 +65,7 @@ winit = "0.29"
 [features]
 default = ["fast-compile"]
 fast-compile = ["bevy/dynamic_linking"]
+capture = ["dep:bevy_capture"]
 
 [profile.release-lto]
 inherits = "release"
