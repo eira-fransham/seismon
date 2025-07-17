@@ -452,8 +452,10 @@ impl Globals {
     pub fn get_field_addr(&self, addr: i16) -> Result<FieldAddr, GlobalsError> {
         self.type_check(addr as usize, Type::QField)?;
 
-        match self.get_addr(addr)?.read_i32::<LittleEndian>()? {
-            f if f < 0 => Err(GlobalsError::with_msg(format!("Negative entity ID ({f})"))),
+        match self.get_int(addr)? {
+            f if f < 0 => Err(GlobalsError::with_msg(format!(
+                "Negative field address ({f})"
+            ))),
             f => Ok(FieldAddr(f as usize)),
         }
     }

@@ -564,6 +564,7 @@ pub struct EntityMeta {
     pub baseline: EntityState,
 }
 
+#[derive(Clone)]
 pub struct Entity<'a, Addrs, Meta> {
     addrs: Addrs,
     type_def: &'a EntityTypeDef,
@@ -587,6 +588,52 @@ where
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.meta
+    }
+}
+
+struct EntityFormatter<'a, 'b> {
+    entity: &'a EntityRef<'b>,
+    string_table: &'a StringTable,
+}
+
+impl fmt::Display for EntityFormatter<'_, '_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut entity = self.entity.clone();
+        write!(f, "{{")?;
+        for field in self.entity.type_def.field_defs() {
+            if matches!(field.type_, Type::QField | Type::QVoid) {
+                continue;
+            }
+
+            write!(
+                f,
+                " {}: {} = ",
+                self.string_table.get(field.name_id).unwrap().to_str(),
+                field.type_
+            )?;
+            match field.type_ {
+                Type::QEntity => write!(f, "{},", entity.entity_id(field.offset as _).unwrap())?,
+                Type::QFunction => {
+                    write!(f, "{},", entity.function_id(field.offset as _).unwrap())?
+                }
+                Type::QFloat => write!(f, "{},", entity.get_float(field.offset as _).unwrap())?,
+                Type::QString => write!(
+                    f,
+                    "{},",
+                    self.string_table
+                        .get(entity.string_id(field.offset as _).unwrap())
+                        .unwrap()
+                        .to_str()
+                )?,
+                // TODO: We probably want to skip vectors since these are handled by floats
+                Type::QVector => write!(f, "{},", entity.get_vector(field.offset as _).unwrap())?,
+                Type::QPointer => { /* TODO */ }
+                Type::QVoid | Type::QField => unreachable!(),
+            }
+        }
+        write!(f, "}}")?;
+
+        Ok(())
     }
 }
 
@@ -662,6 +709,18 @@ where
 {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         FocusMut::index_mut(self, index)
+    }
+}
+
+impl<'a> EntityRef<'a> {
+    pub fn display<'this>(
+        &'this self,
+        string_table: &'this StringTable,
+    ) -> impl fmt::Display + use<'a, 'this> {
+        EntityFormatter {
+            entity: self,
+            string_table,
+        }
     }
 }
 
@@ -867,9 +926,7 @@ where
     pub fn string_id(&mut self, addr: i16) -> Result<StringId, EntityError> {
         self.type_check(addr as usize, Type::QString)?;
 
-        Ok(StringId(
-            self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
-        ))
+        Ok(StringId(self.get_int(addr)? as usize))
     }
 
     /// Stores a `StringId` at the given virtual address.
@@ -888,7 +945,7 @@ where
     pub fn entity_id(&mut self, addr: i16) -> Result<EntityId, EntityError> {
         self.type_check(addr as usize, Type::QEntity)?;
 
-        Ok(EntityId(self.get_addr(addr)?.read_i32::<LittleEndian>()?))
+        Ok(EntityId(self.get_int(addr)?))
     }
 
     /// Stores an `EntityId` at the given virtual address.
@@ -906,9 +963,7 @@ where
     /// Loads a `FunctionId` from the given virtual address.
     pub fn function_id(&mut self, addr: i16) -> Result<FunctionId, EntityError> {
         self.type_check(addr as usize, Type::QFunction)?;
-        Ok(FunctionId(
-            self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
-        ))
+        Ok(FunctionId(self.get_int(addr)? as usize))
     }
 
     /// Stores a `FunctionId` at the given virtual address.
@@ -1127,7 +1182,7 @@ where
     where
         Addrs: FocusIndexMut,
     {
-        let result = self.flags()? | flags;
+        let result = self.flags()? | (flags);
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
@@ -1136,7 +1191,7 @@ where
     where
         Addrs: FocusIndexMut,
     {
-        let result = self.flags()? | !flags;
+        let result = self.flags()? & !flags;
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }

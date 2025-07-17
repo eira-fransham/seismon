@@ -768,7 +768,7 @@ impl LevelState {
             runaway -= 1;
 
             if runaway == 0 {
-                self.cx.print_backtrace(&self.string_table);
+                self.cx.print_backtrace(&self.string_table, false);
                 return Err(ProgsError::LocalStackOverflow {
                     backtrace: Backtrace::capture(),
                 });
@@ -834,7 +834,7 @@ impl LevelState {
                         ($id:ident) => {{
                             const ERROR_MSG: &str = concat!("TODO: ", stringify!($id));
 
-                            self.cx.print_backtrace(&self.string_table);
+                            self.cx.print_backtrace(&self.string_table, false);
                             if cfg!(debug_assertions) {
                                 panic!("{ERROR_MSG}")
                             } else {
@@ -862,7 +862,7 @@ impl LevelState {
 
                         let func_name = self.string_table.get(name_id).unwrap();
                         if !HACK_IGNORE_MISMATCH.contains(&&*func_name) {
-                            self.cx.print_backtrace(&self.string_table);
+                            self.cx.print_backtrace(&self.string_table, false);
                             warn!(
                                 "Arg count mismatch calling {}: expected {}, found {}",
                                 func_name, def.argc, called_with_args,
@@ -1667,7 +1667,7 @@ impl LevelState {
         let pusher_origin = pusher.origin()?;
 
         let new_origin = pusher_origin + move_amt;
-        info!("Moving pusher by {move_amt}");
+        debug!("Moving pusher by {move_amt}");
         pusher.set_origin(new_origin)?;
         self.link_entity(pusher_id, false, registry.reborrow(), vfs)?;
 
@@ -1710,7 +1710,7 @@ impl LevelState {
             other.set_origin(old_origin + move_amt)?;
 
             if !self.world.entity_is_stuck(other_id, |_| true)? {
-                info!("Moved pushed by {move_amt}");
+                debug!("Moved pushed by {move_amt}");
                 self.link_entity(other_id, false, registry.reborrow(), vfs)?;
                 continue;
             }
@@ -1749,7 +1749,7 @@ impl LevelState {
                 continue;
             }
 
-            info!("Resetting pusher origin");
+            debug!("Resetting pusher origin");
             self.world.get_mut(pusher_id)?.set_origin(pusher_origin)?;
             self.link_entity(pusher_id, false, registry.reborrow(), vfs)?;
 
@@ -1763,7 +1763,7 @@ impl LevelState {
                 self.execute_program(pusher_blocked_fn, registry, vfs)?;
             }
 
-            info!("Resetting all positions");
+            debug!("Resetting all positions");
             for (ent, original_position) in moved {
                 self.world.get_mut(ent)?.set_origin(original_position)?;
             }
@@ -2246,22 +2246,7 @@ impl LevelState {
         let ent_fld_addr = self
             .world
             .ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
-        let name_id = self
-            .world
-            .type_def()
-            .field_defs()
-            .iter()
-            .find(|def| def.offset as usize == ent_fld_addr.field_addr.0)
-            .map(|def| def.name_id);
-        let name = name_id.and_then(|name_id| self.string_table.get(name_id));
-        if let Some(name) = name
-            && name.raw == "flags".as_bytes()
-        {
-            let f = EntityFlags::from_bits_retain(f as u16);
-            info!("Storing {f:?} to {name}");
 
-            self.cx.print_backtrace(&self.string_table);
-        }
         self.world
             .get_mut(ent_fld_addr.entity_id)?
             .put_float(f, ent_fld_addr.field_addr.0 as i16)?;
@@ -2387,7 +2372,7 @@ impl LevelState {
     pub fn builtin_err(&mut self, err_kind: impl fmt::Display) -> Result<(), ProgsError> {
         let msg = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let msg = self.string_table.get(msg).unwrap();
-        self.cx.print_backtrace(&self.string_table);
+        self.cx.print_backtrace(&self.string_table, false);
         Err(ProgsError::with_msg(format!(
             "{} in {}: {}",
             err_kind,
@@ -2960,6 +2945,74 @@ impl LevelState {
         }))
     }
 
+    fn move_step_fly(
+        &mut self,
+        ent_id: EntityId,
+        move_dir: Vec3,
+        relink: bool,
+        registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> Result<bool, ProgsError> {
+        let mut ent = self.world.get(ent_id)?;
+        let ent_flags = ent.flags()?;
+
+        let min = ent.min()?;
+        let max = ent.max()?;
+        let old_origin = ent.origin()?;
+
+        // Try move with/without vertical motion
+        for i in 0..2 {
+            let mut ent = self.world.get(ent_id)?;
+            let old_origin = ent.origin()?;
+            let mut new_origin = old_origin + move_dir;
+
+            let enemy_id = ent.enemy()?;
+
+            if i != 0 && !enemy_id.is_none() {
+                // TODO: This doesn't need to be hard-coded to +- 8, and it doesn't need to be hard-coded to target the
+                //       point 30-40 units above the origin of the target.
+                match old_origin.z - self.world.get(ent_id)?.origin()?.z {
+                    40f32.. => new_origin.z -= 8.,
+                    ..30f32 => new_origin.z += 8.,
+                    _ => {}
+                }
+            }
+
+            let (trace, _) = self.world.trace_entity_move(
+                ent_id,
+                old_origin,
+                min,
+                max,
+                new_origin,
+                CollideKind::default(),
+                |_| true,
+            )?;
+
+            if trace.is_terminal() {
+                if ent_flags.contains(EntityFlags::SWIM) && !trace.in_water() {
+                    // Swimming monster left water
+                    return Ok(false);
+                }
+
+                debug!("{} -> {}", old_origin, trace.end_point());
+                self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
+
+                if relink {
+                    self.link_entity(ent_id, true, registry, vfs)?;
+                }
+
+                return Ok(true);
+            }
+
+            // TODO: This can be cleaned up
+            if enemy_id.is_none() {
+                break;
+            }
+        }
+
+        Ok(false)
+    }
+
     fn move_step(
         &mut self,
         ent_id: EntityId,
@@ -2978,60 +3031,10 @@ impl LevelState {
         let old_origin = ent.origin()?;
 
         if ent_flags.intersects(EntityFlags::SWIM | EntityFlags::FLY) {
-            // Try move with/without vertical motion
-            for i in 0..2 {
-                let mut ent = self.world.get(ent_id)?;
-                let old_origin = ent.origin()?;
-                let mut new_origin = old_origin + move_dir;
-
-                let enemy_id = ent.enemy()?;
-
-                if i != 0 && !enemy_id.is_none() {
-                    // TODO: This doesn't need to be hard-coded to +- 8, and it doesn't need to be hard-coded to target the
-                    //       point 30-40 units above the origin of the target.
-                    match old_origin.z - self.world.get(ent_id)?.origin()?.z {
-                        40f32.. => new_origin.z -= 8.,
-                        ..30f32 => new_origin.z += 8.,
-                        _ => {}
-                    }
-                }
-
-                let (trace, _) = self.world.trace_entity_move(
-                    ent_id,
-                    old_origin,
-                    min,
-                    max,
-                    new_origin,
-                    CollideKind::default(),
-                    |_| true,
-                )?;
-
-                if trace.is_terminal() {
-                    if ent_flags.contains(EntityFlags::SWIM) && !trace.in_water() {
-                        // Swimming monster left water
-                        return Ok(false);
-                    }
-
-                    info!("{} -> {}", old_origin, trace.end_point());
-                    self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
-
-                    if relink {
-                        self.link_entity(ent_id, true, registry, vfs)?;
-                    }
-
-                    return Ok(true);
-                }
-
-                // TODO: This can be cleaned up
-                if enemy_id.is_none() {
-                    break;
-                }
-            }
-
-            return Ok(false);
+            return self.move_step_fly(ent_id, move_dir, relink, registry, vfs);
         }
 
-        let new_origin = old_origin + dbg!(move_dir);
+        let new_origin = old_origin + move_dir;
 
         let step = Vec3::Z * server_vars.max_step;
 
@@ -3145,8 +3148,9 @@ impl LevelState {
             let delta = ent.angles()?.y - ent.ideal_yaw()?;
 
             if (45f32..315f32).contains(&delta) {
-                debug!("Didn't turn far enough, cancel step(?)");
-                // Quake cancels the step if the monster did not turn far enough(???)
+                debug!("Cancelling move due to angle delta");
+                // Quake says that this is when the monster "didn't turn far enough" but it appears to be
+                // the opposite - cancelling if it turned _too_ far.
                 ent.set_origin(old_origin)?;
             }
         }

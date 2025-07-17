@@ -630,11 +630,9 @@ impl World {
     ///
     /// This representation should be compatible with the one used by the original Quake.
     pub fn ent_fld_addr_to_i32(&self, ent_fld_addr: EntityFieldAddr) -> i32 {
-        let total_addr = (ent_fld_addr.entity_id.0 * self.type_def.addr_count() as i32
+        (ent_fld_addr.entity_id.0 * self.type_def.addr_count() as i32
             + ent_fld_addr.field_addr.0 as i32)
-            * mem::size_of::<f32>() as i32;
-
-        total_addr
+            * mem::size_of::<f32>() as i32
     }
 
     /// Convert the internal representation of a field offset back to struct form.
@@ -675,10 +673,6 @@ impl World {
     ) -> Result<EntityId, ProgsError> {
         let ent_id = self.alloc_uninitialized()?;
 
-        if map["classname"].starts_with("weapon_") {
-            info!("{map:?}");
-        }
-
         for (key, val) in map.iter() {
             debug!(".{} = {}", key, val);
             match *key {
@@ -690,8 +684,10 @@ impl World {
                     // only the yaw (Y) value is given. see
                     // https://github.com/id-Software/Quake/blob/master/WinQuake/pr_edict.c#L826-L834
                     let def = self.find_def(string_table, "angles")?;
-                    self.get_mut(ent_id)?
-                        .put_vector(Vec3::new(0.0, val.parse().unwrap(), 0.0), def.offset as i16)?;
+                    self.get_mut(ent_id)?.put_vector(
+                        Vec3::new(0.0, val.trim().parse().unwrap(), 0.0),
+                        def.offset as i16,
+                    )?;
                 }
 
                 "light" => {
@@ -703,8 +699,6 @@ impl World {
 
                 k => {
                     let def = self.find_def(string_table, k)?;
-
-                    info!("{k} = {def:?}");
 
                     let mut ent = self.get_mut(ent_id)?;
                     match def.type_ {

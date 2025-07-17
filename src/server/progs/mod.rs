@@ -654,11 +654,11 @@ impl ExecutionContext {
             .chain(iter::once(self.current_function))
     }
 
-    pub fn print_backtrace(&self, string_table: &StringTable) {
+    pub fn print_backtrace(&self, string_table: &StringTable, force: bool) {
         let backtrace_var =
             std::env::var("RUST_LIB_BACKTRACE").or_else(|_| std::env::var("RUST_BACKTRACE"));
         let backtrace_enabled = matches!(backtrace_var.as_deref(), Err(_) | Ok("0"));
-        if backtrace_enabled {
+        if force || backtrace_enabled {
             for (depth, id) in self.backtrace().enumerate() {
                 let def = self.function_def(id).unwrap();
 
@@ -772,13 +772,18 @@ impl ExecutionContext {
         );
 
         for i in (0..def.locals).rev() {
-            globals.put_bytes(self.local_stack.pop().unwrap(), (def.arg_start + i) as i16)?;
+            globals.put_bytes(
+                self.local_stack
+                    .pop()
+                    .ok_or_else(|| ProgsError::with_msg("local stack underflow"))?,
+                (def.arg_start + i) as i16,
+            )?;
         }
 
-        let frame = match self.call_stack.pop() {
-            Some(f) => f,
-            None => return Err(ProgsError::with_msg("call stack underflow")),
-        };
+        let frame = self
+            .call_stack
+            .pop()
+            .ok_or_else(|| ProgsError::with_msg("call stack underflow"))?;
 
         self.current_function = frame.func_id;
         self.pc = frame.instr_id;
