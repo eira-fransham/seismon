@@ -27,13 +27,14 @@ pub fn register_cvars(app: &mut App) {
         )
         .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
         .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
-        .cvar("sv_maxspeed", todo!(), todo!())
-        .cvar("sv_stopspeed", todo!(), todo!())
-        .cvar("sv_accelerate", todo!(), todo!())
-        .cvar("sv_airaccelerate", todo!(), todo!())
-        .cvar("sv_wateraccelerate", todo!(), todo!())
-        .cvar("sv_friction", todo!(), todo!())
-        .cvar("sv_waterfriction", todo!(), todo!())
+        .cvar("sv_maxspeed", "320", "Set the ground speed that the player will try to walk at (not the maximum possible speed)")
+        .cvar("sv_maxairspeed", "30", "Set the air speed that the player will try to move at (not the maximum possible speed)")
+        .cvar("sv_stopspeed", "100", "Set the player's grounded friction")
+        .cvar("sv_accelerate", "10", "Set the player's grounded acceleration")
+        .cvar("sv_airaccelerate", "0.7", "Set the player's air acceleration")
+        .cvar("sv_wateraccelerate", "10", "Set the player's water acceleration")
+        .cvar("sv_friction", "4", "Set the player's air friction")
+        .cvar("sv_waterfriction", "4", "Set the player's water friction")
         .cvar_on_set(
             "sys_tickrate",
             "0.05",

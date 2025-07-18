@@ -67,7 +67,7 @@ use bevy::{
     math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
 };
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
 use byteorder::{LittleEndian, WriteBytesExt as _};
 use chrono::Duration;
 use failure::bail;
@@ -252,9 +252,13 @@ impl ClientSlots {
             .map(|(i, _)| i)
     }
 
-    pub fn active_clients(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn active_clients(&self) -> impl Iterator<Item = (usize, &ClientActive)> + '_ {
         self.connected_clients()
-            .filter(|&i| matches!(self.get(i).map(|c| &c.state), Some(ClientState::Active(_))))
+            .filter_map(|i| if let Some(ClientState::Active(active)) = self.get(i).map(|c| &c.state) {
+                Some((i, active))
+            } else {
+                None
+            })
     }
 
     /// Returns a reference to the client in a slot.
@@ -574,6 +578,8 @@ pub struct ServerVars {
 pub struct PlayerVars {
     #[serde(rename(deserialize = "sv_maxspeed"))]
     max_speed: f32,
+    #[serde(rename(deserialize = "sv_maxairspeed"))]
+    max_air_speed: f32,
     #[serde(rename(deserialize = "sv_stopspeed"))]
     stop_speed: f32,
     #[serde(rename(deserialize = "sv_accelerate"))]
@@ -1277,6 +1283,20 @@ impl LevelState {
         Ok(())
     }
 
+    fn physics_walk(
+        &mut self,
+        ent_id: EntityId,
+        mut registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> Result<(), ProgsError> {
+        let mut ent = self.world.get_mut(ent_id)?;
+
+        let was_on_ground = ent.has_flag(EntityFlags::ON_GROUND)?;
+        ent.remove_flags(EntityFlags::ON_GROUND)?;
+
+        todo!();
+    }
+
     fn ent_physics(
         &mut self,
         e_id: EntityId,
@@ -1286,9 +1306,9 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let mut ent = self.world.get(e_id)?;
         match ent.move_kind()? {
-            MoveKind::Walk => {
-                debug!("TODO: MoveKind::Walk");
-            }
+            MoveKind::Walk => 
+                self.physics_walk(e_id, frame_time, registry.reborrow(), vfs)?,
+            
 
             MoveKind::Push => self.physics_push(e_id, frame_time, registry.reborrow(), vfs)?,
             MoveKind::NoClip => self.physics_noclip(e_id, frame_time, registry.reborrow(), vfs)?,
@@ -1313,6 +1333,28 @@ impl LevelState {
         Ok(())
     }
 
+    pub fn physics_player(&mut self, client: usize, player_id: EntityId, mut registry: Mut<Registry>, vfs: &Vfs) -> Result<(), ProgsError> {
+        let server_vars: ServerVars = registry.read_cvars()?;
+
+            let pre_think = self.globals.load(GlobalAddrFunction::PlayerPreThink)?;
+            self.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
+            self.globals.store(GlobalAddrEntity::Self_, player_id)?;
+            self.execute_program(pre_think, registry.reborrow(), vfs)?;
+
+            let mut player = self.world.get_mut(player_id)?;
+
+            player.limit_velocity(server_vars.max_entity_velocity)?;
+
+            match player.move_kind() {
+                MoveKind::None => {
+                    self.think(e_id, frame_time, registry.reborrow(), vfs)?;
+                }
+                MoveKind::Walk
+            }
+
+            Ok(())
+    }
+
     pub fn physics(
         &mut self,
         clients: &ClientSlots,
@@ -1326,6 +1368,12 @@ impl LevelState {
         self.start_frame(registry.reborrow(), vfs)?;
 
         let mut ent_error_map = HashMap::<EntityId, ProgsError>::new();
+
+        for (client_id, ClientActive { entity_id, .. }) in clients.active_clients() {
+            if let Err(e) = self.physics_client(client_id, *entity_id, registry.reborrow(), vfs) {
+                ent_error_map.insert(*entity_id, e):
+            }
+        }
 
         for ent_id in self.world.iter().collect::<Vec<_>>() {
             if self.globals.load(GlobalAddrFloat::ForceRetouch)? != 0.0 {
@@ -1347,9 +1395,7 @@ impl LevelState {
             }
 
             let max_clients = clients.limit();
-            if ent_id.0 != 0
-                && ent_id.0 > max_clients as i32
-                && let Err(e) = self.ent_physics(ent_id, frame_time, registry.reborrow(), vfs)
+            if !ent_id.is_none()  && ent_id.0 > max_clients && let Err(e) = self.ent_physics(ent_id, frame_time, registry.reborrow(), vfs)
             {
                 ent_error_map.insert(ent_id, e);
             }
@@ -1399,7 +1445,7 @@ impl LevelState {
         Ok(())
     }
 
-    fn physics_player_ground(
+    fn handle_input_player_ground(
         &mut self,
         ent_id: EntityId,
         player_input: PlayerInput,
@@ -1441,7 +1487,7 @@ impl LevelState {
         Ok(())
     }
 
-    fn physics_player_air(
+    fn handle_input_player_air(
         &mut self,
         ent_id: EntityId,
         player_input: PlayerInput,
@@ -1471,29 +1517,11 @@ impl LevelState {
             - server_vars.entity_gravity * server_vars.gravity;
 
         ent.set_velocity(velocity)?;
-        ent.limit_velocity(server_vars.max_entity_velocity)?;
-
-        let velocity = ent.velocity()?;
-
-        let (trace, _) = self.world.trace_entity_move(
-            ent_id,
-            origin,
-            min,
-            max,
-            origin + velocity * engine::duration_to_f32(player_input.delta_time),
-            CollideKind::default(),
-            |_| true,
-        )?;
-
-        if !trace.all_solid() {
-            let mut ent = self.world.get_mut(ent_id)?;
-            ent.set_origin(trace.end_point())?;
-        }
 
         Ok(())
     }
 
-    fn physics_player_water(
+    fn handle_input_player_water(
         &mut self,
         ent_id: EntityId,
         player_input: PlayerInput,
@@ -1505,7 +1533,7 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn physics_player(
+    pub fn handle_input_player(
         &mut self,
         ent_id: EntityId,
         player_input: PlayerInput,
@@ -1534,7 +1562,7 @@ impl LevelState {
         let target_vel = target_vel.with_z(0.);
 
         if water_level >= 2. {
-            self.physics_player_water(
+            self.handle_input_player_water(
                 ent_id,
                 player_input,
                 &server_vars,
@@ -1543,7 +1571,7 @@ impl LevelState {
                 vfs,
             )?;
         } else {
-            self.physics_player_air(
+            self.handle_input_player_air(
                 ent_id,
                 player_input,
                 &server_vars,
@@ -3652,7 +3680,7 @@ pub mod systems {
                                 entity.set_buttons(button_flags).unwrap();
 
                                 level
-                                    .physics_player(
+                                    .handle_input_player(
                                         ent_id,
                                         PlayerInput {
                                             delta_time,

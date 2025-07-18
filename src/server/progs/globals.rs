@@ -253,6 +253,20 @@ pub enum GlobalAddrFunction {
     SetChangeArgs = 91,
 }
 
+impl GlobalAddr for GlobalAddrFunction {
+    type Value = FunctionId;
+
+    #[inline]
+    fn load(&self, globals: &Globals) -> Result<Self::Value, GlobalsError> {
+        globals.entity_id(*self as i16)
+    }
+
+    #[inline]
+    fn store(&self, globals: &mut Globals, value: Self::Value) -> Result<(), GlobalsError> {
+        globals.put_entity_id(value, *self as i16)
+    }
+}
+
 #[derive(Debug)]
 pub struct Globals {
     defs: Arc<[GlobalDef]>,
