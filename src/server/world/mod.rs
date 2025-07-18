@@ -19,7 +19,6 @@ pub mod entity;
 pub mod phys;
 
 use std::{
-    collections::HashSet,
     iter, mem,
     ops::{Bound, RangeBounds},
 };
@@ -35,11 +34,11 @@ use self::{
     entity::{EntityMut, EntityRef},
     phys::{Collide, CollideKind},
 };
+use hashbrown::HashSet;
 
 use crate::{
     common::{
-        bsp,
-        bsp::{BspCollisionHull, BspLeafContents},
+        bsp::{self, BspCollisionHull, BspCollisionNodeChild, BspLeafContents},
         mdl,
         model::{Model, ModelKind},
         parse, sprite,
@@ -715,7 +714,7 @@ impl World {
 
                         Type::QFloat => ent.put_float(val.parse().unwrap(), def.offset as i16)?,
                         Type::QVector => ent.put_vector(
-                            parse::vector3_components(val).unwrap(),
+                            parse::vec3(val).unwrap(),
                             def.offset as i16,
                         )?,
                         Type::QEntity => {
@@ -747,7 +746,7 @@ impl World {
     ///
     /// The triggers' IDs are stored in `touched`.
     pub fn list_touched_triggers(
-        &mut self,
+        &self,
         touched: &mut Vec<EntityId>,
         ent_id: EntityId,
         area_id: usize,
@@ -767,7 +766,7 @@ impl World {
             };
 
             let trigger_touch = trigger.load(FieldAddrFunctionId::Touch)?;
-            if trigger_touch == FunctionId(0) || trigger.solid()? == EntitySolid::Not {
+            if trigger_touch == FunctionId(0) || trigger.solid()? != EntitySolid::Trigger {
                 continue;
             }
 
@@ -842,9 +841,9 @@ impl World {
 
             let mut ent = self.get_mut(e_id)?;
 
-            let origin = Vec3::from(ent.get_vector(FieldAddrVector::Origin as i16)?);
-            let mins = Vec3::from(ent.get_vector(FieldAddrVector::Mins as i16)?);
-            let maxs = Vec3::from(ent.get_vector(FieldAddrVector::Maxs as i16)?);
+            let origin = ent.origin()?;
+            let mins = ent.min()?;
+            let maxs = ent.max()?;
             debug!("origin = {:?} mins = {:?} maxs = {:?}", origin, mins, maxs);
             abs_min = origin + mins;
             abs_max = origin + maxs;
@@ -855,7 +854,7 @@ impl World {
             let bounds_offset = if flags.contains(EntityFlags::ITEM) {
                 (Vec3::X + Vec3::Y) * BOUNDS_OFFSET_MAGNITUDE
             } else {
-                Vec3::splat(BOUNDS_OFFSET_MAGNITUDE)
+                Vec3::splat(1.)
             };
 
             abs_min -= bounds_offset;
@@ -1074,6 +1073,10 @@ impl World {
         self.collide_area(0, collide, &filter)
     }
 
+    pub fn entity_area(&self, ent_id: EntityId) -> Result<Option<usize>, ProgsError> {
+        self.entities.area_entity(ent_id).map(|e| e.area_id)
+    }
+
     fn collide_area<F>(
         &self,
         area_id: usize,
@@ -1083,11 +1086,7 @@ impl World {
     where
         F: Fn(EntityId) -> bool + Copy,
     {
-        let mut trace = Trace::new(
-            TraceStart::new(Vec3::ZERO, 0.),
-            TraceEnd::terminal(Vec3::ZERO),
-            BspLeafContents::Empty,
-        );
+        let mut trace = Trace::uninitialized(collide.start, collide.end);
 
         let mut collide_entity = None;
 

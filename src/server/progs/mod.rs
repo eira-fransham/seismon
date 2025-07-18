@@ -147,7 +147,7 @@ const DEF_SIZE: usize = 8;
 
 #[derive(Snafu, Debug)]
 pub enum ProgsError {
-    #[snafu(context(false))]
+    #[snafu(context(false), display("{source:?}"))]
     Io {
         source: ::std::io::Error,
         backtrace: Backtrace,
@@ -247,8 +247,10 @@ impl fmt::Display for EntityId {
 }
 
 impl EntityId {
+    pub const NONE: Self = Self(0);
+
     pub fn is_none(&self) -> bool {
-        self.0 == 0
+        self.0 <= 0
     }
 }
 

@@ -17,6 +17,7 @@ pub fn register_cvars(app: &mut App) {
             "1",
             "0: deathmatch, 1: co-op (friendly fire disabled), 2: co-op (friendly fire enabled)",
         )
+        .cvar("temp1", "0", "Used internally for QuakeC")
         .cvar("skill", "1", "0: easy, 1: normal, 2: hard, 3: nightmare")
         .cvar("sv_gravity", "800", "Gravity strength")
         .cvar(

@@ -46,6 +46,7 @@ use bevy::{
     },
     window::{PresentMode, PrimaryWindow},
 };
+#[cfg(feature = "capture")]
 use bevy_capture::{
     Capture, CaptureBundle, CapturePlugin,
     encoder::{gif::GifEncoder, mp4_openh264::Mp4Openh264Encoder},
@@ -161,14 +162,12 @@ fn cmd_gametitle(In(new_name): In<Value>, mut window: Query<&mut Window, With<Pr
 
 fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<RunCmd<'static>>) {
     move |mut commands, mut input: ResMut<ConsoleInput>, mut console_cmds| {
-        // main game camera
-        commands.spawn((
+        let camera_bundle = (
             Camera3d::default(),
             Camera {
                 hdr: true,
                 ..default()
             },
-            CaptureBundle::default(),
             TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
@@ -186,7 +185,11 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
             Bloom::default(),
             DepthPrepass,
             NormalPrepass,
-        ));
+        );
+        #[cfg(feature = "capture")]
+        let camera_bundle = (camera_bundle, CaptureBundle::default());
+        // main game camera
+        commands.spawn(camera_bundle);
 
         console_cmds.write(RunCmd::parse("exec quake.rc").unwrap());
 
@@ -263,11 +266,7 @@ fn main() -> ExitCode {
             game: opt.game.clone(),
             main_menu: menu::build_main_menu,
         })
-        .add_plugins(
-            CapturePlugin,
-        )
         .add_plugins(SeismonServerPlugin)
-        
         .cvar_on_set(
             "cl_title",
             "Quake",
@@ -308,6 +307,8 @@ fn main() -> ExitCode {
 
     #[cfg(feature = "capture")]
     {
+        app.add_plugins(CapturePlugin);
+
         #[derive(Parser)]
         #[command(name = "startcapture", about = "Starts a new capture.")]
         struct StartCapture {

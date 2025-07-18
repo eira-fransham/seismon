@@ -66,7 +66,7 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
     alt((tag(";"), nom::character::complete::line_ending))(input)
 }
 
-pub fn vector3_components<S>(src: S) -> Option<Vec3>
+pub fn vec3(src: S) -> Option<Vec3>
 where
     S: AsRef<str>,
 {
@@ -77,49 +77,9 @@ where
         return None;
     }
 
-    let x: f32 = match components[0].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
-
-    let y: f32 = match components[1].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
-
-    let z: f32 = match components[2].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
-
-    Some(Vec3::new(x, y, z))
-}
-
-pub fn vector3<S>(src: S) -> Option<Vec3>
-where
-    S: AsRef<str>,
-{
-    let src = src.as_ref();
-
-    let components: Vec<_> = src.split(" ").collect();
-    if components.len() != 3 {
-        return None;
-    }
-
-    let x: f32 = match components[0].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
-
-    let y: f32 = match components[1].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
-
-    let z: f32 = match components[2].parse().ok() {
-        Some(p) => p,
-        None => return None,
-    };
+    let x: f32 = components[0].parse().ok()?;
+    let y: f32 = components[1].parse().ok()?;
+    let z: f32 = components[2].parse().ok()?;
 
     Some(Vec3::new(x, y, z))
 }

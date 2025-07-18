@@ -124,8 +124,9 @@ use std::{collections::HashSet, error::Error, fmt, iter, sync::Arc};
 
 use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 
+use crate::server::world::phys::TraceEndBoundary;
 // TODO: Either Trace should be moved into common or the functions requiring it should be moved into server
-use crate::server::world::{Trace, TraceEnd, TraceStart};
+use crate::server::world::{Trace, TraceEnd, TraceEndKind};
 
 use bevy::prelude::*;
 use chrono::Duration;
@@ -293,9 +294,10 @@ pub struct BspFace {
 }
 
 /// The contents of a leaf in the BSP tree, specifying how it should look and behave.
-#[derive(Copy, Clone, Debug, Eq, FromPrimitive, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, Eq, FromPrimitive, PartialEq)]
 pub enum BspLeafContents {
     /// The leaf has nothing in it. Vision is unobstructed and movement is unimpeded.
+    #[default]
     Empty = 1,
 
     /// The leaf is solid. Physics objects will collide with its surface and may not move inside it.
@@ -486,53 +488,69 @@ impl BspCollisionHull {
     }
 
     pub fn trace(&self, start: Vec3, end: Vec3) -> Result<Trace, BspError> {
-        self.recursive_trace(self.node_id, start, end, 0., 1.)
+        let mut trace = Trace::uninitialized(start, end);
+
+        let _ = self.recursive_trace(
+            &BspCollisionNodeChild::Node(self.node_id),
+            start,
+            end,
+            0.,
+            1.,
+            &mut trace,
+        )?;
+
+        Ok(trace)
     }
 
     fn recursive_trace(
         &self,
-        node: usize,
+        node: &BspCollisionNodeChild,
         start: Vec3,
         end: Vec3,
         start_ratio: f32,
         end_ratio: f32,
-    ) -> Result<Trace, BspError> {
+        trace: &mut Trace,
+    ) -> Result<bool, BspError> {
         debug!("start={:?} end={:?}", start, end);
-        let node = &self.nodes[node];
-        let plane = &self.planes[node.plane_id];
+        let (node, plane) = match node {
+            // this is an internal node, keep searching for a leaf
+            BspCollisionNodeChild::Node(n) => {
+                let node = &self.nodes[*n];
+                let plane = &self.planes[node.plane_id];
+
+                (node, plane)
+            }
+
+            // start -> end falls entirely inside a leaf
+            BspCollisionNodeChild::Contents(c) => {
+                debug!("Found leaf with contents {:?}", c);
+                if *c == BspLeafContents::Solid {
+                    trace.start_solid = true;
+                } else {
+                    trace.all_solid = false;
+                    if *c == BspLeafContents::Empty {
+                        trace.in_open = true;
+                    } else {
+                        trace.in_water = false;
+                    }
+                }
+
+                return Ok(true);
+            }
+        };
 
         match plane.line_segment_intersection(start, end, start_ratio, end_ratio) {
             // start -> end falls entirely on one side of the plane
             LinePlaneIntersect::NoIntersection(side) => {
                 debug!("No intersection");
-                match node.children[side as usize] {
-                    // this is an internal node, keep searching for a leaf
-                    BspCollisionNodeChild::Node(n) => {
-                        debug!("Descending to {:?} node with ID {}", side, n);
-                        self.recursive_trace(n, start, end, start_ratio, end_ratio)
-                    }
-
-                    // start -> end falls entirely inside a leaf
-                    BspCollisionNodeChild::Contents(c) => {
-                        debug!("Found leaf with contents {:?}", c);
-                        Ok(Trace::new(
-                            TraceStart::new(start, start_ratio),
-                            if end_ratio == 1. {
-                                TraceEnd::terminal(end)
-                            } else {
-                                TraceEnd::boundary(
-                                    end,
-                                    end_ratio,
-                                    match side {
-                                        HyperplaneSide::Positive => plane.to_owned(),
-                                        HyperplaneSide::Negative => -plane.to_owned(),
-                                    },
-                                )
-                            },
-                            c,
-                        ))
-                    }
-                }
+                self.recursive_trace(
+                    &node.children[side as usize],
+                    start,
+                    end,
+                    start_ratio,
+                    end_ratio,
+                    trace,
+                )
             }
 
             // start -> end crosses the plane at one point
@@ -544,95 +562,51 @@ impl BspCollisionHull {
                 debug!("Intersection at {:?} (ratio={})", mid, mid_ratio);
 
                 // calculate the near subtrace
-                let near = match node.children[near_side as usize] {
-                    BspCollisionNodeChild::Node(near_n) => {
-                        debug!(
-                            "Descending to near ({:?}) node with ID {}",
-                            near_side, near_n
-                        );
-                        self.recursive_trace(near_n, start, mid, start_ratio, mid_ratio)?
-                    }
-                    BspCollisionNodeChild::Contents(near_c) => {
-                        debug!("Found near leaf with contents {:?}", near_c);
-                        Trace::new(
-                            TraceStart::new(start, start_ratio),
-                            TraceEnd::boundary(
-                                mid,
-                                mid_ratio,
-                                match near_side {
-                                    HyperplaneSide::Positive => plane.to_owned(),
-                                    HyperplaneSide::Negative => -plane.to_owned(),
-                                },
-                            ),
-                            near_c,
-                        )
-                    }
-                };
-
-                // check for an early collision
-                if near.is_terminal()
-                    || (near.end_point() - point_intersect.point()).length_squared() > f32::EPSILON
-                {
-                    return Ok(near);
-                } else if let BspCollisionNodeChild::Node(far_n) = &node.children[far_side as usize]
-                    && self.contents_at_point_node(*far_n, mid)? != BspLeafContents::Solid
-                {
-                    return match node.children[far_side as usize] {
-                        BspCollisionNodeChild::Node(far_n) => {
-                            debug!("Descending to far ({:?}) node with ID {}", far_side, far_n);
-                            self.recursive_trace(far_n, mid, end, mid_ratio, end_ratio)
-                        }
-                        BspCollisionNodeChild::Contents(far_c) => {
-                            debug!("Found far leaf with contents {:?}", far_c);
-                            Ok(Trace::new(
-                                TraceStart::new(mid, mid_ratio),
-                                if end_ratio == 1. {
-                                    TraceEnd::terminal(end)
-                                } else {
-                                    TraceEnd::boundary(
-                                        end,
-                                        end_ratio,
-                                        match far_side {
-                                            HyperplaneSide::Positive => plane.to_owned(),
-                                            HyperplaneSide::Negative => -plane.to_owned(),
-                                        },
-                                    )
-                                },
-                                far_c,
-                            ))
-                        }
-                    };
+                if !self.recursive_trace(
+                    &node.children[near_side as usize],
+                    start,
+                    mid,
+                    start_ratio,
+                    mid_ratio,
+                    trace,
+                )? {
+                    return Ok(false);
                 }
 
-                // if we haven't collided yet, calculate the far subtrace
-                let far = match node.children[far_side as usize] {
+                let far_contents = match &node.children[far_side as usize] {
+                    BspCollisionNodeChild::Contents(c) => *c,
                     BspCollisionNodeChild::Node(far_n) => {
-                        debug!("Descending to far ({:?}) node with ID {}", far_side, far_n);
-                        self.recursive_trace(far_n, mid, end, mid_ratio, end_ratio)?
-                    }
-                    BspCollisionNodeChild::Contents(far_c) => {
-                        debug!("Found far leaf with contents {:?}", far_c);
-                        Trace::new(
-                            TraceStart::new(mid, mid_ratio),
-                            if end_ratio == 1. {
-                                TraceEnd::terminal(end)
-                            } else {
-                                TraceEnd::boundary(
-                                    end,
-                                    end_ratio,
-                                    match far_side {
-                                        HyperplaneSide::Positive => plane.to_owned(),
-                                        HyperplaneSide::Negative => -plane.to_owned(),
-                                    },
-                                )
-                            },
-                            far_c,
-                        )
+                        self.contents_at_point_node(*far_n, mid)?
                     }
                 };
 
-                // check for collision and join traces accordingly
-                Ok(near.join(far))
+                if far_contents != BspLeafContents::Solid {
+                    return self.recursive_trace(
+                        &node.children[far_side as usize],
+                        start,
+                        end,
+                        start_ratio,
+                        end_ratio,
+                        trace,
+                    );
+                }
+
+                if trace.all_solid {
+                    return Ok(false);
+                }
+
+                trace.end = TraceEnd {
+                    point: mid,
+                    kind: TraceEndKind::Boundary(TraceEndBoundary {
+                        ratio: mid_ratio,
+                        plane: match far_side {
+                            HyperplaneSide::Positive => plane.to_owned(),
+                            HyperplaneSide::Negative => -plane.to_owned(),
+                        },
+                    }),
+                };
+
+                Ok(false)
             }
         }
     }

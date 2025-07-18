@@ -22,7 +22,7 @@ use crate::{
     server::progs::EntityId,
 };
 
-use bevy::prelude::*;
+use bevy::{log::tracing::instrument::WithSubscriber, prelude::*};
 use bitflags::bitflags;
 use num_derive::FromPrimitive;
 
@@ -164,7 +164,7 @@ pub fn velocity_after_multi_collision(
 }
 
 /// Represents the start of a collision trace.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct TraceStart {
     point: Vec3,
     /// The ratio along the original trace length at which this (sub)trace
@@ -186,9 +186,10 @@ pub struct TraceEndBoundary {
 }
 
 /// Indicates the the nature of the end of a trace.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub enum TraceEndKind {
     /// This endpoint falls within a leaf.
+    #[default]
     Terminal,
 
     /// This endpoint falls on a leaf boundary (a plane).
@@ -196,10 +197,10 @@ pub enum TraceEndKind {
 }
 
 /// Represents the end of a trace.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct TraceEnd {
-    point: Vec3,
-    kind: TraceEndKind,
+    pub point: Vec3,
+    pub kind: TraceEndKind,
 }
 
 impl TraceEnd {
@@ -222,24 +223,28 @@ impl TraceEnd {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Trace {
-    start: TraceStart,
-    end: TraceEnd,
-    contents: BspLeafContents,
-    start_solid: bool,
-    all_solid: bool,
+    pub start: TraceStart,
+    pub end: TraceEnd,
+    pub start_solid: bool,
+    pub all_solid: bool,
+    pub in_open: bool,
+    pub in_water: bool,
 }
 
 impl Trace {
-    pub fn new(start: TraceStart, end: TraceEnd, contents: BspLeafContents) -> Trace {
-        let solid = contents == BspLeafContents::Solid;
-        Trace {
-            start,
-            end,
-            contents,
-            start_solid: solid,
-            all_solid: solid,
+    pub fn uninitialized(start: Vec3, end: Vec3) -> Self {
+        Self {
+            start: TraceStart {
+                point: start,
+                ratio: 0.,
+            },
+            end: TraceEnd {
+                point: end,
+                kind: TraceEndKind::Terminal,
+            },
+            ..Default::default()
         }
     }
 
@@ -257,55 +262,6 @@ impl Trace {
         }
     }
 
-    /// Join this trace end-to-end with another.
-    ///
-    /// - If `self.end_point()` does not equal `other.start_point()`, returns `self`.
-    /// - If `self.contents` equals `other.contents`, the traces are combined (e.g. the new trace
-    ///   starts with `self.start` and ends with `other.end`).
-    /// - If `self.contents` is `Solid` but `other.contents` is not, the trace is allowed to move
-    ///   out of the solid area. The `startsolid` flag should be set accordingly.
-    /// - Otherwise, `self` is returned, representing a collision or transition between leaf types.
-    ///
-    /// ## Panics
-    /// - If `self.end.kind` is `Terminal`.
-    /// - If `self.end.point` does not equal `other.start.point`.
-    pub fn join(self, other: Trace) -> Trace {
-        debug!(
-            "start1={} end1={} start2={} end2={}",
-            self.start.point, self.end.point, other.start.point, other.end.point
-        );
-        // don't allow chaining after terminal
-        if let TraceEndKind::Terminal = self.end.kind {
-            panic!("Attempted to join after terminal trace");
-        }
-
-        // don't allow joining disjoint traces
-        // if (self.end.point - other.start.point).length_squared() > f32::EPSILON {
-        //     panic!("Attempted to join disjoint traces");
-        // }
-
-        // combine traces with the same contents
-        if self.contents == other.contents {
-            Trace {
-                start: self.start,
-                end: other.end,
-                contents: self.contents,
-                start_solid: self.start_solid,
-                all_solid: self.all_solid && other.all_solid,
-            }
-        } else if other.contents != BspLeafContents::Solid {
-            Trace {
-                start: self.start,
-                end: other.end,
-                contents: other.contents,
-                start_solid: true,
-                all_solid: self.all_solid && other.all_solid,
-            }
-        } else {
-            self
-        }
-    }
-
     /// Adjusts the start and end points of the trace by an offset.
     pub fn adjust(self, offset: Vec3) -> Trace {
         Trace {
@@ -317,9 +273,10 @@ impl Trace {
                 point: self.end.point + offset,
                 kind: self.end.kind,
             },
-            contents: self.contents,
             start_solid: self.start_solid,
             all_solid: self.all_solid,
+            in_open: self.in_open,
+            in_water: self.in_water,
         }
     }
 
@@ -350,14 +307,6 @@ impl Trace {
 
     pub fn set_start_solid(&mut self, start_solid: bool) {
         self.start_solid = start_solid;
-    }
-
-    pub fn in_open(&self) -> bool {
-        self.contents == BspLeafContents::Empty
-    }
-
-    pub fn in_water(&self) -> bool {
-        self.contents != BspLeafContents::Empty && self.contents != BspLeafContents::Solid
     }
 
     /// Returns whether the trace ended without a collision.

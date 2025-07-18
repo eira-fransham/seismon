@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, sync::Arc};
 
 use crate::server::progs::{EntityId, FieldAddr, FunctionId, GlobalDef, Opcode, StringId, Type};
 
@@ -255,14 +255,17 @@ pub enum GlobalAddrFunction {
 
 #[derive(Debug)]
 pub struct Globals {
-    defs: Box<[GlobalDef]>,
+    defs: Arc<[GlobalDef]>,
     addrs: Box<[[u8; 4]]>,
 }
 
 impl Globals {
     /// Constructs a new `Globals` object.
-    pub fn new(defs: Box<[GlobalDef]>, addrs: Box<[[u8; 4]]>) -> Globals {
-        Globals { defs, addrs }
+    pub fn new<D: Into<Arc<[GlobalDef]>>>(defs: D, addrs: Box<[[u8; 4]]>) -> Globals {
+        Globals {
+            defs: defs.into(),
+            addrs,
+        }
     }
 
     /// Performs a type check at `addr` with type `type_`.

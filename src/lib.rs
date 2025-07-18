@@ -21,7 +21,8 @@
     error_generic_member_access,
     array_try_map,
     never_type,
-    gen_blocks
+    gen_blocks,
+    float_algebraic
 )]
 // TODO: Is this necessary?
 #![recursion_limit = "256"]
