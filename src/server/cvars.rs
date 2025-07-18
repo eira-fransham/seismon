@@ -26,6 +26,14 @@ pub fn register_cvars(app: &mut App) {
             "Max step size (for players and monsters)",
         )
         .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
+        .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
+        .cvar("sv_maxspeed", todo!(), todo!())
+        .cvar("sv_stopspeed", todo!(), todo!())
+        .cvar("sv_accelerate", todo!(), todo!())
+        .cvar("sv_airaccelerate", todo!(), todo!())
+        .cvar("sv_wateraccelerate", todo!(), todo!())
+        .cvar("sv_friction", todo!(), todo!())
+        .cvar("sv_waterfriction", todo!(), todo!())
         .cvar_on_set(
             "sys_tickrate",
             "0.05",

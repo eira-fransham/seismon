@@ -1,10 +1,7 @@
 use std::io;
 use termion::event::Key;
 
-use crate::CursorPosition;
-use crate::Editor;
-use crate::EditorContext;
-use crate::KeyMap;
+use crate::{CursorPosition, Editor, EditorContext, KeyMap};
 
 /// Emacs keybindings for `Editor`. This is the default for `Context::read_line()`.
 ///
@@ -175,8 +172,7 @@ fn emacs_move_word<C: EditorContext>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::Prompt;
-    use crate::{Completer, Context, Editor, KeyMap};
+    use crate::{editor::Prompt, Completer, Context, Editor, KeyMap};
     use termion::event::Key;
 
     fn simulate_keys<'b, C: EditorContext, M: KeyMap, I>(

@@ -1,7 +1,4 @@
-use crate::complete::Completer;
-use crate::event::*;
-use crate::Editor;
-use crate::EditorContext;
+use crate::{complete::Completer, event::*, Editor, EditorContext};
 use std::io::{self, ErrorKind};
 use termion::event::Key;
 
@@ -85,8 +82,7 @@ pub use emacs::Emacs;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::Prompt;
-    use crate::Context;
+    use crate::{editor::Prompt, Context};
     use std::io::ErrorKind;
     use termion::event::Key::*;
 

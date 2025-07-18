@@ -1139,16 +1139,10 @@ where
         Addrs: FocusIndexMut,
     {
         let vel = self.velocity()?;
-        for c in &mut vel.to_array()[..] {
-            *c = c.clamp(-sv_maxvelocity, sv_maxvelocity);
-        }
-        let vel = if vel.to_array().iter().all(|v| v.is_finite()) {
-            vel
-        } else {
-            warn!("NaN found in velocity");
-            Vec3::ZERO
-        };
-        self.set_velocity(vel)?;
+        let origin = self.origin()?;
+        self.set_velocity(crate::server::limit_vec3(vel, sv_maxvelocity))?;
+        // Normalize NaN to 0.
+        self.set_origin(crate::server::limit_vec3(vel, f32::INFINITY))?;
 
         Ok(())
     }

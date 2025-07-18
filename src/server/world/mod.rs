@@ -713,10 +713,9 @@ impl World {
                         }
 
                         Type::QFloat => ent.put_float(val.parse().unwrap(), def.offset as i16)?,
-                        Type::QVector => ent.put_vector(
-                            parse::vec3(val).unwrap(),
-                            def.offset as i16,
-                        )?,
+                        Type::QVector => {
+                            ent.put_vector(parse::vec3(val).unwrap(), def.offset as i16)?
+                        }
                         Type::QEntity => {
                             let id: i32 = val.parse().unwrap();
 

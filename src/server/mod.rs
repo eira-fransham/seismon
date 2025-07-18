@@ -167,6 +167,7 @@ const SPAWN_PARAM_ADDRS: [GlobalAddrFloat; NUM_SPAWN_PARAMS] = [
     GlobalAddrFloat::Arg14,
     GlobalAddrFloat::Arg15,
 ];
+
 #[derive(Debug)]
 pub struct Client {
     name: QString,
@@ -528,8 +529,33 @@ impl Session {
     }
 }
 
+/// Used for `entity_gravity`. See https://github.com/id-Software/Quake/blob/master/QW/server/sv_phys.c#L946
 fn default_entity_gravity() -> f32 {
     1.
+}
+
+pub fn limit_vec3(vel: Vec3, max: f32) -> Vec3 {
+    vel.to_array()
+        .map(|v| {
+            if v.is_finite() {
+                v.clamp(-max, max)
+            } else {
+                0.
+            }
+        })
+        .into()
+}
+
+/// The magical bhop-enabling acceleration function.
+///
+/// Quake splits this into `accelerate` and `airaccelerate` but the only difference is
+/// limiting the maximum desired speed.
+pub fn player_accelerate(move_amt: Vec3, vel: Vec3, accel: f32) -> Vec3 {
+    let desired_dir = move_amt.normalize();
+    let current_speed = desired_dir.dot(vel);
+    let desired_speed = move_amt.length();
+    let max_accel = (desired_speed - current_speed).max(0.);
+    vel + (accel * desired_speed).min(max_accel) * desired_dir
 }
 
 #[derive(Copy, Clone, PartialEq, Deserialize)]
@@ -539,9 +565,27 @@ pub struct ServerVars {
     #[serde(skip, default = "default_entity_gravity")]
     entity_gravity: f32,
     #[serde(rename(deserialize = "sv_maxvelocity"))]
-    max_velocity: f32,
+    max_entity_velocity: f32,
     #[serde(rename(deserialize = "sv_stepheight"))]
     max_step: f32,
+}
+
+#[derive(Copy, Clone, PartialEq, Deserialize)]
+pub struct PlayerVars {
+    #[serde(rename(deserialize = "sv_maxspeed"))]
+    max_speed: f32,
+    #[serde(rename(deserialize = "sv_stopspeed"))]
+    stop_speed: f32,
+    #[serde(rename(deserialize = "sv_accelerate"))]
+    ground_accel: f32,
+    #[serde(rename(deserialize = "sv_airaccelerate"))]
+    air_accel: f32,
+    #[serde(rename(deserialize = "sv_wateraccelerate"))]
+    water_accel: f32,
+    #[serde(rename(deserialize = "sv_friction"))]
+    ground_friction: f32,
+    #[serde(rename(deserialize = "sv_waterfriction"))]
+    water_friction: f32,
 }
 
 /// Server-side level state.
@@ -1360,6 +1404,7 @@ impl LevelState {
         ent_id: EntityId,
         player_input: PlayerInput,
         server_vars: &ServerVars,
+        player_vars: &PlayerVars,
         registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<(), ProgsError> {
@@ -1372,7 +1417,6 @@ impl LevelState {
         let min = ent.min()?;
         let max = ent.max()?;
         ent.set_velocity(move_dir)?;
-        ent.limit_velocity(server_vars.max_velocity)?;
 
         let velocity = ent.velocity()?;
 
@@ -1402,27 +1446,32 @@ impl LevelState {
         ent_id: EntityId,
         player_input: PlayerInput,
         server_vars: &ServerVars,
+        player_vars: &PlayerVars,
+        registry: Mut<Registry>,
+        vfs: &Vfs,
     ) -> Result<(), ProgsError> {
         let mut ent = self.world.get_mut(ent_id)?;
         let origin = ent.origin()?;
         let min = ent.min()?;
         let max = ent.max()?;
         let angles = ent.view_angle()?;
-        let target_vel = ent.move_dir()?;
-        let move_dir = Mat3::from_euler(
-            EulerRot::YZX,
-            angles.x.to_radians(),
-            angles.y.to_radians(),
-            angles.z.to_radians(),
-        ) * target_vel;
-        ent.put_vector(move_dir, FieldAddrVector::MoveDirection as _)
-            .unwrap();
-        let velocity = move_dir // velocity
-            - server_vars.entity_gravity
-                * server_vars.gravity;
+        let on_ground = ent.has_flag(EntityFlags::ON_GROUND)?;
+        let target_vel = ent
+            .move_dir()?
+            .with_z(0.)
+            .clamp_length_max(player_vars.max_speed);
+        let current_velocity = ent.velocity()?;
+        // Don't need to handle water acceleration here, this method is only for air+ground.
+        let (current_velocity, accel) = if on_ground {
+            (current_velocity.with_z(0.), player_vars.ground_accel)
+        } else {
+            (current_velocity, player_vars.air_accel)
+        };
+        let velocity = player_accelerate(target_vel, current_velocity, accel)
+            - server_vars.entity_gravity * server_vars.gravity;
 
         ent.set_velocity(velocity)?;
-        ent.limit_velocity(server_vars.max_velocity)?;
+        ent.limit_velocity(server_vars.max_entity_velocity)?;
 
         let velocity = ent.velocity()?;
 
@@ -1449,6 +1498,9 @@ impl LevelState {
         ent_id: EntityId,
         player_input: PlayerInput,
         server_vars: &ServerVars,
+        player_vars: &PlayerVars,
+        registry: Mut<Registry>,
+        vfs: &Vfs,
     ) -> Result<(), ProgsError> {
         Ok(())
     }
@@ -1457,10 +1509,11 @@ impl LevelState {
         &mut self,
         ent_id: EntityId,
         player_input: PlayerInput,
-        registry: Mut<Registry>,
+        mut registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<(), ProgsError> {
         let server_vars: ServerVars = registry.read_cvars()?;
+        let player_vars: PlayerVars = registry.read_cvars()?;
 
         let mut ent = self.world.get(ent_id)?;
         let water_level = ent.water_level()?;
@@ -1473,7 +1526,7 @@ impl LevelState {
             target_vel / target_speed_raw
         };
 
-        let target_speed = target_speed_raw.min(server_vars.max_velocity);
+        let target_speed = target_speed_raw.min(server_vars.max_entity_velocity);
         let target_vel = target_dir * target_speed;
 
         self.player_categorize_position(ent_id)?;
@@ -1481,9 +1534,23 @@ impl LevelState {
         let target_vel = target_vel.with_z(0.);
 
         if water_level >= 2. {
-            self.physics_player_water(ent_id, player_input, &server_vars)?;
+            self.physics_player_water(
+                ent_id,
+                player_input,
+                &server_vars,
+                &player_vars,
+                registry.reborrow(),
+                vfs,
+            )?;
         } else {
-            self.physics_player_air(ent_id, player_input, &server_vars)?;
+            self.physics_player_air(
+                ent_id,
+                player_input,
+                &server_vars,
+                &player_vars,
+                registry.reborrow(),
+                vfs,
+            )?;
         }
 
         self.player_categorize_position(ent_id)?;
@@ -1610,7 +1677,7 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let ServerVars {
             gravity,
-            max_velocity,
+            max_entity_velocity: max_velocity,
             ..
         } = registry.read_cvars()?;
 
@@ -1663,7 +1730,7 @@ impl LevelState {
     ) -> Result<(), ProgsError> {
         let ServerVars {
             gravity,
-            max_velocity,
+            max_entity_velocity: max_velocity,
             ..
         } = registry.read_cvars()?;
 

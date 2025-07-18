@@ -1,9 +1,7 @@
 use std::{cmp, io, mem};
 use termion::event::Key;
 
-use crate::buffer::Buffer;
-use crate::KeyMap;
-use crate::{Editor, EditorContext};
+use crate::{buffer::Buffer, Editor, EditorContext, KeyMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharMovement {
@@ -403,8 +401,7 @@ impl Vi {
         move_type: MoveType,
         mut ed: &mut Editor<C>,
     ) -> io::Result<()> {
-        use self::Mode::*;
-        use self::MoveType::*;
+        use self::{Mode::*, MoveType::*};
 
         let original_mode = self.mode_stack.pop();
         let last_mode = {
@@ -614,9 +611,7 @@ impl Vi {
         key: Key,
         ed: &mut Editor<C>,
     ) -> io::Result<()> {
-        use self::CharMovement::*;
-        use self::Mode::*;
-        use self::MoveType::*;
+        use self::{CharMovement::*, Mode::*, MoveType::*};
 
         match key {
             Key::Esc => {
@@ -960,8 +955,7 @@ impl Vi {
         movement: CharMovement,
         ed: &mut Editor<C>,
     ) -> io::Result<()> {
-        use self::CharMovement::*;
-        use self::MoveType::*;
+        use self::{CharMovement::*, MoveType::*};
 
         let count = self.move_count();
         self.count = 0;
@@ -1092,10 +1086,8 @@ impl KeyMap for Vi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::Prompt;
-    use crate::{Buffer, Completer, Context, Editor, KeyMap};
-    use termion::event::Key;
-    use termion::event::Key::*;
+    use crate::{editor::Prompt, Buffer, Completer, Context, Editor, KeyMap};
+    use termion::event::{Key, Key::*};
 
     fn simulate_keys<'a, C: EditorContext, M: KeyMap, I>(
         keymap: &mut M,

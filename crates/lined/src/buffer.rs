@@ -1,6 +1,8 @@
-use std::fmt::{self, Write as FmtWrite};
-use std::io::{self, Write};
-use std::iter::FromIterator;
+use std::{
+    fmt::{self, Write as FmtWrite},
+    io::{self, Write},
+    iter::FromIterator,
+};
 use unicode_width::UnicodeWidthStr;
 
 /// A modification performed on a `Buffer`. These are used for the purpose of undo/redo.

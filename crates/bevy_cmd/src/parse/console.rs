@@ -16,9 +16,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use super::quoted;
-use crate::{
-    Trigger, CmdName, RunCmd
-};
+use crate::{CmdName, RunCmd, Trigger};
 
 use nom::{
     Parser,

@@ -1,7 +1,10 @@
 // TODO: We can use a different lib instead of snafu
 #![feature(error_generic_member_access)]
 
-use std::{borrow::Cow as StdCow, collections::BTreeSet, fmt, marker::PhantomData, mem, ops, str::FromStr, sync::Arc};
+use std::{
+    borrow::Cow as StdCow, collections::BTreeSet, fmt, marker::PhantomData, mem, ops, str::FromStr,
+    sync::Arc,
+};
 
 use beef::Cow;
 use bevy::{
@@ -1470,18 +1473,21 @@ impl Default for ConsoleOutput {
 }
 
 mod systems {
-    use crate::{ExecResult, CmdName, EqHack, OutputType};
+    use crate::{CmdName, EqHack, ExecResult, OutputType};
 
-    use super::{Registry, ConsoleOutput, RunCmd, CommandImpl, CmdKind};
-    use std::{collections::VecDeque, str::FromStr as _};
+    use super::{CmdKind, CommandImpl, ConsoleOutput, Registry, RunCmd};
     use beef::Cow;
-    use bevy::{prelude::*, log::tracing};
+    use bevy::{log::tracing, prelude::*};
     use serde_lexpr::Value;
+    use std::{collections::VecDeque, str::FromStr as _};
 
     pub fn execute_console(world: &mut World) {
         let timestamp = world.resource::<Time<Real>>();
         // TODO: Set logging level
-        let ConsoleOutput { level: _level, subscriber } = world.resource::<ConsoleOutput>();
+        let ConsoleOutput {
+            level: _level,
+            subscriber,
+        } = world.resource::<ConsoleOutput>();
 
         let _trace_space = subscriber.clone().map(tracing::subscriber::set_default);
 

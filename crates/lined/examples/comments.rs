@@ -2,8 +2,10 @@ extern crate liner;
 extern crate regex;
 extern crate termion;
 
-use std::env::{args, current_dir};
-use std::io;
+use std::{
+    env::{args, current_dir},
+    io,
+};
 
 use liner::{
     Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter, Prompt,

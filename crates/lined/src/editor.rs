@@ -1,12 +1,14 @@
-use std::fmt::{self, Write};
-use std::io::{self, Write as _};
-use std::{cmp, iter, mem};
+use std::{
+    cmp,
+    fmt::{self, Write},
+    io::{self, Write as _},
+    iter, mem,
+};
 use strip_ansi_escapes::strip;
 use termion::{self, clear, color, cursor};
 
 use super::complete::Completer;
-use crate::context::ColorClosure;
-use crate::{event::*, util, Buffer, EditorContext, Tty};
+use crate::{context::ColorClosure, event::*, util, Buffer, EditorContext, Tty};
 use itertools::Itertools;
 
 /// Indicates the mode that should be currently displayed in the propmpt.
