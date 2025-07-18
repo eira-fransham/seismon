@@ -5,58 +5,73 @@ authors = ["Eira Fransham <eira.fransham@gmail.com>", "Cormac O'Brien <cormac@c-
 edition = "2024"
 resolver = "2"
 
-[dependencies]
-arrayvec = "0.7"
+[workspace]
+members = [
+    "crates/bevy_cmd"
+]
+
+[workspace.dependencies]
 beef = "0.5"
 bevy = { version = "0.16" }
+clap = { version = "4.5", features = ["derive", "color"] }
+hashbrown = "0.15"
+nom = "7.1"
+snafu = { version = "0.8", features = ["unstable-provider-api"] }
+serde-lexpr = { git = "https://github.com/eira-fransham/lexpr-rs.git" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dependencies]
+arrayvec = "0.7"
+beef.workspace = true
 bevy_capture = { version = "0.3", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { version = "0.4", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "74a5568" }
-bitflags = "2.4"
+bevy.workspace = true
 bimap = "0.6"
+bitflags = "2.4"
 bitvec = "1.0"
 bumpalo = "3.4"
-byteorder = "1.3"
 bytemuck = "1.14"
+byteorder = "1.3"
 chrono = "0.4.0"
-clap = { version = "4.5", features = ["derive", "color"] }
+clap.workspace = true
 crossbeam-channel = "0.5"
+dashmap = "5.5"
 failure = "0.1.8"
 firewheel = "0.4"
-futures = "0.3.5"
 fundsp = "0.20"
-hashbrown = "0.15"
+futures = "0.3.5"
+hashbrown.workspace = true
 hashers = "1.0"
-dashmap = "5.5"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
 indexmap = "2.9"
 itertools = "0.14"
+lined = { path = "crates/lined" }
 memmap2 = "0.9"
 ndarray = "0.15"
-nom = "7.1"
+nom.workspace = true
 num = "0.4"
-num-traits = "0.2"
 num-derive = "0.4"
+num-traits = "0.2"
 parking_lot = "0.12"
 png = "0.17"
 qbsp = "0.5"
 rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
-# TODO: Need to use git checkout to allow stdin/stdout to be types other than concrete Stdin/Stdout
-redox_liner = { version = "0.7.1", git = "https://github.com/eira-fransham/liner.git" }
 regex = "1.10"
-serde = { version = "1.0", features = ["derive"] }
-# TODO: Need to use git checkout to expose the decoder type, so that it can be used inside another decoder
-serde-lexpr = { git = "https://github.com/eira-fransham/lexpr-rs.git" }
 serde_json = "1.0"
+serde-lexpr.workspace = true
+serde.workspace = true
 shaderc = "0.8"
 slab = "0.4"
 smol_str = "0.2"
-snafu = { version = "0.8", features = ["unstable-provider-api"] }
+snafu.workspace = true
 strum = "0.26"
 strum_macros = "0.26"
 symphonium = "0.5"
 thiserror = "1.0"
+# TODO: Need to use git checkout to allow stdin/stdout to be types other than concrete Stdin/Stdout
+# TODO: Need to use git checkout to expose the decoder type, so that it can be used inside another decoder
 uluru = "3"
 uuid = "1.12"
 wgpu = { version = "24.0", features = ["spirv", "vulkan-portability"] }
