@@ -674,7 +674,7 @@ impl LevelState {
             model_precache,
             frame_client_messages: default(),
             lightstyles: [StringId(0); MAX_LIGHTSTYLES],
-            time: Duration::seconds(1),
+            time: Duration::try_seconds(1).unwrap(),
             new_entities: default(),
             cx,
             globals,
@@ -1358,7 +1358,6 @@ impl LevelState {
     fn physics_player_ground(
         &mut self,
         ent_id: EntityId,
-        target_vel: Vec3,
         player_input: PlayerInput,
         server_vars: &ServerVars,
         registry: Mut<Registry>,
@@ -1401,7 +1400,6 @@ impl LevelState {
     fn physics_player_air(
         &mut self,
         ent_id: EntityId,
-        target_vel: Vec3,
         player_input: PlayerInput,
         server_vars: &ServerVars,
     ) -> Result<(), ProgsError> {
@@ -1410,7 +1408,7 @@ impl LevelState {
         let min = ent.min()?;
         let max = ent.max()?;
         let angles = ent.view_angle()?;
-        let target_vel = Vec3::new(target_vel.x, target_vel.y, 0.);
+        let target_vel = ent.move_dir()?;
         let move_dir = Mat3::from_euler(
             EulerRot::YZX,
             angles.x.to_radians(),
@@ -1465,7 +1463,7 @@ impl LevelState {
         let server_vars: ServerVars = registry.read_cvars()?;
 
         let mut ent = self.world.get(ent_id)?;
-        let ent_flags = ent.flags()?;
+        let water_level = ent.water_level()?;
 
         let target_vel = ent.move_dir()?;
         let target_speed_raw = target_vel.length();
@@ -1482,10 +1480,10 @@ impl LevelState {
 
         let target_vel = target_vel.with_z(0.);
 
-        if ent.water_level()? >= 2. {
-            self.physics_player_water(ent_id, target_vel, player_input)?;
+        if water_level >= 2. {
+            self.physics_player_water(ent_id, player_input, &server_vars)?;
         } else {
-            self.physics_player_air(ent_id, target_vel, player_input, &server_vars)?;
+            self.physics_player_air(ent_id, player_input, &server_vars)?;
         }
 
         self.player_categorize_position(ent_id)?;

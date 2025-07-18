@@ -66,7 +66,7 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
     alt((tag(";"), nom::character::complete::line_ending))(input)
 }
 
-pub fn vec3(src: S) -> Option<Vec3>
+pub fn vec3<S>(src: S) -> Option<Vec3>
 where
     S: AsRef<str>,
 {

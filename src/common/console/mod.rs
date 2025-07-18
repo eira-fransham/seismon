@@ -41,7 +41,7 @@ use bevy::{
 use chrono::Duration;
 use clap::{FromArgMatches, Parser};
 use hashbrown::{HashMap, hash_map::Entry};
-use liner::{Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty};
+use lined::{Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty};
 use serde::{
     Deserializer,
     de::{Error, Expected, MapAccess, Unexpected, value::StrDeserializer},
@@ -69,14 +69,14 @@ impl Plugin for SeismonConsolePlugin {
     fn build(&self, app: &mut App) {
         let vfs = app.world().resource::<Vfs>();
 
-        let mut history = liner::History::default();
+        let mut history = lined::History::default();
 
         if let Ok(history_path) = vfs.find_writable_filename("history.cfg") {
             match history.set_file_name_and_load_history(history_path) {
                 Ok(_) => history.inc_append = true,
                 Err(e) => {
                     warn!(target: "console", "Error loading history: {}", e);
-                    history = liner::History::default();
+                    history = lined::History::default();
                 }
             }
         }
@@ -1602,7 +1602,7 @@ impl Cvar {
 #[derive(Default)]
 pub struct ConsoleInputContext {
     pub input_buf: String,
-    pub history: liner::History,
+    pub history: lined::History,
     pub key_bindings: KeyBindings,
     pub commands: Vec<RunCmd<'static>>,
     pub terminal: ConsoleInputTerminal,
@@ -1637,8 +1637,8 @@ impl io::Write for ConsoleInputTerminal {
 }
 
 impl Tty for ConsoleInputTerminal {
-    fn next_key(&mut self) -> Option<std::io::Result<liner::Key>> {
-        unreachable!("TODO: Remove `next_key` from `liner::Tty`")
+    fn next_key(&mut self) -> Option<std::io::Result<lined::Key>> {
+        unreachable!("TODO: Remove `next_key` from `lined::Tty`")
     }
 
     fn width(&self) -> std::io::Result<usize> {
@@ -1656,18 +1656,18 @@ impl fmt::Write for ConsoleInputContext {
 
 impl EditorContext for ConsoleInputContext {
     type Terminal = ConsoleInputTerminal;
-    type WordDividerIter = <liner::Context as EditorContext>::WordDividerIter;
+    type WordDividerIter = <lined::Context as EditorContext>::WordDividerIter;
 
-    fn history(&self) -> &liner::History {
+    fn history(&self) -> &lined::History {
         &self.history
     }
 
-    fn history_mut(&mut self) -> &mut liner::History {
+    fn history_mut(&mut self) -> &mut lined::History {
         &mut self.history
     }
 
-    fn word_divider(&self, buf: &liner::Buffer) -> Self::WordDividerIter {
-        liner::get_buffer_words(buf).into_iter()
+    fn word_divider(&self, buf: &lined::Buffer) -> Self::WordDividerIter {
+        lined::get_buffer_words(buf).into_iter()
     }
 
     fn terminal(&self) -> &Self::Terminal {
@@ -1678,7 +1678,7 @@ impl EditorContext for ConsoleInputContext {
         &mut self.terminal
     }
 
-    fn key_bindings(&self) -> liner::KeyBindings {
+    fn key_bindings(&self) -> lined::KeyBindings {
         self.key_bindings
     }
 }
@@ -1723,12 +1723,12 @@ pub fn to_terminal_key<'a>(
 }
 
 // TODO: This can be a tree for much better completions but we don't have enough commands to make it necessary right now
-//       The `liner` interface allocates a lot anyway, so micro-optimisation isn't necessary here.
+//       The `lined` interface allocates a lot anyway, so micro-optimisation isn't necessary here.
 struct IterCompleter<I> {
     iter: I,
 }
 
-impl<I> liner::Completer for IterCompleter<I>
+impl<I> lined::Completer for IterCompleter<I>
 where
     I: Iterator + Clone,
     I::Item: AsRef<str>,
@@ -1771,7 +1771,7 @@ impl ConsoleInput {
     /// Constructs a new `ConsoleInput`.
     ///
     /// Initializes the text content to be empty and places the cursor at position 0.
-    pub fn new(history: liner::History) -> io::Result<ConsoleInput> {
+    pub fn new(history: lined::History) -> io::Result<ConsoleInput> {
         let mut keymap = Emacs::new();
 
         let editor = match Editor::new(
