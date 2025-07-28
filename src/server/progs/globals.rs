@@ -227,7 +227,7 @@ impl GlobalAddr for GlobalAddrEntity {
 
     #[inline]
     fn load(&self, globals: &Globals) -> Result<Self::Value, GlobalsError> {
-        globals.entity_id(*self as i16)
+        globals.get_entity_id(*self as i16)
     }
 
     #[inline]
@@ -239,7 +239,7 @@ impl GlobalAddr for GlobalAddrEntity {
 #[derive(FromPrimitive)]
 pub enum GlobalAddrField {}
 
-#[derive(FromPrimitive)]
+#[derive(FromPrimitive, Copy, Clone, PartialEq, Eq)]
 pub enum GlobalAddrFunction {
     Main = 82,
     StartFrame = 83,
@@ -258,12 +258,12 @@ impl GlobalAddr for GlobalAddrFunction {
 
     #[inline]
     fn load(&self, globals: &Globals) -> Result<Self::Value, GlobalsError> {
-        globals.entity_id(*self as i16)
+        globals.get_function_id(*self as i16)
     }
 
     #[inline]
     fn store(&self, globals: &mut Globals, value: Self::Value) -> Result<(), GlobalsError> {
-        globals.put_entity_id(value, *self as i16)
+        globals.put_function_id(value, *self as i16)
     }
 }
 
@@ -450,7 +450,7 @@ impl Globals {
     }
 
     /// Loads an `EntityId` from the given virtual address.
-    pub fn entity_id(&self, addr: i16) -> Result<EntityId, GlobalsError> {
+    pub fn get_entity_id(&self, addr: i16) -> Result<EntityId, GlobalsError> {
         self.type_check(addr as usize, Type::QEntity)?;
 
         Ok(EntityId(self.get_addr(addr)?.read_i32::<LittleEndian>()?))
@@ -486,7 +486,7 @@ impl Globals {
     }
 
     /// Loads a `FunctionId` from the given virtual address.
-    pub fn function_id(&self, addr: i16) -> Result<FunctionId, GlobalsError> {
+    pub fn get_function_id(&self, addr: i16) -> Result<FunctionId, GlobalsError> {
         self.type_check(addr as usize, Type::QFunction)?;
         Ok(FunctionId(
             self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
@@ -710,8 +710,8 @@ impl Globals {
 
     // EQ_ENT: Test equality of two entities (by identity)
     pub fn op_eq_ent(&mut self, e1_ofs: i16, e2_ofs: i16, eq_ofs: i16) -> Result<(), GlobalsError> {
-        let e1 = self.entity_id(e1_ofs)?;
-        let e2 = self.entity_id(e2_ofs)?;
+        let e1 = self.get_entity_id(e1_ofs)?;
+        let e2 = self.get_entity_id(e2_ofs)?;
 
         log_op!(self; eq_ofs = EqEnt(e1, e2));
 
@@ -728,8 +728,8 @@ impl Globals {
 
     // EQ_FNC: Test equality of two functions (by identity)
     pub fn op_eq_fnc(&mut self, f1_ofs: i16, f2_ofs: i16, eq_ofs: i16) -> Result<(), GlobalsError> {
-        let f1 = self.function_id(f1_ofs)?;
-        let f2 = self.function_id(f2_ofs)?;
+        let f1 = self.get_function_id(f1_ofs)?;
+        let f2 = self.get_function_id(f2_ofs)?;
 
         log_op!(self; eq_ofs = EqFnc(f1, f2));
 
@@ -814,8 +814,8 @@ impl Globals {
     }
 
     pub fn op_ne_ent(&mut self, e1_ofs: i16, e2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
-        let e1 = self.entity_id(e1_ofs)?;
-        let e2 = self.entity_id(e2_ofs)?;
+        let e1 = self.get_entity_id(e1_ofs)?;
+        let e2 = self.get_entity_id(e2_ofs)?;
 
         log_op!(self; ne_ofs = NeEnt(e1, e2));
 
@@ -831,8 +831,8 @@ impl Globals {
     }
 
     pub fn op_ne_fnc(&mut self, f1_ofs: i16, f2_ofs: i16, ne_ofs: i16) -> Result<(), GlobalsError> {
-        let f1 = self.function_id(f1_ofs)?;
-        let f2 = self.function_id(f2_ofs)?;
+        let f1 = self.get_function_id(f1_ofs)?;
+        let f2 = self.get_function_id(f2_ofs)?;
 
         log_op!(self; ne_ofs = NeFnc(f1, f2));
 
@@ -998,7 +998,7 @@ impl Globals {
             return Err(GlobalsError::with_msg("Nonzero arg3 to STORE_ENT"));
         }
 
-        let ent = self.entity_id(src_ofs)?;
+        let ent = self.get_entity_id(src_ofs)?;
 
         log_op!(self; dest_ofs = StoreEnt(ent));
 
@@ -1036,7 +1036,7 @@ impl Globals {
             return Err(GlobalsError::with_msg("Nonzero arg3 to STORE_FNC"));
         }
 
-        let fnc = self.function_id(src_ofs)?;
+        let fnc = self.get_function_id(src_ofs)?;
 
         log_op!(self; dest_ofs = StoreFnc(fnc));
 
@@ -1122,7 +1122,7 @@ impl Globals {
             return Err(GlobalsError::with_msg("Nonzero arg2 to NOT_FNC"));
         }
 
-        let fnc_id = self.function_id(fnc_id_ofs)?;
+        let fnc_id = self.get_function_id(fnc_id_ofs)?;
 
         log_op!(self; not_ofs = NotFnc(fnc_id));
 
@@ -1148,7 +1148,7 @@ impl Globals {
             return Err(GlobalsError::with_msg("Nonzero arg2 to NOT_ENT"));
         }
 
-        let ent = self.entity_id(ent_ofs)?;
+        let ent = self.get_entity_id(ent_ofs)?;
 
         log_op!(self; not_ofs = NotEnt(ent));
 

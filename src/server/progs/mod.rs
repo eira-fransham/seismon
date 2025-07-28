@@ -102,6 +102,7 @@ use std::{
     fmt,
     io::{Read, Seek, SeekFrom},
     iter,
+    result::Result as StdResult,
 };
 
 use crate::{
@@ -144,6 +145,8 @@ const FUNCTION_SIZE: usize = 36;
 
 // the on-disk size of a global or field definition
 const DEF_SIZE: usize = 8;
+
+pub type Result<T> = StdResult<T, ProgsError>;
 
 #[derive(Snafu, Debug)]
 pub enum ProgsError {
@@ -215,7 +218,7 @@ impl StringId {
 impl TryInto<i32> for StringId {
     type Error = ProgsError;
 
-    fn try_into(self) -> Result<i32, Self::Error> {
+    fn try_into(self) -> StdResult<i32, Self::Error> {
         if self.0 > i32::MAX as usize {
             Err(ProgsError::with_msg("string id out of i32 range"))
         } else {
@@ -404,7 +407,7 @@ pub struct LoadProgs {
 /// Loads all data from a `progs.dat` file.
 ///
 /// This returns objects representing the necessary context to execute QuakeC bytecode.
-pub fn load<R>(mut src: R) -> Result<LoadProgs, ProgsError>
+pub fn load<R>(mut src: R) -> Result<LoadProgs>
 where
     R: Read + Seek,
 {
@@ -685,7 +688,7 @@ impl ExecutionContext {
         &mut self,
         string_table: &StringTable,
         name: S,
-    ) -> Result<FunctionId, ProgsError> {
+    ) -> Result<FunctionId> {
         self.functions.find_function_by_name(string_table, name)
     }
 
@@ -693,7 +696,7 @@ impl ExecutionContext {
         self.functions.exists(id)
     }
 
-    pub fn function_def(&self, id: FunctionId) -> Result<&FunctionDef, ProgsError> {
+    pub fn function_def(&self, id: FunctionId) -> Result<&FunctionDef> {
         self.functions.get_def(id)
     }
 
@@ -708,7 +711,7 @@ impl ExecutionContext {
         string_table: &StringTable,
         globals: &mut Globals,
         f: FunctionId,
-    ) -> Result<(), ProgsError> {
+    ) -> Result<()> {
         let def = self.functions.get_def(f)?;
         debug!(
             "Calling QuakeC function {}",
@@ -766,7 +769,7 @@ impl ExecutionContext {
         &mut self,
         string_table: &StringTable,
         globals: &mut Globals,
-    ) -> Result<(), ProgsError> {
+    ) -> Result<()> {
         let def = self.functions.get_def(self.current_function)?;
         debug!(
             "Returning from QuakeC function {}",

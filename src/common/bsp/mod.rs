@@ -978,9 +978,9 @@ impl BspModel {
         self.origin
     }
 
-    pub fn iter_leaves(&self) -> impl Iterator<Item = &BspLeaf> {
+    pub fn leaves(&self) -> &[BspLeaf] {
         // add 1 to leaf_count because...??? TODO: figure out if this is documented anywhere
-        self.bsp_data.leaves[self.leaf_id..self.leaf_id + self.leaf_count + 1].iter()
+        &self.bsp_data.leaves[self.leaf_id..self.leaf_id + self.leaf_count + 1]
     }
 
     pub fn iter_faces(&self) -> impl Iterator<Item = &BspFace> {

@@ -29,7 +29,7 @@ use crate::{
 };
 
 use arrayvec::ArrayString;
-use bevy::{math::bounding::Aabb3d, prelude::*};
+use bevy::{math::bounding::Aabb3d, pbr::ScreenSpaceReflectionsBuffer, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
@@ -347,6 +347,10 @@ impl FieldAddr for FieldAddrVector {
     where
         A: FocusIndexMut<Output = EntityField>,
     {
+        if value.to_array().iter().any(|v| !v.is_finite()) {
+            error!("Tried to store NaN");
+        }
+
         ent.put_vector(value, *self as i16)
     }
 }
@@ -914,7 +918,7 @@ where
         Addrs: FocusIndexMut,
     {
         self.type_check(addr as usize, Type::QVector)?;
-
+        let val = crate::server::limit_vec3(val, None);
         for i in 0..3 {
             self.put_float(val[i], addr + i as i16)?;
         }
@@ -1017,6 +1021,7 @@ where
         old_origin_y, set_old_origin_y => FieldAddrFloat::OldOriginY;
         old_origin_z, set_old_origin_z => FieldAddrFloat::OldOriginZ;
         angles, set_angles => FieldAddrVector::Angles;
+        angular_velocity, set_angular_velocity => FieldAddrVector::AngularVelocity;
         view_ofs, set_view_ofs => FieldAddrVector::ViewOffset;
         min, set_min => FieldAddrVector::Mins;
         max, set_max => FieldAddrVector::Maxs;
@@ -1024,6 +1029,7 @@ where
         abs_max, set_abs_max => FieldAddrVector::AbsMax;
         model_index, set_model_index => FieldAddrFloat::ModelIndex;
         model_name, set_model_name => FieldAddrStringId::ModelName;
+        local_time, set_local_time => FieldAddrFloat::LocalTime;
         ideal_pitch, set_ideal_pitch => FieldAddrFloat::IdealPitch;
         ideal_yaw, set_ideal_yaw => FieldAddrFloat::IdealYaw;
         yaw_speed, set_yaw_speed => FieldAddrFloat::YawSpeed;
@@ -1032,6 +1038,7 @@ where
         ground, set_ground => FieldAddrEntityId::Ground;
         owner, set_owner => FieldAddrEntityId::Owner;
         enemy, set_enemy => FieldAddrEntityId::Enemy;
+        chain, set_chain => FieldAddrEntityId::Chain;
         goal, set_goal => FieldAddrEntityId::Goal;
         weapon_frame, set_weapon_frame => FieldAddrFloat::WeaponFrame;
         armor, set_armor => FieldAddrFloat::ArmorStrength;
@@ -1049,6 +1056,7 @@ where
         button_0, set_button_0 => FieldAddrFloat::Button0;
         button_1, set_button_1 => FieldAddrFloat::Button1;
         button_2, set_button_2 => FieldAddrFloat::Button2;
+        impulse, set_impulse => FieldAddrFloat::Impulse;
         size, set_size => FieldAddrVector::Size;
         velocity, set_velocity => FieldAddrVector::Velocity;
         velocity_x, set_velocity_x => FieldAddrFloat::VelocityX;
@@ -1140,9 +1148,7 @@ where
     {
         let vel = self.velocity()?;
         let origin = self.origin()?;
-        self.set_velocity(crate::server::limit_vec3(vel, sv_maxvelocity))?;
-        // Normalize NaN to 0.
-        self.set_origin(crate::server::limit_vec3(vel, f32::INFINITY))?;
+        self.set_velocity(crate::server::limit_vec3(vel, Some(sv_maxvelocity)))?;
 
         Ok(())
     }

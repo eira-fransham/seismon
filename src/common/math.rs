@@ -393,6 +393,34 @@ impl Neg for Hyperplane {
 // see https://github.com/id-Software/Quake/blob/master/WinQuake/world.c#L525
 const DISTANCE_EPSILON: f32 = 0.001;
 
+/// Result of a move that could hit a wall.
+// TODO: Can we return more info? Do we need to?
+#[derive(Default)]
+pub struct CollisionResult<T> {
+    pub floor: bool,
+    pub wall_or_step: bool,
+    pub dead_stop: bool,
+    pub metadata: T,
+}
+
+impl<T> CollisionResult<T> {
+    pub fn any_collision(&self) -> bool {
+        self.floor || self.wall_or_step || self.dead_stop
+    }
+
+    pub fn map<F, O>(self, func: F) -> CollisionResult<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        CollisionResult {
+            floor: self.floor,
+            wall_or_step: self.wall_or_step,
+            dead_stop: self.dead_stop,
+            metadata: func(self.metadata),
+        }
+    }
+}
+
 impl Hyperplane {
     /// Creates a new hyperplane aligned along the given normal, `dist` units away from the origin.
     ///
@@ -403,7 +431,7 @@ impl Hyperplane {
             n if n == Vec3::X => Self::axis_x(dist),
             n if n == Vec3::Y => Self::axis_y(dist),
             n if n == Vec3::Z => Self::axis_z(dist),
-            _ => Self::from_normal(normal.normalize(), dist),
+            _ => Self::from_normal(normal, dist),
         }
     }
 
@@ -446,6 +474,11 @@ impl Hyperplane {
             alignment: Alignment::Normal(normal.normalize()),
             dist,
         }
+    }
+
+    pub fn is_floor(&self) -> bool {
+        // TODO: Magic number
+        self.normal().z < -0.7
     }
 
     /// Returns the surface normal of this plane.
@@ -521,6 +554,94 @@ impl Hyperplane {
             point,
             plane,
         })
+    }
+
+    /// Calculates a new velocity after collision with a surface.
+    ///
+    /// `overbounce` approximates the elasticity of the collision. A value of `1`
+    /// reduces the component of `initial` antiparallel to `surface_normal` to zero,
+    /// while a value of `2` reflects that component to be parallel to
+    /// `surface_normal`.
+    pub fn clip_velocity(&self, velocity: Vec3, overbounce: f32) -> CollisionResult<Vec3> {
+        const STOP_THRESHOLD: f32 = 0.1;
+
+        let backoff = velocity.dot(self.normal()) * overbounce;
+        let out = velocity - self.normal() * backoff;
+        let out = <[f32; 3]>::from(out)
+            .map(|v| if v.abs() < STOP_THRESHOLD { 0. } else { v })
+            .into();
+
+        CollisionResult {
+            floor: self.normal().z > 0.,
+            wall_or_step: self.normal().z.abs() > f32::EPSILON,
+            dead_stop: false,
+            metadata: out,
+        }
+    }
+
+    /// Calculates a new velocity after collision with multiple surfaces.
+    pub fn clip_velocity_to_many<'a, I>(
+        planes: I,
+        velocity: Vec3,
+        overbounce: f32,
+    ) -> CollisionResult<Vec3>
+    where
+        I: IntoIterator,
+        I::IntoIter: Iterator<Item = &'a Hyperplane> + Clone,
+    {
+        let mut planes = planes.into_iter();
+        // Try to find a plane which produces a post-collision velocity that will
+        // not cause a subsequent collision with any of the other planes.
+        let new_velocity = planes.clone().enumerate().find_map(|(a, plane_a)| {
+            let CollisionResult {
+                metadata: new_velocity,
+                ..
+            } = plane_a.clip_velocity(velocity, overbounce);
+            if planes
+                .clone()
+                .enumerate()
+                .filter_map(|(b, plane_b)| Some(plane_b).filter(|_| a != b))
+                .all(|plane_b| new_velocity.dot(plane_b.normal()) > 0.)
+            {
+                Some(new_velocity)
+            } else {
+                None
+            }
+        });
+
+        new_velocity
+            .map(|vel| CollisionResult {
+                metadata: vel,
+                ..Default::default()
+            })
+            .or_else(|| {
+                let mut peekable_planes = planes.by_ref().peekable();
+                // Go along the crease
+                let first = peekable_planes.next()?;
+                let second = peekable_planes.next()?;
+
+                let dir = first.normal().cross(second.normal());
+                let new_velocity = dir.clamp_length_min(dir.dot(velocity));
+
+                if peekable_planes.peek().is_some() {
+                    Some(Self::clip_velocity_to_many(
+                        planes,
+                        new_velocity,
+                        overbounce,
+                    ))
+                } else {
+                    Some(CollisionResult {
+                        metadata: new_velocity,
+                        ..Default::default()
+                    })
+                }
+            })
+            .unwrap_or(CollisionResult {
+                floor: true,
+                wall_or_step: true,
+                dead_stop: true,
+                metadata: Vec3::ZERO,
+            })
     }
 }
 

@@ -957,8 +957,12 @@ impl World {
                 }
 
                 let size = max - min;
-                match self.models[ent.model_index()? as usize].kind() {
-                    ModelKind::Brush(bmodel) => {
+                match self
+                    .models
+                    .get(ent.model_index()? as usize)
+                    .map(|model| model.kind())
+                {
+                    Some(ModelKind::Brush(bmodel)) => {
                         let hull_index = if size.x < 3.0 {
                             0
                         } else if size.x <= 32.0 {

@@ -14,7 +14,7 @@ pub fn register_cvars(app: &mut App) {
         //       cvars in terms of this.
         .cvar(
             "teamplay",
-            "1",
+            "0",
             "0: deathmatch, 1: co-op (friendly fire disabled), 2: co-op (friendly fire enabled)",
         )
         .cvar("temp1", "0", "Used internally for QuakeC")
@@ -25,6 +25,9 @@ pub fn register_cvars(app: &mut App) {
             "18",
             "Max step size (for players and monsters)",
         )
+        .cvar("fraglimit", "0", "End game when a player reaches this number of frags")
+        .cvar("timelimit", "0", "End game when the level has been running for this amount of time (in seconds)")
+        .cvar("sv_aim", "2", "Maximum auto-aim distance")
         .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
         .cvar("sv_maxvelocity", "2000", "Maximum velocity of entities")
         .cvar("sv_maxspeed", "320", "Set the ground speed that the player will try to walk at (not the maximum possible speed)")

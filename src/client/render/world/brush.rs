@@ -383,7 +383,7 @@ impl<'a> BrushRendererBuilder<'a> {
             state,
             face_range: bsp_model.face_id..bsp_model.face_id + bsp_model.face_count,
             leaves: if worldmodel {
-                Some(bsp_model.iter_leaves().map(BrushLeaf::from).collect())
+                Some(bsp_model.leaves().iter().map(BrushLeaf::from).collect())
             } else {
                 None
             },
