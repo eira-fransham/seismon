@@ -55,6 +55,8 @@ num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
 parking_lot = "0.12"
+pest = "2.8"
+pest_derive = "2.8"
 png = "0.17"
 qbsp = "0.5"
 rand = { version = "0.9", features = ["small_rng", "thread_rng"] }

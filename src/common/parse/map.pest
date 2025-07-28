@@ -1,0 +1,61 @@
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" | "//" ~ (!line_terminator ~ ANY)* }
+
+WHITESPACE = _{
+  "\u{0009}" |
+  "\u{000B}" |
+  "\u{000C}" |
+  "\u{0020}" |
+  "\u{00A0}" |
+  "\u{FEFF}" |
+  SPACE_SEPARATOR |
+  line_terminator
+}
+
+non_escape_char = _{ !(escape_char | line_terminator) ~ ANY }
+
+line_terminator = _{ "\u{000A}" | "\u{000D}" | "\u{2028}" | "\u{2029}" }
+
+line_terminator_sequence = _{ "\u{000D}" ~ "\u{000A}" | line_terminator }
+
+line_continuation = _{ "\\" ~ line_terminator_sequence }
+
+single_escape_char = _{ "'" | "\"" | "\\" | "b" | "f" | "n" | "r" | "t" | "v" }
+
+char_escape_sequence = @{ single_escape_char | non_escape_char }
+
+nul_escape_sequence = @{ "0" }
+
+hex_escape_sequence = @{ ASCII_HEX_DIGIT{2} }
+
+unicode_escape_sequence = @{ ASCII_HEX_DIGIT{4} }
+
+char_literal = @{ !("\\" | line_terminator) ~ ANY }
+
+double_quote_char = _{
+  "\\" ~ escape_sequence |
+  line_continuation |
+  !"\"" ~ char_literal
+}
+
+escape_char = _{ single_escape_char | ASCII_DIGIT | "x" | "u" }
+
+escape_sequence = _{
+  char_escape_sequence |
+  nul_escape_sequence |
+  "x" ~ hex_escape_sequence |
+  "u" ~ unicode_escape_sequence
+}
+
+// We don't want every char to generate a new `Pair`
+string_inner = @{ double_quote_char* }
+
+string = ${ "\"" ~ string_inner ~ "\"" }
+
+opening_brace = _{ "{" }
+closing_brace = _{ "}" }
+
+object = { opening_brace ~ key_value* ~ closing_brace }
+
+map = { object* }
+
+key_value = { string ~ string }

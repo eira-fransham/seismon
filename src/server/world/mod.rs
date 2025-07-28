@@ -664,19 +664,19 @@ impl World {
     /// - `angle`: This allows QuakeEd to write a single value instead of a set of Euler angles.
     ///   The value should be interpreted as the second component of the `angles` field.
     /// - `light`: This is simply an alias for `light_lev`.
-    pub fn alloc_from_map(
+    pub fn alloc_from_map<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(
         &mut self,
         string_table: &mut StringTable,
-        map: &HashMap<&str, &str>,
+        map: I,
         // functions: &Functions,
     ) -> Result<EntityId, ProgsError> {
         let ent_id = self.alloc_uninitialized()?;
 
-        for (key, val) in map.iter() {
+        for (key, val) in map {
             debug!(".{} = {}", key, val);
-            match *key {
+            match key {
                 // ignore keys starting with an underscore
-                k if k.starts_with('_') => (),
+                k if k.starts_with('_') => {}
 
                 "angle" => {
                     // this is referred to in the original source as "anglehack" -- essentially,
@@ -712,10 +712,10 @@ impl World {
                             ent.put_string_id(s_id, def.offset as i16)?;
                         }
 
-                        Type::QFloat => ent.put_float(val.parse().unwrap(), def.offset as i16)?,
-                        Type::QVector => {
-                            ent.put_vector(parse::vec3(val).unwrap(), def.offset as i16)?
+                        Type::QFloat => {
+                            ent.put_float(val.parse().unwrap_or_default(), def.offset as i16)?
                         }
+                        Type::QVector => ent.put_vector(parse::vec3(val), def.offset as i16)?,
                         Type::QEntity => {
                             let id: i32 = val.parse().unwrap();
 

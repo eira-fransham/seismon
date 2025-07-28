@@ -66,22 +66,28 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
     alt((tag(";"), nom::character::complete::line_ending))(input)
 }
 
-pub fn vec3<S>(src: S) -> Option<Vec3>
+pub fn vec3<S>(src: S) -> Vec3
 where
     S: AsRef<str>,
 {
     let src = src.as_ref();
 
-    let components: Vec<_> = src.split(" ").collect();
-    if components.len() != 3 {
-        return None;
-    }
+    let mut components = src.split(" ");
 
-    let x: f32 = components[0].parse().ok()?;
-    let y: f32 = components[1].parse().ok()?;
-    let z: f32 = components[2].parse().ok()?;
+    let x: f32 = components
+        .next()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or_default();
+    let y: f32 = components
+        .next()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or_default();
+    let z: f32 = components
+        .next()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or_default();
 
-    Some(Vec3::new(x, y, z))
+    Vec3::new(x, y, z)
 }
 
 #[cfg(test)]

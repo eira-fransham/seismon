@@ -717,11 +717,9 @@ impl LevelState {
         let world = World::new(models, entity_def, &mut string_table).unwrap();
         let entity_list = match parse::entities(&entmap) {
             Ok(ents) => ents,
-            Err(nom::Err::Failure(val) | nom::Err::Error(val)) => {
-                error!("Error parsing: {}", val.input);
-                panic!("{val:?}");
+            Err(err) => {
+                panic!("{err}");
             }
-            _ => todo!(),
         };
 
         let mut level = LevelState {
@@ -741,9 +739,8 @@ impl LevelState {
         };
 
         for entity in entity_list {
-            debug!("Spawning entity: {entity:?}");
-            if let Err(e) = level.spawn_entity_from_map(&entity, registry.reborrow(), vfs) {
-                error!("Failed spawning entity {entity:?}: {e}");
+            if let Err(e) = level.spawn_entity_from_map(entity, registry.reborrow(), vfs) {
+                error!("Failed spawning entity: {e}");
             }
         }
 
@@ -1132,9 +1129,9 @@ impl LevelState {
         Ok(ent_id)
     }
 
-    pub fn spawn_entity_from_map(
+    pub fn spawn_entity_from_map<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(
         &mut self,
-        map: &HashMap<&str, &str>,
+        map: I,
         mut registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> progs::Result<EntityId> {
@@ -1151,31 +1148,6 @@ impl LevelState {
         self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
         self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
         self.execute_program_by_name(&classname, registry.reborrow(), vfs)?;
-
-        #[cfg(debug_assertions)]
-        if let (Some(model), Ok(mut ent)) = (map.get("model"), self.world.get(ent_id)) {
-            let resultant_model = ent.load(FieldAddrStringId::ModelName)?;
-            let resultant_precached_model = ent.load(FieldAddrFloat::ModelIndex)?;
-
-            if resultant_precached_model != 0. {
-                let precached = self.model_precache.get(resultant_precached_model as _);
-                let mdl_name = self
-                    .string_table
-                    .get(resultant_model)
-                    .map(|s| format!("{s}"));
-
-                if precached.is_some() || mdl_name.is_some() && mdl_name != Some(String::new()) {
-                    info!(
-                        "precache: {:#?}",
-                        self.model_precache.iter().collect::<Vec<_>>()
-                    );
-                    info!("map: {model:?}, precached: {precached:?}, name: {mdl_name:?}");
-
-                    assert_eq!(precached.unwrap(), *model);
-                    assert_eq!(mdl_name.unwrap(), *model);
-                }
-            }
-        }
 
         Ok(ent_id)
     }
@@ -1462,8 +1434,12 @@ impl LevelState {
             error!("TODO: SV_WallFriction");
         }
 
-        let (downtrace, down_ent) =        self.push_entity(ent_id, downmove, registry.reborrow(), vfs)?;
-        if downtrace.plane().map(|plane| plane.is_floor()).unwrap_or_default() {
+        let (downtrace, down_ent) = self.push_entity(ent_id, downmove, registry.reborrow(), vfs)?;
+        if downtrace
+            .plane()
+            .map(|plane| plane.is_floor())
+            .unwrap_or_default()
+        {
             let mut ent = self.world.get_mut(ent_id)?;
             if ent.solid()? == EntitySolid::Bsp {
                 ent.add_flags(EntityFlags::ON_GROUND)?;
@@ -1476,7 +1452,6 @@ impl LevelState {
             ent.set_origin(pre_step_origin)?;
             ent.set_velocity(pre_step_velocity)?;
         }
-
 
         Ok(())
     }
@@ -1712,10 +1687,7 @@ impl LevelState {
         let (friction, friction_speed) = if water_level >= 2. {
             (player_vars.water_friction * water_level, speed)
         } else if on_ground {
-            (
-                friction,
-                speed.max(player_vars.stop_speed),
-            )
+            (friction, speed.max(player_vars.stop_speed))
         } else {
             (0., speed)
         };
@@ -2024,7 +1996,7 @@ impl LevelState {
             ent.apply_gravity(&self.string_table, gravity, frame_time)?;
         }
 
-        let dt =duration_to_f32(frame_time);
+        let dt = duration_to_f32(frame_time);
 
         let angles = ent.angles()?;
         let angular_velocity = ent.angular_velocity()?;
@@ -2037,7 +2009,7 @@ impl LevelState {
         let (trace, _) = self.push_entity(ent_id, frame_velocity, registry, vfs)?;
 
         if !self.world.exists(ent_id) {
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(plane) = trace.plane() {
@@ -2053,20 +2025,28 @@ impl LevelState {
         Ok(())
     }
 
-    fn push_entity(&mut self, ent_id: EntityId, move_dir: Vec3, mut registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<(Trace, Option<EntityId>)> {
+    fn push_entity(
+        &mut self,
+        ent_id: EntityId,
+        move_dir: Vec3,
+        mut registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> progs::Result<(Trace, Option<EntityId>)> {
         let mut ent = self.world.get(ent_id)?;
-        let start =ent.origin()?;
+        let start = ent.origin()?;
         let end = start + move_dir;
         let min = ent.min()?;
         let max = ent.max()?;
 
-        let kind  = match (ent.move_kind()?, ent.solid()?) {
+        let kind = match (ent.move_kind()?, ent.solid()?) {
             (MoveKind::FlyMissile, _) => CollideKind::Missile,
             (_, EntitySolid::Not | EntitySolid::Trigger) => CollideKind::NoMonsters,
             _ => CollideKind::Normal,
         };
 
-        let (trace, hit) = self.world.trace_entity_move(ent_id, start, min, max, end, kind, |_| true)?;
+        let (trace, hit) =
+            self.world
+                .trace_entity_move(ent_id, start, min, max, end, kind, |_| true)?;
 
         let mut ent = self.world.get_mut(ent_id)?;
 
