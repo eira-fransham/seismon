@@ -997,7 +997,14 @@ impl LevelState {
                             // Only used in `qcc`, does nothing at runtime
                             PrecacheFile => {}
                             MakeStatic => self.builtin_make_static()?,
-                            ChangeLevel => todo_builtin!(ChangeLevel),
+                            ChangeLevel => {
+                                // TODO: Do this properly!
+                                todo_builtin!(ChangeLevel);
+                                let level_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
+                                let level = self.string_table.get(level_id).unwrap();
+                                ServerCmd::StuffText { text: format!("map {level}\n").into() }
+                                    .serialize(&mut self.broadcast)?;
+                            }
                             CvarSet => self.builtin_cvar_set(registry.reborrow())?,
                             CenterPrint => self.builtin_center_print()?,
                             AmbientSound => self.builtin_ambient_sound()?,

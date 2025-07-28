@@ -40,7 +40,7 @@ pub fn entities(
             }
         })
         .flatten()
-        .filter_map(|p| match dbg!(p.as_rule()) {
+        .filter_map(|p| match p.as_rule() {
             Rule::object => Some(p.into_inner()),
             rule => {
                 info!("Found {rule:?}");
@@ -49,7 +49,7 @@ pub fn entities(
         })
         .map(|pair| {
             pair
-                .filter_map(|p| match dbg!(p.as_rule()) {
+                .filter_map(|p| match p.as_rule() {
                     Rule::key_value => {
                         let mut kv = p
                             .into_inner()
