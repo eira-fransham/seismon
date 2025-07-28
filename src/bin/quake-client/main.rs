@@ -23,9 +23,7 @@
 mod menu;
 
 use std::{
-    ffi::OsStr,
-    fs::File,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
 };
 
@@ -40,7 +38,6 @@ use bevy::{
     pbr::DefaultOpaqueRendererMethod,
     prelude::*,
     render::{
-        RenderPlugin,
         camera::Exposure,
         view::{ColorGrading, ColorGradingGlobal},
     },

@@ -18,11 +18,11 @@
 //! Physics and collision detection.
 
 use crate::{
-    common::{bsp::BspLeafContents, math::Hyperplane},
+    common::math::Hyperplane,
     server::progs::EntityId,
 };
 
-use bevy::{log::tracing::instrument::WithSubscriber, prelude::*};
+use bevy::prelude::*;
 use bitflags::bitflags;
 use num_derive::FromPrimitive;
 

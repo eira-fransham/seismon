@@ -23,7 +23,7 @@ pub mod world;
 
 use std::{
     cell::RefCell,
-    fmt::{self, Octal},
+    fmt::{self},
     io::Write,
     ops::{Bound, RangeBounds as _},
 };
@@ -58,13 +58,13 @@ use self::{
     },
     world::{
         EntityFlags, EntitySolid, FieldAddrFloat, FieldAddrFunctionId, FieldAddrStringId, World,
-        phys::{self, CollideKind, Trace, TraceEndKind},
+        phys::{CollideKind, Trace, TraceEndKind},
     },
 };
 
 use arrayvec::ArrayVec;
 use bevy::{
-    math::bounding::{Aabb3d, Bounded2d, BoundingVolume as _, IntersectsVolume as _},
+    math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
 };
 use bitflags::{Flags, bitflags};

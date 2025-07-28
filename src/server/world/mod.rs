@@ -38,7 +38,7 @@ use hashbrown::HashSet;
 
 use crate::{
     common::{
-        bsp::{self, BspCollisionHull, BspCollisionNodeChild, BspLeafContents},
+        bsp::{self, BspCollisionHull, BspLeafContents},
         mdl,
         model::{Model, ModelKind},
         parse, sprite,
@@ -53,7 +53,6 @@ use crate::{
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use entity::{EntityField, EntityMeta};
-use hashbrown::HashMap;
 
 const AREA_DEPTH: usize = 4;
 const NUM_AREA_NODES: usize = 2usize.pow(AREA_DEPTH as u32 + 1) - 1;
