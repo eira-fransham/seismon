@@ -853,9 +853,7 @@ impl LevelState {
                 If => {
                     let cond = self
                         .globals
-                        .get_float(a)
-                        .map(|f| f as i32)
-                        .or_else(|_| self.globals.get_entity_id(a).map(|e| e.0))?
+                        .get_int(a)?
                         != 0;
                     debug!("{op}: cond == {cond}");
 
@@ -868,11 +866,9 @@ impl LevelState {
                 IfNot => {
                     let cond = self
                         .globals
-                        .get_float(a)
-                        .map(|f| f as i32)
-                        .or_else(|_| self.globals.get_entity_id(a).map(|e| e.0))?
+                        .get_int(a)?
                         != 0;
-                    debug!("{op}: cond == {cond}");
+                    debug!("{op}: cond != {cond}");
 
                     if !cond {
                         self.cx.jump_relative(b);
@@ -2866,8 +2862,9 @@ impl LevelState {
 
     // TODO: move to Globals
     pub fn builtin_random(&mut self) -> progs::Result<()> {
+        let random = rand::random::<f32>().clamp(f32::EPSILON, 1. - f32::EPSILON);
         self.globals
-            .put_float(rand::random(), GLOBAL_ADDR_RETURN as i16)?;
+            .put_float(random, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
     }
