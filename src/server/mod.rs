@@ -23,8 +23,9 @@ pub mod world;
 
 use std::{
     cell::RefCell,
+    ffi::CStr,
     fmt::{self},
-    io::Write,
+    io::{Read, Write},
     ops::{Bound, RangeBounds as _},
 };
 
@@ -41,7 +42,10 @@ use crate::{
         vfs::Vfs,
     },
     server::{
-        progs::{GlobalAddrFunction, functions::FunctionKind},
+        progs::{
+            GlobalAddrFunction,
+            functions::{BuiltinFunctionId, FunctionKind},
+        },
         world::{FieldAddrEntityId, FieldAddrVector, MoveKind},
     },
 };
@@ -68,7 +72,7 @@ use bevy::{
     prelude::*,
 };
 use bitflags::{Flags, bitflags};
-use byteorder::{LittleEndian, WriteBytesExt as _};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt as _};
 use chrono::Duration;
 use failure::bail;
 use hashbrown::{HashMap, HashSet};
@@ -680,6 +684,8 @@ fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
         + movement.z * Vec3::new(cr * sp * cy + sr * sy, cr * sp * sy + -sr * cy, cr * cp)
 }
 
+const DEBUG_DUMP: bool = false;
+
 impl LevelState {
     pub fn new(
         map_path: String,
@@ -737,6 +743,179 @@ impl LevelState {
             broadcast: default(),
             init: default(),
         };
+
+        if DEBUG_DUMP {
+            let debug_dump = std::fs::read(dbg!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/debug-edicts-dump.bin"
+            )))
+            .unwrap();
+
+            let mut reader = std::io::Cursor::new(&debug_dump);
+            let mut big_buf = Vec::new();
+
+            loop {
+                #[repr(C)]
+                #[derive(Debug)]
+                #[allow(non_snake_case)]
+                struct PrGlobals {
+                    pad: [i32; 28],
+                    this: i32,
+                    other: i32,
+                    world: i32,
+                    time: f32,
+                    frametime: f32,
+                    force_retouch: f32,
+                    mapname: i32,
+                    deathmatch: f32,
+                    coop: f32,
+                    teamplay: f32,
+                    serverflags: f32,
+                    total_secrets: f32,
+                    total_monsters: f32,
+                    found_secrets: f32,
+                    killed_monsters: f32,
+                    parm1: f32,
+                    parm2: f32,
+                    parm3: f32,
+                    parm4: f32,
+                    parm5: f32,
+                    parm6: f32,
+                    parm7: f32,
+                    parm8: f32,
+                    parm9: f32,
+                    parm10: f32,
+                    parm11: f32,
+                    parm12: f32,
+                    parm13: f32,
+                    parm14: f32,
+                    parm15: f32,
+                    parm16: f32,
+                    v_forward: [f32; 3],
+                    v_up: [f32; 3],
+                    v_right: [f32; 3],
+                    trace_allsolid: f32,
+                    trace_startsolid: f32,
+                    trace_fraction: f32,
+                    trace_endpos: [f32; 3],
+                    trace_plane_normal: [f32; 3],
+                    trace_plane_dist: f32,
+                    trace_ent: i32,
+                    trace_inopen: f32,
+                    trace_inwater: f32,
+                    msg_entity: i32,
+                    main: i32,
+
+                    StartFrame: i32,
+                    PlayerPreThink: i32,
+                    PlayerPostThink: i32,
+                    ClientKill: i32,
+                    ClientConnect: i32,
+                    PutClientInServer: i32,
+                    ClientDisconnect: i32,
+                    SetNewParms: i32,
+                    SetChangeParms: i32,
+                }
+
+                const BUILTIN: &CStr = c"BUILTIN";
+                const BUILTIN_LEN: usize = BUILTIN.to_bytes_with_nul().len();
+                const PRESTATE: &CStr = c"PRESTATE";
+                const PRESTATE_LEN: usize = PRESTATE.to_bytes_with_nul().len();
+                const POSTSTATE: &CStr = c"POSTSTATE";
+                const POSTSTATE_LEN: usize = POSTSTATE.to_bytes_with_nul().len();
+                const PREGLOBALS: &CStr = c"PREGLOBALS";
+                const PREGLOBALS_LEN: usize = PREGLOBALS.to_bytes_with_nul().len();
+                const POSTGLOBALS: &CStr = c"POSTGLOBALS";
+                const POSTGLOBALS_LEN: usize = POSTGLOBALS.to_bytes_with_nul().len();
+                const DONE: &CStr = c"DONE";
+                const DONE_LEN: usize = DONE.to_bytes_with_nul().len();
+
+                let mut buf = [0; POSTGLOBALS_LEN];
+                reader.read_exact(&mut buf[..BUILTIN_LEN]).unwrap();
+                assert_eq!(
+                    CStr::from_bytes_with_nul(&buf[..BUILTIN_LEN]).unwrap(),
+                    BUILTIN
+                );
+                let _builtin_idx = dbg!(
+                    BuiltinFunctionId::from_i32(reader.read_i32::<LittleEndian>().unwrap())
+                        .unwrap()
+                );
+
+                reader.read_exact(&mut buf[..PRESTATE_LEN]).unwrap();
+                assert_eq!(
+                    CStr::from_bytes_with_nul(&buf[..PRESTATE_LEN]).unwrap(),
+                    PRESTATE
+                );
+
+                let num_bytes: u64 = dbg!(
+                    reader
+                        .read_i32::<LittleEndian>()
+                        .unwrap()
+                        .try_into()
+                        .unwrap()
+                );
+                big_buf.clear();
+                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                assert_eq!(big_buf.len(), num_bytes as usize);
+
+                reader.read_exact(&mut buf[..PREGLOBALS_LEN]).unwrap();
+                assert_eq!(
+                    CStr::from_bytes_with_nul(&buf[..PREGLOBALS_LEN]).unwrap(),
+                    PREGLOBALS
+                );
+                let num_bytes: u64 = dbg!(
+                    reader
+                        .read_i32::<LittleEndian>()
+                        .unwrap()
+                        .try_into()
+                        .unwrap()
+                );
+                big_buf.clear();
+                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                assert_eq!(big_buf.len(), num_bytes as usize);
+                assert_eq!(big_buf.len(), std::mem::size_of::<PrGlobals>());
+                println!("{:#?}", unsafe { &*big_buf.as_ptr().cast::<PrGlobals>() });
+
+                reader.read_exact(&mut buf[..POSTSTATE_LEN]).unwrap();
+                assert_eq!(
+                    CStr::from_bytes_with_nul(&buf[..POSTSTATE_LEN]).unwrap(),
+                    POSTSTATE
+                );
+
+                let num_bytes: u64 = dbg!(
+                    reader
+                        .read_i32::<LittleEndian>()
+                        .unwrap()
+                        .try_into()
+                        .unwrap()
+                );
+                big_buf.clear();
+                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                assert_eq!(big_buf.len(), num_bytes as usize);
+
+                reader.read_exact(&mut buf[..POSTGLOBALS_LEN]).unwrap();
+                assert_eq!(
+                    CStr::from_bytes_with_nul(&buf[..POSTGLOBALS_LEN]).unwrap(),
+                    POSTGLOBALS
+                );
+
+                let num_bytes: u64 = dbg!(
+                    reader
+                        .read_i32::<LittleEndian>()
+                        .unwrap()
+                        .try_into()
+                        .unwrap()
+                );
+                big_buf.clear();
+                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                assert_eq!(big_buf.len(), num_bytes as usize);
+                assert_eq!(big_buf.len(), std::mem::size_of::<PrGlobals>());
+                println!("{:#?}", unsafe { &*big_buf.as_ptr().cast::<PrGlobals>() });
+
+                reader.read_exact(&mut buf[..DONE_LEN]).unwrap();
+                assert_eq!(CStr::from_bytes_with_nul(&buf[..DONE_LEN]).unwrap(), DONE);
+            }
+        }
 
         for entity in entity_list {
             if let Err(e) = level.spawn_entity_from_map(entity, registry.reborrow(), vfs) {
@@ -814,6 +993,108 @@ impl LevelState {
         }
     }
 
+    fn enter_builtin(
+        &mut self,
+        builtin_id: BuiltinFunctionId,
+        mut registry: Mut<Registry>,
+        vfs: &Vfs,
+    ) -> progs::Result<()> {
+        use BuiltinFunctionId::*;
+
+        macro_rules! todo_builtin {
+            ($id:ident) => {{
+                const ERROR_MSG: &str = concat!("TODO: ", stringify!($id));
+
+                self.cx.print_backtrace(&self.string_table, false);
+                if cfg!(debug_assertions) {
+                    panic!("{ERROR_MSG}")
+                } else {
+                    error!("{ERROR_MSG}");
+                }
+            }};
+        }
+
+        Ok(match builtin_id {
+            MakeVectors => self.globals.make_vectors()?,
+            SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
+            SetModel => self.builtin_set_model()?,
+            SetSize => self.builtin_set_size()?,
+            Break => todo_builtin!(Break),
+            Random => self.globals.builtin_random()?,
+            Sound => self.builtin_sound()?,
+            Normalize => self.builtin_normalize()?,
+            Error => self.builtin_err("Error")?,
+            ObjError => self.builtin_err("Object error")?,
+            VLen => self.globals.builtin_v_len()?,
+            VecToYaw => self.globals.builtin_vec_to_yaw()?,
+            Spawn => self.builtin_spawn(registry.reborrow(), vfs)?,
+            Remove => self.builtin_remove()?,
+            TraceLine => self.builtin_trace_line()?,
+            CheckClient => self.builtin_check_client()?,
+            Find => self.builtin_find()?,
+            PrecacheSound => self.builtin_precache_sound()?,
+            PrecacheModel => self.builtin_precache_model(vfs)?,
+            StuffCmd => self.builtin_stuffcmd()?,
+            FindRadius => self.builtin_find_radius()?,
+            BPrint => self.builtin_bprint()?,
+            SPrint => self.builtin_sprint()?,
+            DPrint => self.builtin_dprint()?,
+            FToS => self.builtin_ftos()?,
+            VToS => self.builtin_vtos()?,
+            CoreDump => todo_builtin!(CoreDump),
+            TraceOn => todo_builtin!(TraceOn),
+            TraceOff => todo_builtin!(TraceOff),
+            EPrint => todo_builtin!(EPrint),
+            WalkMove => self.builtin_walk_move(registry.reborrow(), vfs)?,
+            DropToFloor => self.builtin_drop_to_floor(registry.reborrow(), vfs)?,
+            LightStyle => self.builtin_light_style()?,
+            RInt => self.globals.builtin_r_int()?,
+            Floor => self.globals.builtin_floor()?,
+            Ceil => self.globals.builtin_ceil()?,
+            CheckBottom => self.builtin_check_bottom(&registry)?,
+            PointContents => self.builtin_point_contents()?,
+            FAbs => self.globals.builtin_f_abs()?,
+            Aim => self.builtin_aim()?,
+            Cvar => self.builtin_cvar(&registry)?,
+            LocalCmd => todo_builtin!(LocalCmd),
+            NextEnt => todo_builtin!(NextEnt),
+            Particle => self.builtin_particle()?,
+            ChangeYaw => self.builtin_change_yaw()?,
+            VecToAngles => self.globals.builtin_vec_to_angles()?,
+            WriteByte => self.builtin_write_byte()?,
+            WriteChar => self.builtin_write_char()?,
+            WriteShort => self.builtin_write_short()?,
+            WriteLong => self.builtin_write_long()?,
+            WriteCoord => self.builtin_write_coord()?,
+            WriteAngle => self.builtin_write_angle()?,
+            WriteString => self.builtin_write_string()?,
+            WriteEntity => self.builtin_write_entity()?,
+            MoveToGoal => self.builtin_move_to_goal(registry.reborrow(), vfs)?,
+            // Only used in `qcc`, does nothing at runtime
+            PrecacheFile => {}
+            MakeStatic => self.builtin_make_static()?,
+            ChangeLevel => {
+                // TODO: Do this properly!
+                todo_builtin!(ChangeLevel);
+                let level_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
+                let level = self.string_table.get(level_id).unwrap();
+                ServerCmd::StuffText {
+                    text: format!("map {level}\n").into(),
+                }
+                .serialize(&mut self.broadcast)?;
+            }
+            CvarSet => self.builtin_cvar_set(registry.reborrow())?,
+            CenterPrint => self.builtin_center_print()?,
+            AmbientSound => self.builtin_ambient_sound()?,
+            // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
+            PrecacheModel2 => self.builtin_precache_model(vfs)?,
+            PrecacheSound2 => self.builtin_precache_sound()?,
+            // Only used in `qcc`, does nothing at runtime
+            PrecacheFile2 => {}
+            SetSpawnArgs => todo_builtin!(SetSpawnArgs),
+        })
+    }
+
     /// Execute a QuakeC function in the VM.
     pub fn execute_program(
         &mut self,
@@ -851,10 +1132,7 @@ impl LevelState {
             match op {
                 // Control flow ================================================
                 If => {
-                    let cond = self
-                        .globals
-                        .get_int(a)?
-                        != 0;
+                    let cond = self.globals.get_int(a)? != 0;
                     debug!("{op}: cond == {cond}");
 
                     if cond {
@@ -864,10 +1142,7 @@ impl LevelState {
                 }
 
                 IfNot => {
-                    let cond = self
-                        .globals
-                        .get_int(a)?
-                        != 0;
+                    let cond = self.globals.get_int(a)? != 0;
                     debug!("{op}: cond != {cond}");
 
                     if !cond {
@@ -891,19 +1166,6 @@ impl LevelState {
                     let Ok(def) = self.cx.function_def(f_to_call) else {
                         return Err(ProgsError::with_msg("NULL function"));
                     };
-
-                    macro_rules! todo_builtin {
-                        ($id:ident) => {{
-                            const ERROR_MSG: &str = concat!("TODO: ", stringify!($id));
-
-                            self.cx.print_backtrace(&self.string_table, false);
-                            if cfg!(debug_assertions) {
-                                panic!("{ERROR_MSG}")
-                            } else {
-                                error!("{ERROR_MSG}");
-                            }
-                        }};
-                    }
 
                     let name_id = def.name_id;
 
@@ -933,84 +1195,7 @@ impl LevelState {
                     }
 
                     if let FunctionKind::BuiltIn(b) = def.kind {
-                        use progs::functions::BuiltinFunctionId::*;
-                        match b {
-                            MakeVectors => self.globals.make_vectors()?,
-                            SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
-                            SetModel => self.builtin_set_model()?,
-                            SetSize => self.builtin_set_size()?,
-                            Break => todo_builtin!(Break),
-                            Random => self.globals.builtin_random()?,
-                            Sound => self.builtin_sound()?,
-                            Normalize => self.builtin_normalize()?,
-                            Error => self.builtin_err("Error")?,
-                            ObjError => self.builtin_err("Object error")?,
-                            VLen => self.globals.builtin_v_len()?,
-                            VecToYaw => self.globals.builtin_vec_to_yaw()?,
-                            Spawn => self.builtin_spawn(registry.reborrow(), vfs)?,
-                            Remove => self.builtin_remove()?,
-                            TraceLine => self.builtin_trace_line()?,
-                            CheckClient => self.builtin_check_client()?,
-                            Find => self.builtin_find()?,
-                            PrecacheSound => self.builtin_precache_sound()?,
-                            PrecacheModel => self.builtin_precache_model(vfs)?,
-                            StuffCmd => self.builtin_stuffcmd()?,
-                            FindRadius => self.builtin_find_radius()?,
-                            BPrint => self.builtin_bprint()?,
-                            SPrint => self.builtin_sprint()?,
-                            DPrint => self.builtin_dprint()?,
-                            FToS => self.builtin_ftos()?,
-                            VToS => self.builtin_vtos()?,
-                            CoreDump => todo_builtin!(CoreDump),
-                            TraceOn => todo_builtin!(TraceOn),
-                            TraceOff => todo_builtin!(TraceOff),
-                            EPrint => todo_builtin!(EPrint),
-                            WalkMove => self.builtin_walk_move(registry.reborrow(), vfs)?,
-                            DropToFloor => self.builtin_drop_to_floor(registry.reborrow(), vfs)?,
-                            LightStyle => self.builtin_light_style()?,
-                            RInt => self.globals.builtin_r_int()?,
-                            Floor => self.globals.builtin_floor()?,
-                            Ceil => self.globals.builtin_ceil()?,
-                            CheckBottom => self.builtin_check_bottom(&registry)?,
-                            PointContents => self.builtin_point_contents()?,
-                            FAbs => self.globals.builtin_f_abs()?,
-                            Aim => self.builtin_aim()?,
-                            Cvar => self.builtin_cvar(&registry)?,
-                            LocalCmd => todo_builtin!(LocalCmd),
-                            NextEnt => todo_builtin!(NextEnt),
-                            Particle => self.builtin_particle()?,
-                            ChangeYaw => self.builtin_change_yaw()?,
-                            VecToAngles => self.globals.builtin_vec_to_angles()?,
-                            WriteByte => self.builtin_write_byte()?,
-                            WriteChar => self.builtin_write_char()?,
-                            WriteShort => self.builtin_write_short()?,
-                            WriteLong => self.builtin_write_long()?,
-                            WriteCoord => self.builtin_write_coord()?,
-                            WriteAngle => self.builtin_write_angle()?,
-                            WriteString => self.builtin_write_string()?,
-                            WriteEntity => self.builtin_write_entity()?,
-                            MoveToGoal => self.builtin_move_to_goal(registry.reborrow(), vfs)?,
-                            // Only used in `qcc`, does nothing at runtime
-                            PrecacheFile => {}
-                            MakeStatic => self.builtin_make_static()?,
-                            ChangeLevel => {
-                                // TODO: Do this properly!
-                                todo_builtin!(ChangeLevel);
-                                let level_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
-                                let level = self.string_table.get(level_id).unwrap();
-                                ServerCmd::StuffText { text: format!("map {level}\n").into() }
-                                    .serialize(&mut self.broadcast)?;
-                            }
-                            CvarSet => self.builtin_cvar_set(registry.reborrow())?,
-                            CenterPrint => self.builtin_center_print()?,
-                            AmbientSound => self.builtin_ambient_sound()?,
-                            // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
-                            PrecacheModel2 => self.builtin_precache_model(vfs)?,
-                            PrecacheSound2 => self.builtin_precache_sound()?,
-                            // Only used in `qcc`, does nothing at runtime
-                            PrecacheFile2 => {}
-                            SetSpawnArgs => todo_builtin!(SetSpawnArgs),
-                        }
+                        self.enter_builtin(b, registry.reborrow(), vfs)?;
                         debug!(
                             "Returning from built-in function {}",
                             self.string_table.get(name_id).unwrap()
@@ -2863,8 +3048,7 @@ impl LevelState {
     // TODO: move to Globals
     pub fn builtin_random(&mut self) -> progs::Result<()> {
         let random = rand::random::<f32>().clamp(f32::EPSILON, 1. - f32::EPSILON);
-        self.globals
-            .put_float(random, GLOBAL_ADDR_RETURN as i16)?;
+        self.globals.put_float(random, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
     }

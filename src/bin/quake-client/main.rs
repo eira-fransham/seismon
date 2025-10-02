@@ -22,10 +22,7 @@
 
 mod menu;
 
-use std::{
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{path::PathBuf, process::ExitCode};
 
 use bevy::{
     audio::AudioPlugin,
@@ -255,6 +252,9 @@ fn main() -> ExitCode {
     let default_plugins = default_plugins
         .disable::<AudioPlugin>()
         .add(bevy_seedling::SeedlingPlugin::default());
+
+    #[cfg(feature = "dev_tools")]
+    app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin::default());
 
     app
         .add_plugins(default_plugins)

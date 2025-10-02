@@ -84,6 +84,7 @@ winit = "0.29"
 default = ["fast-compile"]
 fast-compile = ["bevy/dynamic_linking"]
 capture = ["dep:bevy_capture"]
+dev_tools = ["bevy/bevy_dev_tools"]
 
 [profile.release-lto]
 inherits = "release"
