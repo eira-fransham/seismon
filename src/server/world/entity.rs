@@ -1135,7 +1135,7 @@ where
 
         let mut vel = self.velocity()?;
         vel.z -= ent_gravity * sv_gravity * duration_to_f32(frame_time);
-        self.store(FieldAddrVector::Velocity, vel.into())?;
+        self.store(FieldAddrVector::Velocity, vel)?;
 
         Ok(())
     }
@@ -1147,7 +1147,6 @@ where
         Addrs: FocusIndexMut,
     {
         let vel = self.velocity()?;
-        let origin = self.origin()?;
         self.set_velocity(crate::server::limit_vec3(vel, Some(sv_maxvelocity)))?;
 
         Ok(())

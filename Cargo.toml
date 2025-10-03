@@ -7,7 +7,7 @@ resolver = "2"
 
 [workspace]
 members = [
-    "crates/bevy_cmd"
+    "crates/lined"
 ]
 
 [workspace.dependencies]
@@ -26,7 +26,6 @@ beef.workspace = true
 bevy_capture = { version = "0.3", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { version = "0.4", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "74a5568" }
 bevy.workspace = true
-bimap = "0.6"
 bitflags = "2.4"
 bitvec = "1.0"
 bumpalo = "3.4"
@@ -34,7 +33,6 @@ bytemuck = "1.14"
 byteorder = "1.3"
 chrono = "0.4.0"
 clap.workspace = true
-crossbeam-channel = "0.5"
 dashmap = "5.5"
 failure = "0.1.8"
 firewheel = "0.4"
@@ -49,7 +47,6 @@ indexmap = "2.9"
 itertools = "0.14"
 lined = { path = "crates/lined" }
 memmap2 = "0.9"
-ndarray = "0.15"
 nom.workspace = true
 num = "0.4"
 num-derive = "0.4"
@@ -57,12 +54,8 @@ num-traits = "0.2"
 parking_lot = "0.12"
 pest = "2.8"
 pest_derive = "2.8"
-png = "0.17"
 qbsp = "0.5"
 rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
-rayon = "1.10"
-regex = "1.10"
-serde_json = "1.0"
 serde-lexpr.workspace = true
 serde.workspace = true
 shaderc = "0.8"
@@ -73,8 +66,6 @@ strum = "0.26"
 strum_macros = "0.26"
 symphonium = "0.5"
 thiserror = "1.0"
-# TODO: Need to use git checkout to allow stdin/stdout to be types other than concrete Stdin/Stdout
-# TODO: Need to use git checkout to expose the decoder type, so that it can be used inside another decoder
 uluru = "3"
 uuid = "1.12"
 wgpu = { version = "24.0", features = ["spirv", "vulkan-portability"] }

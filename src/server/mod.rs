@@ -36,7 +36,7 @@ use crate::{
         engine::{self, duration_from_f32, duration_to_f32},
         math::{CollisionResult, Hyperplane},
         model::Model,
-        net::{ButtonFlags, EntityState, ServerCmd},
+        net::{EntityState, ServerCmd},
         parse,
         util::{QStr, QString},
         vfs::Vfs,
@@ -71,7 +71,7 @@ use bevy::{
     math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
 };
-use bitflags::{Flags, bitflags};
+use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt as _};
 use chrono::Duration;
 use failure::bail;
@@ -370,7 +370,8 @@ impl Session {
 
     pub fn clientcmd_prespawn(
         &mut self,
-        slot: usize,
+        // TODO: Handle client slot
+        _slot: usize,
         mut registry: Mut<Registry>,
         vfs: &Vfs,
     ) -> Result<(), failure::Error> {
@@ -653,20 +654,6 @@ fn angle_mod(quake_angle: f32) -> f32 {
     )
 }
 
-#[derive(Copy, Clone, Debug)]
-struct PlayerInput {
-    delta_time: Duration,
-    angles: Vec3,
-    ground_movement: Vec2,
-    up_movement: f32,
-    buttons: ButtonFlags,
-    impulse: u8,
-}
-
-struct PlayerMoveResult {
-    touch_indices: Vec<EntityId>,
-}
-
 // TODO: This can definitely be done better, but for now we directly take the implementation from Quake.
 fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
     let angle = angles.x.to_radians();
@@ -855,7 +842,12 @@ impl LevelState {
                         .unwrap()
                 );
                 big_buf.clear();
-                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                let reader_bytes = reader
+                    .by_ref()
+                    .take(num_bytes)
+                    .read_to_end(&mut big_buf)
+                    .unwrap();
+                assert_eq!(reader_bytes, num_bytes as usize);
                 assert_eq!(big_buf.len(), num_bytes as usize);
 
                 reader.read_exact(&mut buf[..PREGLOBALS_LEN]).unwrap();
@@ -871,7 +863,12 @@ impl LevelState {
                         .unwrap()
                 );
                 big_buf.clear();
-                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                let reader_bytes = reader
+                    .by_ref()
+                    .take(num_bytes)
+                    .read_to_end(&mut big_buf)
+                    .unwrap();
+                assert_eq!(reader_bytes, num_bytes as usize);
                 assert_eq!(big_buf.len(), num_bytes as usize);
                 assert_eq!(big_buf.len(), std::mem::size_of::<PrGlobals>());
                 println!("{:#?}", unsafe { &*big_buf.as_ptr().cast::<PrGlobals>() });
@@ -890,7 +887,12 @@ impl LevelState {
                         .unwrap()
                 );
                 big_buf.clear();
-                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                let reader_bytes = reader
+                    .by_ref()
+                    .take(num_bytes)
+                    .read_to_end(&mut big_buf)
+                    .unwrap();
+                assert_eq!(reader_bytes, num_bytes as usize);
                 assert_eq!(big_buf.len(), num_bytes as usize);
 
                 reader.read_exact(&mut buf[..POSTGLOBALS_LEN]).unwrap();
@@ -907,7 +909,12 @@ impl LevelState {
                         .unwrap()
                 );
                 big_buf.clear();
-                let reader_bytes = reader.by_ref().take(num_bytes).read_to_end(&mut big_buf);
+                let reader_bytes = reader
+                    .by_ref()
+                    .take(num_bytes)
+                    .read_to_end(&mut big_buf)
+                    .unwrap();
+                assert_eq!(reader_bytes, num_bytes as usize);
                 assert_eq!(big_buf.len(), num_bytes as usize);
                 assert_eq!(big_buf.len(), std::mem::size_of::<PrGlobals>());
                 println!("{:#?}", unsafe { &*big_buf.as_ptr().cast::<PrGlobals>() });
@@ -1014,7 +1021,7 @@ impl LevelState {
             }};
         }
 
-        Ok(match builtin_id {
+        match builtin_id {
             MakeVectors => self.globals.make_vectors()?,
             SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
             SetModel => self.builtin_set_model()?,
@@ -1092,7 +1099,9 @@ impl LevelState {
             // Only used in `qcc`, does nothing at runtime
             PrecacheFile2 => {}
             SetSpawnArgs => todo_builtin!(SetSpawnArgs),
-        })
+        }
+
+        Ok(())
     }
 
     /// Execute a QuakeC function in the VM.
@@ -1492,6 +1501,8 @@ impl LevelState {
                 });
             }
 
+            // TODO: Fix this (`original_velocity` not used)
+            #[expect(unused_assignments)]
             if trace.ratio() > f32::EPSILON {
                 let mut ent = self.world.get_mut(ent_id)?;
                 original_velocity = ent.velocity()?;
@@ -1523,7 +1534,7 @@ impl LevelState {
                 self.run_impact_callbacks(ent_id, touched_ent_id, registry.reborrow(), vfs)?;
             }
 
-            if let Err(_) = planes.try_push(plane.clone()) {
+            if planes.try_push(plane.clone()).is_err() {
                 self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
                 return Ok(CollisionResult {
                     floor: true,
@@ -1549,7 +1560,7 @@ impl LevelState {
             }
         }
 
-        return Ok(out);
+        Ok(out)
     }
 
     fn physics_walk(
@@ -1805,10 +1816,6 @@ impl LevelState {
         Ok(ent_error_map)
     }
 
-    fn player_nudge(&mut self, ent_id: EntityId) -> progs::Result<()> {
-        Ok(())
-    }
-
     fn player_apply_friction(
         &mut self,
         ent_id: EntityId,
@@ -1961,25 +1968,12 @@ impl LevelState {
         Ok(())
     }
 
-    fn handle_input_player_water(
-        &mut self,
-        ent_id: EntityId,
-        player_input: PlayerInput,
-        server_vars: &ServerVars,
-        player_vars: &PlayerVars,
-        registry: Mut<Registry>,
-        vfs: &Vfs,
-    ) -> progs::Result<()> {
-        Ok(())
-    }
-
     pub fn handle_input_player(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
         registry: &Registry,
     ) -> progs::Result<()> {
-        let server_vars: ServerVars = registry.read_cvars()?;
         let player_vars: PlayerVars = registry.read_cvars()?;
 
         let mut ent = self.world.get(ent_id)?;
@@ -3023,7 +3017,7 @@ impl LevelState {
     pub fn builtin_set_origin(&mut self, registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<()> {
         let e_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let origin = self.globals.get_vector(GLOBAL_ADDR_ARG_1 as i16)?;
-        self.set_entity_origin(e_id, Vec3::from(origin), registry, vfs)?;
+        self.set_entity_origin(e_id, origin, registry, vfs)?;
 
         Ok(())
     }

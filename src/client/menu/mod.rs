@@ -158,7 +158,7 @@ impl Menu {
     }
 
     /// Select the next element of this Menu.
-    pub fn next(&mut self) -> Result<(), Error> {
+    pub fn select_next(&mut self) -> Result<(), Error> {
         let m = self.active_submenu_mut()?;
 
         if let MenuState::Active { index } = m.state {
@@ -173,7 +173,7 @@ impl Menu {
     }
 
     /// Select the previous element of this Menu.
-    pub fn prev(&mut self) -> Result<(), Error> {
+    pub fn select_prev(&mut self) -> Result<(), Error> {
         let m = self.active_submenu_mut()?;
 
         if let MenuState::Active { index } = m.state {
@@ -211,12 +211,12 @@ impl Menu {
     /// `Action`.
     ///
     /// Otherwise, this has no effect.
-    #[must_use]
     pub fn activate(&mut self) -> Result<impl FnOnce(Commands), Error> {
         fn run(action: Option<SystemId>) -> impl FnOnce(Commands) {
-            move |mut c: Commands| match action {
-                Some(action) => c.run_system(action),
-                None => {}
+            move |mut c: Commands| {
+                if let Some(action) = action {
+                    c.run_system(action);
+                }
             }
         }
 
@@ -243,7 +243,6 @@ impl Menu {
         }
     }
 
-    #[must_use]
     pub fn left(&mut self) -> Result<impl FnOnce(Commands) + '_, Error> {
         let m = self.active_submenu_mut()?;
 
@@ -260,7 +259,6 @@ impl Menu {
         })
     }
 
-    #[must_use]
     pub fn right(&mut self) -> Result<impl FnOnce(Commands) + '_, Error> {
         let m = self.active_submenu_mut()?;
 
@@ -279,10 +277,7 @@ impl Menu {
 
     /// Return `true` if the root menu is active, `false` otherwise.
     pub fn at_root(&self) -> bool {
-        match self.state {
-            MenuState::Active { .. } => true,
-            _ => false,
-        }
+        matches!(self.state, MenuState::Active { .. })
     }
 
     /// Deactivate the active menu and activate its parent
@@ -296,7 +291,7 @@ impl Menu {
 
         match self.active_submenu_parent_mut()? {
             Some(mp) => {
-                let s = mp.state.clone();
+                let s = mp.state;
                 match s {
                     MenuState::InSubMenu { index } => mp.state = MenuState::Active { index },
                     _ => unreachable!(),
@@ -444,13 +439,14 @@ impl<'a> MenuBuilder<'a> {
     }
 }
 
+#[derive(Default)]
 pub struct EnumBuilder {
     items: Vec<EnumItem>,
 }
 
 impl EnumBuilder {
     pub fn new() -> Self {
-        Self { items: Vec::new() }
+        Self::default()
     }
 
     pub fn with<N, S>(mut self, name: N, val: S) -> Result<Self, Error>

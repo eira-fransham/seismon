@@ -90,6 +90,9 @@ impl View {
         self.input_angles = input_angles;
     }
 
+    // TODO: This should be handled by a system, and the `cl_*` should be handled by `read_cvars`.
+    //       Needs a bevy_trenchbroom-like system where we create entities on map load.
+    #[expect(clippy::too_many_arguments)]
     pub fn handle_input(
         &mut self,
         frame_time: Duration,
@@ -148,6 +151,9 @@ impl View {
         self.input_angles.roll = math::clamp_deg(self.input_angles.roll, -50.0, 50.0);
     }
 
+    // TODO: This should be handled by a system, and the `cl_*` should be handled by `read_cvars`.
+    //       Needs a bevy_trenchbroom-like system where we create entities on map load.
+    #[expect(clippy::too_many_arguments)]
     pub fn handle_damage(
         &mut self,
         time: Duration,
@@ -268,7 +274,7 @@ pub fn bob(time: Duration, velocity: Vec3, vars: BobVars) -> f32 {
     let vel_mag = velocity.truncate().length();
     let bob = vars.cl_bob * (vel_mag * 0.3 + vel_mag * 0.7 * cycle.sin());
 
-    bob.max(-7.0).min(4.0)
+    bob.clamp(-7., 4.)
 }
 
 #[derive(Deserialize, Clone, Copy, Debug)]

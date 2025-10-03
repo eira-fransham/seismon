@@ -172,7 +172,7 @@ fn emacs_move_word<C: EditorContext>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{editor::Prompt, Completer, Context, Editor, KeyMap};
+    use crate::{Completer, Context, Editor, KeyMap, editor::Prompt};
     use termion::event::Key;
 
     fn simulate_keys<'b, C: EditorContext, M: KeyMap, I>(
@@ -270,7 +270,7 @@ mod tests {
         ed.insert_str_after_cursor("not empty").unwrap();
 
         let res = map.handle_key(Key::Ctrl('h'), &mut ed, &mut EmptyCompleter);
-        assert_eq!(res.is_ok(), true);
+        assert!(res.is_ok());
         assert_eq!(ed.current_buffer().to_string(), "not empt".to_string());
     }
 }

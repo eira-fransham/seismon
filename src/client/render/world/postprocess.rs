@@ -47,7 +47,7 @@ impl PostProcessPipeline {
     ) -> PostProcessPipeline {
         let bind_group_layouts = Self::bind_group_layout_descriptors()
             .into_iter()
-            .map(|desc| device.create_bind_group_layout(Some(Self::name().into()), &*desc))
+            .map(|desc| device.create_bind_group_layout(Some(Self::name()), &desc))
             .collect();
         let uniforms = PostProcessUniforms::default();
         let uniform_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
@@ -240,10 +240,10 @@ impl PostProcessBindGroup {
         });
     }
 
-    pub fn record_draw<'this, 'a>(
+    pub fn record_draw<'this>(
         &'this self,
         pipeline: &'this RenderPipeline,
-        pass: &'a mut TrackedRenderPass<'this>,
+        pass: &mut TrackedRenderPass<'this>,
     ) {
         pass.set_render_pipeline(pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);

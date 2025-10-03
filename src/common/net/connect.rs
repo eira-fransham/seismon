@@ -327,7 +327,7 @@ impl ConnectPacket for ResponseReject {
     where
         W: WriteBytesExt,
     {
-        writer.write_all(&*self.message.raw)?;
+        writer.write_all(&self.message.raw)?;
         writer.write_u8(0)?;
         Ok(())
     }

@@ -298,7 +298,7 @@ impl Frame {
 
     fn animate(&self, time: Duration) -> &BindGroup {
         match self {
-            Frame::Static { bind_group, .. } => &bind_group,
+            Frame::Static { bind_group, .. } => bind_group,
             Frame::Animated {
                 bind_groups,
                 total_duration,

@@ -43,7 +43,7 @@ struct Opt {
     output_dir: Option<PathBuf>,
 }
 
-const VERSION: &'static str = "
+const VERSION: &str = "
 unpak 0.1
 Copyright © 2020 Cormac O'Brien
 Released under the terms of the MIT License
@@ -53,7 +53,7 @@ fn main() {
     let opt = Opt::parse();
 
     if opt.version {
-        println!("{}", VERSION);
+        println!("{VERSION}");
         exit(0);
     }
 
@@ -74,13 +74,12 @@ fn main() {
 
         path.push(k);
 
-        if let Some(p) = path.parent() {
-            if !p.exists() {
-                if let Err(why) = fs::create_dir_all(p) {
-                    println!("Couldn't create parent directories: {}", why);
-                    exit(1);
-                }
-            }
+        if let Some(p) = path.parent()
+            && !p.exists()
+            && let Err(why) = fs::create_dir_all(p)
+        {
+            println!("Couldn't create parent directories: {why}");
+            exit(1);
         }
 
         let file = match File::create(&path) {

@@ -1,3 +1,6 @@
+// TODO: Replace this with `bevy_trenchbroom` so we can upstream our work
+#![cfg(false)]
+
 use bevy::prelude::*;
 use bitvec::vec::BitVec;
 use hashbrown::HashSet;

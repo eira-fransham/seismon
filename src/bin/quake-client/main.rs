@@ -207,7 +207,7 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
                     }
                 }
 
-                let runcmd = match RunCmd::parse(&*cmd) {
+                let runcmd = match RunCmd::parse(&cmd) {
                     Ok(cmd) => cmd.into_owned(),
                     Err(e) => {
                         warn!("Couldn't parse cmd {:?}: {}", cmd, e);

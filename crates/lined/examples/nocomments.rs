@@ -1,4 +1,3 @@
-extern crate liner;
 extern crate regex;
 extern crate termion;
 
@@ -7,7 +6,7 @@ use std::{
     io,
 };
 
-use liner::{
+use lined::{
     Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter, Prompt,
 };
 use regex::Regex;
@@ -61,7 +60,7 @@ fn main() {
 
     let history_file = match args().nth(1) {
         Some(file_name) => {
-            println!("History file: {}", file_name);
+            println!("History file: {file_name}");
             file_name
         }
         None => {
@@ -85,11 +84,11 @@ fn main() {
             Ok(res) => {
                 match res.as_str() {
                     "emacs" => {
-                        con.key_bindings = liner::KeyBindings::Emacs;
+                        con.key_bindings = lined::KeyBindings::Emacs;
                         println!("emacs mode");
                     }
                     "vi" => {
-                        con.key_bindings = liner::KeyBindings::Vi;
+                        con.key_bindings = lined::KeyBindings::Vi;
                         println!("vi mode");
                     }
                     "exit" | "" => {
@@ -117,7 +116,7 @@ fn main() {
                     _ => {
                         // Ensure that all writes to the history file
                         // are written before exiting.
-                        panic!("error: {:?}", e)
+                        panic!("error: {e:?}")
                     }
                 }
             }

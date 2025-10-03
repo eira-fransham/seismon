@@ -165,7 +165,7 @@ impl fmt::Display for BspError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BspError::Io(ref err) => err.fmt(f),
-            BspError::Other(ref msg) => write!(f, "{}", msg),
+            BspError::Other(ref msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -173,9 +173,9 @@ impl fmt::Display for BspError {
 impl Error for BspError {
     #[allow(deprecated)]
     fn description(&self) -> &str {
-        match *self {
-            BspError::Io(ref err) => err.description(),
-            BspError::Other(ref msg) => &msg,
+        match self {
+            BspError::Io(err) => err.description(),
+            BspError::Other(msg) => msg,
         }
     }
 }

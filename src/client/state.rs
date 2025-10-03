@@ -1348,7 +1348,7 @@ impl ClientState {
         self.light_styles
             .iter()
             .map(move |ls| {
-                let frame = if ls.len() == 0 {
+                let frame = if ls.is_empty() {
                     None
                 } else {
                     Some((float_time * 10.0) as usize % ls.len())

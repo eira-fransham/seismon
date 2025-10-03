@@ -16,13 +16,13 @@ pub fn register_commands(app: &mut App) {
     app.command(
         |In(Bind { from, to }), mut game_input: ResMut<GameInput>| match to {
             None => match game_input.binding(&from[..]) {
-                Ok(Some(t)) => format!("\"{}\" = \"{}\"", from.to_string(), t.to_string()).into(),
+                Ok(Some(t)) => format!("\"{from}\" = \"{t}\"").into(),
                 _ => format!("\"{from}\" is not bound").into(),
             },
             // bind (key) [command]
             Some(to) => match game_input.bind(&from[..], &to[..]) {
                 Ok(_) => {
-                    debug!("Bound {:?} to {:?}", from, to);
+                    debug!("Bound {from:?} to {to:?}");
                     default()
                 }
                 Err(e) => format!("Bind failed: {e}").into(),

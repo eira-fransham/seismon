@@ -163,7 +163,6 @@ pub enum ProgsError {
     #[snafu(context(false))]
     Net {
         source: NetError,
-        backtrace: Backtrace,
     },
     #[snafu(context(false))]
     Console {
@@ -611,7 +610,7 @@ where
 
     let globals = Globals::new(globaldefs.into_boxed_slice(), addrs.into_boxed_slice());
 
-    let entity_def = EntityTypeDef::new(ent_addr_count, field_defs.into_boxed_slice().into())?;
+    let entity_def = EntityTypeDef::new(ent_addr_count, field_defs.into_boxed_slice())?;
 
     Ok(LoadProgs {
         cx,

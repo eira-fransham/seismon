@@ -34,7 +34,7 @@ use wgpu::{BindGroupLayoutEntry, PipelineCompilationOptions};
 use crate::common::util::{Pod, any_as_bytes};
 
 /// The `Pipeline` trait, which allows render pipelines to be defined more-or-less declaratively.
-fn create_shader<'a, S, K, V, I>(
+fn create_shader<S, K, V, I>(
     device: &RenderDevice,
     compiler: &mut shaderc::Compiler,
     name: S,
@@ -348,7 +348,7 @@ pub trait Pipeline {
             Self::constants(&args),
         );
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&format!("{} pipeline", Self::name())),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -378,9 +378,7 @@ pub trait Pipeline {
             depth_stencil: Self::depth_stencil_state(),
             multiview: Default::default(),
             cache: None,
-        });
-
-        pipeline
+        })
     }
 
     /// Set the push constant data for a render pass.

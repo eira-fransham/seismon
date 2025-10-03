@@ -202,6 +202,8 @@ impl Pipeline for WorldPipelineBase {
 }
 
 #[derive(Clone, Copy, Debug)]
+// TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+#[expect(clippy::enum_variant_names)]
 pub enum BindGroupLayoutId {
     PerFrame = 0,
     PerEntity = 1,
@@ -449,6 +451,8 @@ impl WorldRenderer {
         })
     }
 
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     pub fn update_uniform_buffers<'a, I>(
         &'a self,
         state: &GraphicsState,
@@ -480,7 +484,7 @@ impl WorldRenderer {
             },
             camera_pos: camera.origin.extend(1.0),
             time: time_secs,
-            sky_time: time_secs * render_vars.sky_scroll_speed as f32,
+            sky_time: time_secs * render_vars.sky_scroll_speed,
             r_lightmap: UniformBool::new(render_vars.lightmap != 0),
         };
         queue.write_buffer(state.frame_uniform_buffer(), 0, unsafe {
@@ -516,6 +520,8 @@ impl WorldRenderer {
         state.entity_uniform_buffer().flush(queue);
     }
 
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     pub fn render_pass<'a, E, P>(
         &'a self,
         state: &'a GraphicsState,

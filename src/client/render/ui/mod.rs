@@ -110,6 +110,8 @@ impl UiRenderer {
         }
     }
 
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     pub fn render_pass<'this, 'a>(
         &'this self,
         state: &'this GraphicsState,

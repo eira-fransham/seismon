@@ -317,7 +317,7 @@ impl AliasRenderer {
                             let mut tri = [Vec3::ZERO; 3];
                             let mut texcoords = [[0.0; 2]; 3];
                             for (i, index) in polygon.indices().iter().enumerate() {
-                                tri[i] = frame.vertices()[*index as usize].into();
+                                tri[i] = frame.vertices()[*index as usize];
 
                                 let texcoord =
                                     &alias_model.texcoords().nth(*index as usize).unwrap();
@@ -399,7 +399,7 @@ impl AliasRenderer {
                     let mut bind_groups = Vec::new();
 
                     for frame in tex.frames() {
-                        total_duration = total_duration + frame.duration();
+                        total_duration += frame.duration();
                         durations.push(frame.duration());
 
                         let (diffuse_data, _fullbright_data) =

@@ -1364,7 +1364,8 @@ impl Globals {
     }
 }
 
-pub fn make_vectors(angles: Vec3) -> Mat3 {
+pub fn make_vectors<V: Into<Vec3>>(angles: V) -> Mat3 {
+    let angles = angles.into();
     let pitch = -angles[0].to_radians();
     let yaw = angles[1].to_radians();
     let roll = angles[2].to_radians();

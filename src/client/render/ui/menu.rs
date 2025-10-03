@@ -183,7 +183,7 @@ impl MenuRenderer {
         let predef = self.texture(name.as_ref());
         self.cmd_draw_quad(predef, Align::Left, 72, -32, scale, quad_cmds);
         let curs_frame = (time.num_milliseconds() / 100) % 6;
-        let curs = self.texture(&format!("gfx/menudot{}.lmp", curs_frame + 1));
+        let curs = self.texture(format!("gfx/menudot{}.lmp", curs_frame + 1));
         self.cmd_draw_quad(
             curs,
             Align::Left,

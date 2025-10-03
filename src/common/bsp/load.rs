@@ -208,7 +208,7 @@ impl BspFileTable {
         S: Seek,
     {
         let section = self.section(section_id);
-        if seeker.seek(SeekFrom::Current(0))?
+        if seeker.stream_position()?
             != seeker.seek(SeekFrom::Start(section.offset + section.size as u64))?
         {
             warn!("BSP read misaligned");
@@ -258,7 +258,7 @@ where
 {
     // convert texture name from NUL-terminated to str
     let mut tex_name_bytes = [0u8; TEX_NAME_MAX];
-    reader.read(&mut tex_name_bytes)?;
+    reader.read_exact(&mut tex_name_bytes)?;
     let len = tex_name_bytes
         .iter()
         .enumerate()
@@ -270,10 +270,7 @@ where
     let width = reader.read_u32::<LittleEndian>()?;
     let height = reader.read_u32::<LittleEndian>()?;
 
-    let mut mip_offsets = [0usize; MIPLEVELS];
-    for m in 0..MIPLEVELS {
-        mip_offsets[m] = reader.read_u32::<LittleEndian>()? as usize;
-    }
+    let mip_offsets = [(); MIPLEVELS].try_map(|_| reader.read_u32::<LittleEndian>())?;
 
     let mut mipmaps = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for m in 0..MIPLEVELS {
@@ -490,7 +487,7 @@ where
         match tex_ofs {
             Some(ofs) => {
                 reader.seek(SeekFrom::Start(tex_section.offset + ofs as u64))?;
-                let texture = load_texture(&mut reader, tex_section.offset as u64, ofs as u64)?;
+                let texture = load_texture(&mut reader, tex_section.offset, ofs as u64)?;
                 debug!(
                     "Texture {id:>width$}: {name}",
                     id = id,
@@ -554,7 +551,7 @@ where
                             alternate: Vec::new(),
                         });
 
-                match frame.chars().nth(0).unwrap() {
+                match frame.chars().next().unwrap() {
                     '0'..='9' => anims.primary.push((file_texture_id, file_texture)),
                     // guaranteed to be lowercase by load_texture
                     'a'..='j' => anims.alternate.push((file_texture_id, file_texture)),
@@ -667,10 +664,7 @@ where
         } else if let Some(id) = animated_texture_ids.get(&file_texture_id) {
             *id
         } else {
-            panic!(
-                "Texture sequencing failed: texture with id {} unaccounted for",
-                file_texture_id
-            );
+            panic!("Texture sequencing failed: texture with id {file_texture_id} unaccounted for");
         });
     }
 
@@ -741,9 +735,7 @@ where
         }
 
         let mut light_styles = [0; MAX_LIGHTSTYLES];
-        for i in 0..light_styles.len() {
-            light_styles[i] = reader.read_u8()?;
-        }
+        reader.read_exact(&mut light_styles)?;
 
         let lightmap_id = match reader.read_i32::<LittleEndian>()? {
             o if o < -1 => bail!("Invalid lightmap offset"),
@@ -882,7 +874,7 @@ where
     for _ in 0..facelist_count {
         facelist.push(reader.read_u16::<LittleEndian>()? as usize);
     }
-    if reader.seek(SeekFrom::Current(0))?
+    if reader.stream_position()?
         != reader.seek(SeekFrom::Start(
             facelist_section.offset + facelist_section.size as u64,
         ))?
@@ -919,7 +911,7 @@ where
             x => bail!(format!("Invalid edge index {}", x)),
         });
     }
-    if reader.seek(SeekFrom::Current(0))?
+    if reader.stream_position()?
         != reader.seek(SeekFrom::Start(
             edgelist_section.offset + edgelist_section.size as u64,
         ))?
@@ -933,10 +925,10 @@ where
     for (face_id, face) in faces.iter_mut().enumerate() {
         let texinfo = &texinfo[face.texinfo_id];
 
-        let mut s_min = ::std::f32::INFINITY;
-        let mut t_min = ::std::f32::INFINITY;
-        let mut s_max = ::std::f32::NEG_INFINITY;
-        let mut t_max = ::std::f32::NEG_INFINITY;
+        let mut s_min = f32::INFINITY;
+        let mut t_min = f32::INFINITY;
+        let mut s_max = f32::NEG_INFINITY;
+        let mut t_max = f32::NEG_INFINITY;
 
         for edge_idx in &edgelist[face.edge_id..face.edge_id + face.edge_count] {
             let vertex_id = edges[edge_idx.index].vertex_ids[edge_idx.direction as usize] as usize;

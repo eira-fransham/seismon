@@ -577,6 +577,9 @@ impl Connection {
         Ok(())
     }
 
+    // TODO: Can probably improve this, systems can have many arguments but this will impede parallelism. Maybe should just
+    // be exclusive and take `World`.
+    #[allow(clippy::too_many_arguments)]
     fn parse_server_msg(
         &mut self,
         mut state: Mut<ConnectionState>,
@@ -1018,6 +1021,8 @@ impl Connection {
         Ok(Maintain)
     }
 
+    // TODO: This is overcomplicated by the state being a singleton. Should avoid.
+    #[allow(clippy::too_many_arguments)]
     fn frame(
         &mut self,
         mut state: Mut<ConnectionState>,
@@ -1309,6 +1314,8 @@ mod systems {
         gravity: f32,
     }
 
+    // TODO: This is overcomplicated by the state being a singleton. Should avoid.
+    #[allow(clippy::too_many_arguments)]
     pub fn frame(
         mut commands: Commands,
         cvars: Res<Registry>,

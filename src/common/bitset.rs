@@ -2,9 +2,15 @@ pub struct BitSet<const N_64: usize> {
     blocks: [u64; N_64],
 }
 
+impl<const N_64: usize> Default for BitSet<N_64> {
+    fn default() -> Self {
+        BitSet { blocks: [0; N_64] }
+    }
+}
+
 impl<const N_64: usize> BitSet<N_64> {
     pub fn new() -> Self {
-        BitSet { blocks: [0; N_64] }
+        Self::default()
     }
 
     pub fn all_set() -> Self {

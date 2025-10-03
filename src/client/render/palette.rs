@@ -1,4 +1,4 @@
-use std::io::BufReader;
+use std::io::{BufReader, Read as _};
 
 use crate::{
     client::render::{DiffuseData, FullbrightData},
@@ -10,7 +10,6 @@ use bevy::{
     render::render_resource::{AsBindGroup, ShaderRef},
     sprite::Material2d,
 };
-use byteorder::ReadBytesExt;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct PalettedMaterial {
@@ -83,11 +82,7 @@ impl Palette {
 
         let mut rgb = [[0u8; 3]; 256];
 
-        for color in 0..256 {
-            for component in 0..3 {
-                rgb[color][component] = data.read_u8().unwrap();
-            }
-        }
+        data.read_exact(rgb.as_flattened_mut()).unwrap();
 
         Palette { rgb }
     }

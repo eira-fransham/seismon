@@ -178,7 +178,7 @@ impl Plugin for SeismonConsolePlugin {
 
                     for arg in cvars {
                         if let Err(e) = registry.reset_cvar(arg) {
-                            writeln!(&mut out, "{}", e).unwrap();
+                            writeln!(&mut out, "{e}").unwrap();
                         }
                     }
 
@@ -228,7 +228,7 @@ impl serde::de::Error for ConsoleError {
         T: std::fmt::Display,
     {
         Self::CmdError {
-            error: format!("{}", msg).into(),
+            error: msg.to_string().into(),
         }
     }
 
@@ -274,12 +274,16 @@ pub fn cvar_error_handler(In(result): In<Result<(), ConsoleError>>) {
     }
 }
 
+type BuiltinSystem = SystemId<In<Box<[String]>>, ExecResult>;
+type ActionSystem = SystemId<In<(Trigger, Box<[String]>)>, ()>;
+type OnSetCvarSystem = SystemId<In<Value>>;
+
 // TODO: Add more-complex scripting language
 #[derive(Clone, Debug)]
 pub enum CmdKind {
-    Builtin(SystemId<In<Box<[String]>>, ExecResult>),
+    Builtin(BuiltinSystem),
     Action {
-        system: Option<SystemId<In<(Trigger, Box<[String]>)>, ()>>,
+        system: Option<ActionSystem>,
         state: Trigger,
         // TODO: Mark when the last state update was, so we know how long a key has been pressed
     },
@@ -287,7 +291,7 @@ pub enum CmdKind {
     Alias(CName),
     Cvar {
         cvar: Cvar,
-        on_set: Option<SystemId<In<Value>>>,
+        on_set: Option<OnSetCvarSystem>,
     },
 }
 
@@ -408,7 +412,7 @@ impl std::fmt::Display for RunCmd<'_> {
 
         for arg in self.1.iter() {
             // TODO: This doesn't work if the value is a string that requires quotes - use `lexpr::Value`?
-            write!(f, " {:?}", arg)?;
+            write!(f, " {arg:?}")?;
         }
 
         Ok(())
@@ -851,7 +855,7 @@ impl Registry {
         H: Into<CName>,
     {
         let cvar = cvar.into();
-        if let Some(sys) = on_set.clone() {
+        if let Some(sys) = on_set {
             self.changed_cvars.insert(EqHack(sys), cvar.default.clone());
         }
         self.insert(
@@ -1024,7 +1028,7 @@ impl Registry {
             None
         };
 
-        let out = Ok(mem::replace(&mut cvar.value, None).unwrap_or(cvar.default.clone()));
+        let out = Ok(cvar.value.take().unwrap_or(cvar.default.clone()));
 
         if let Some((sys, val)) = to_insert {
             self.changed_cvars.insert(sys, val);
@@ -1054,7 +1058,7 @@ impl Registry {
             None
         };
 
-        let out = Ok(mem::replace(&mut cvar.value, Some(value)).unwrap_or(cvar.default.clone()));
+        let out = Ok(cvar.value.replace(value).unwrap_or(cvar.default.clone()));
 
         if let Some((sys, val)) = to_insert {
             self.changed_cvars.insert(sys, val);
@@ -1148,12 +1152,10 @@ impl Registry {
             where
                 K: serde::de::DeserializeSeed<'a>,
             {
-                let out = match &mut self.cur {
+                match &mut self.cur {
                     Some((k, _)) => Ok(Some(seed.deserialize(*k)?)),
                     None => Ok(None),
-                };
-
-                out
+                }
             }
 
             fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
@@ -1185,10 +1187,10 @@ impl Registry {
             where
                 V: serde::de::Visitor<'a>,
             {
-                let de = LexprArrayDeserializer::new(fields.into_iter().filter_map(|name| {
+                let de = LexprArrayDeserializer::new(fields.iter().filter_map(|name| {
                     self.inner.get_cvar(name).map(|c| {
                         (
-                            StrDeserializer::new(*name),
+                            StrDeserializer::new(name),
                             serde_lexpr::value::de::Deserializer::from_value(c.value()),
                         )
                     })

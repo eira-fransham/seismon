@@ -295,7 +295,7 @@ impl Light {
 }
 
 /// A set of active dynamic lights.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Lights {
     lights: im::Vector<Light>,
 }
@@ -303,9 +303,7 @@ pub struct Lights {
 impl Lights {
     /// Create an empty set of lights with the given capacity.
     pub fn new() -> Lights {
-        Lights {
-            lights: Default::default(),
-        }
+        Self::default()
     }
 
     /// Return a reference to the light with the given key, or `None` if no
@@ -327,15 +325,15 @@ impl Lights {
     /// If `key` is `Some` and there is an existing light with that key, then
     /// the light will be overwritten with the new value.
     pub fn insert(&mut self, time: Duration, desc: LightDesc, key: Option<usize>) -> usize {
-        if let Some(k) = key {
-            if let Some(key_light) = self.lights.get_mut(k) {
-                *key_light = Light::from_desc(time, desc);
-                return k;
-            }
+        if let Some(k) = key
+            && let Some(key_light) = self.lights.get_mut(k)
+        {
+            *key_light = Light::from_desc(time, desc);
+            k
+        } else {
+            self.lights.push_back(Light::from_desc(time, desc));
+            self.lights.len() - 1
         }
-
-        self.lights.push_back(Light::from_desc(time, desc));
-        self.lights.len() - 1
     }
 
     /// Return an iterator over the active lights.

@@ -30,6 +30,8 @@ pub struct Mapped<
     inputs: ICollection,
     outputs: OCollection,
     mapper: F,
+    // We should figure out something better to do here.
+    #[allow(clippy::type_complexity)]
     _marker: PhantomData<(fn(<M as Metadata>::Metadata<'_>, &I) -> O, I, O)>,
 }
 

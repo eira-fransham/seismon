@@ -10,7 +10,6 @@ use termion::{
 
 use super::*;
 use crate::editor::Prompt;
-use keymap;
 
 pub type ColorClosure = Box<dyn Fn(&str) -> String + Send + Sync + 'static>;
 
@@ -191,7 +190,7 @@ pub trait EditorContext: fmt::Write {
         //self.revert_all_history();
     }
 
-    fn handle_keys<'a, M: KeyMap, C: Completer>(
+    fn handle_keys<M: KeyMap, C: Completer>(
         mut keymap: M,
         mut ed: Editor<Self>,
         handler: &mut C,
@@ -227,27 +226,27 @@ impl<C: EditorContext> EditorContext for &'_ mut C {
     type WordDividerIter = C::WordDividerIter;
 
     fn history(&self) -> &History {
-        (&**self).history()
+        (**self).history()
     }
 
     fn history_mut(&mut self) -> &mut History {
-        (&mut **self).history_mut()
+        (**self).history_mut()
     }
 
     fn word_divider(&self, buf: &Buffer) -> Self::WordDividerIter {
-        (&**self).word_divider(buf)
+        (**self).word_divider(buf)
     }
 
     fn terminal(&self) -> &Self::Terminal {
-        (&**self).terminal()
+        (**self).terminal()
     }
 
     fn terminal_mut(&mut self) -> &mut Self::Terminal {
-        (&mut **self).terminal_mut()
+        (**self).terminal_mut()
     }
 
     fn key_bindings(&self) -> KeyBindings {
-        (&**self).key_bindings()
+        (**self).key_bindings()
     }
 }
 

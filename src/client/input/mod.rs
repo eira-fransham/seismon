@@ -147,6 +147,8 @@ pub mod systems {
         }
     }
 
+    // TODO: Should use a proper input manager
+    #[allow(clippy::too_many_arguments)]
     pub fn console_input(
         mut reader: ResMut<InputEventReader<KeyboardInput>>,
         keyboard_events: Res<Events<KeyboardInput>>,
@@ -286,9 +288,9 @@ pub mod systems {
                 let func = menu.activate().expect("TODO: Handle menu failures");
                 func(commands.reborrow());
             } else if input == AnyInput::UPARROW {
-                menu.prev().expect("TODO: Handle menu failures");
+                menu.select_prev().expect("TODO: Handle menu failures");
             } else if input == AnyInput::DOWNARROW {
-                menu.next().expect("TODO: Handle menu failures");
+                menu.select_next().expect("TODO: Handle menu failures");
             } else if input == AnyInput::LEFTARROW {
                 let func = menu.left().expect("TODO: Handle menu failures");
                 func(commands.reborrow());

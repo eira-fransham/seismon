@@ -18,7 +18,8 @@ const SUBDIVIDE_SIZE: f32 = 32.0;
 ///       *P*max<sub>A</sub> and *P*mid<sub>A</sub> is less than 8, continue to
 ///       the next axis.
 ///    1. For each vertex *v*...
-/// TODO...
+///
+/// > *TODO*: Add more here
 pub fn subdivide(verts: Vec<Vec3>) -> Vec<Vec3> {
     let mut out = Vec::new();
     subdivide_impl(verts, &mut out);
@@ -51,7 +52,7 @@ fn subdivide_impl(mut verts: Vec<Vec3>, output: &mut Vec<Vec3>) {
 
         // duplicate first vertex
         verts.push(verts[0]);
-        for (vi, v) in (&verts[..verts.len() - 1]).iter().enumerate() {
+        for (vi, v) in verts[..verts.len() - 1].iter().enumerate() {
             // sort vertices to front and back of axis
             let cmp = dist[vi].partial_cmp(&0.0).unwrap();
             match cmp {

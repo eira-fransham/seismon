@@ -1,5 +1,4 @@
 use super::*;
-use context;
 
 use std::{
     env, fmt, fs,
@@ -59,11 +58,7 @@ fn assert_cursor_pos(s: &str, cursor: usize, expected_pos: CursorPosition) {
     let pos = CursorPosition::get(cursor, words);
     assert!(
         expected_pos == pos,
-        "buffer: {:?}, cursor: {}, expected pos: {:?}, pos: {:?}",
-        s,
-        cursor,
-        expected_pos,
-        pos
+        "buffer: {s:?}, cursor: {cursor}, expected pos: {expected_pos:?}, pos: {pos:?}",
     );
 }
 
@@ -148,7 +143,7 @@ fn test_in_file_history_truncating() {
         let mut h = History::new();
         let _ = h.set_file_name_and_load_history(&tmp_file).unwrap();
         h.set_max_file_size(5);
-        for bytes in b'a'..b'z' {
+        for bytes in b'a'..=b'z' {
             h.push(Buffer::from(format!("{}", bytes as char))).unwrap();
         }
         h.commit_to_file();
@@ -162,7 +157,7 @@ fn test_in_file_history_truncating() {
     fs::remove_file(tmp_file).unwrap();
 }
 
-static TEXT: &'static str = "a
+static TEXT: &str = "a
 b
 c
 d
@@ -177,6 +172,7 @@ fn test_reading_from_file() {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(tmp_file.clone())
             .unwrap();
         f.write_all(TEXT.as_bytes()).unwrap();

@@ -57,7 +57,7 @@ impl Default for LimiterNode {
 struct Limiter {
     lookahead: f32,
     headroom: Volume,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     release: f32,
     sample_rate: NonZeroU32,
     reducer: ReduceBuffer<f32, Maximum<f32>>,

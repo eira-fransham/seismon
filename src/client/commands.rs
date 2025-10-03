@@ -166,10 +166,10 @@ pub fn register_commands(app: &mut App) {
          mut focus: ResMut<InputFocus>,
          mut conn_state: ResMut<ConnectionState>| {
             let (new_conn, new_state) = {
-                let mut demo_file = match vfs.open(format!("{}.dem", demo)) {
+                let mut demo_file = match vfs.open(format!("{demo}.dem")) {
                     Ok(f) => f,
                     Err(e) => {
-                        return format!("{}", e).into();
+                        return e.to_string().into();
                     }
                 };
 
@@ -182,7 +182,7 @@ pub fn register_commands(app: &mut App) {
                         ConnectionState::SignOn(SignOnStage::Prespawn),
                     ),
                     Err(e) => {
-                        return format!("{}", e).into();
+                        return e.to_string().into();
                     }
                 }
             };
@@ -222,13 +222,13 @@ pub fn register_commands(app: &mut App) {
                 let (new_conn, new_state) = match demo_queue.next_demo() {
                     Some(demo) => {
                         let mut demo_file = match vfs
-                            .open(format!("{}.dem", demo))
-                            .or_else(|_| vfs.open(format!("demos/{}.dem", demo)))
+                            .open(format!("{demo}.dem"))
+                            .or_else(|_| vfs.open(format!("demos/{demo}.dem")))
                         {
                             Ok(f) => f,
                             Err(e) => {
                                 // log the error, dump the demo queue and disconnect
-                                return format!("{}", e).into();
+                                return e.to_string().into();
                             }
                         };
 
@@ -241,7 +241,7 @@ pub fn register_commands(app: &mut App) {
                                 ConnectionState::SignOn(SignOnStage::Prespawn),
                             ),
                             Err(e) => {
-                                return format!("{}", e).into();
+                                return e.to_string().into();
                             }
                         }
                     }
@@ -393,11 +393,11 @@ pub fn register_commands(app: &mut App) {
         let mut script = String::new();
 
         for cfg in &cfgs {
-            let mut script_file = match vfs.open(&cfg) {
+            let mut script_file = match vfs.open(cfg) {
                 Ok(s) => s,
                 Err(e) => {
                     return ExecResult {
-                        output: format!("Couldn't exec {}: {:?}", cfg, e).into(),
+                        output: format!("Couldn't exec {cfg}: {e}").into(),
                         ..default()
                     };
                 }
@@ -408,11 +408,11 @@ pub fn register_commands(app: &mut App) {
             script.push('\n');
         }
 
-        let script = match RunCmd::parse_many(&*script) {
+        let script = match RunCmd::parse_many(&script) {
             Ok(commands) => commands,
             Err(e) => {
                 return ExecResult {
-                    output: format!("Couldn't exec: {}", e).into(),
+                    output: format!("Couldn't exec: {e}").into(),
                     ..default()
                 };
             }

@@ -1031,7 +1031,7 @@ mod systems {
         menu: Res<Menu>,
     ) {
         if let Some(state) = state.as_ref() {
-            commands.insert_resource(UiRenderer::new(&state, &vfs, &device, &queue, &menu));
+            commands.insert_resource(UiRenderer::new(state, &vfs, &device, &queue, &menu));
         }
     }
 }

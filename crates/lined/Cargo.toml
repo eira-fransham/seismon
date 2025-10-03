@@ -17,11 +17,9 @@ exclude = [
     "CONTRIBUTING.md",
     ".travis.yml",
 ]
-edition = "2021"
-resolver = "2"
+edition = "2024"
 
 [dependencies]
-bytecount = "0.6"
 termion = "3.0"
 unicode-width = "0.1"
 itertools = "0.12"

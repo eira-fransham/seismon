@@ -365,6 +365,8 @@ impl Particles {
     /// Each particle's color is taken from `colors`, which is an inclusive
     /// range of palette indices. The spawned particles have evenly distributed
     /// colors throughout the range.
+    // TODO: Revisit this. Hopefully could be better addressed by using either Hanabi or Nannou
+    #[expect(clippy::too_many_arguments)]
     pub fn create_random_cloud(
         &mut self,
         count: usize,
@@ -707,7 +709,7 @@ mod tests {
     #[test]
     fn test_particle_list_update() {
         let mut list = Particles::new();
-        let exp_times = vec![10, 5, 2, 7, 3];
+        let exp_times = [10, 5, 2, 7, 3];
         for exp in exp_times.iter() {
             list.insert(Particle {
                 kind: ParticleKind::Static,
@@ -731,7 +733,7 @@ mod tests {
                 expire: Duration::try_seconds(*t).unwrap(),
             })
             .collect();
-        let mut after_update: Vec<Particle> = Vec::new();
+        let after_update: Vec<Particle> = Vec::new();
         list.update(
             Duration::try_seconds(5).unwrap(),
             Duration::try_milliseconds(17).unwrap(),

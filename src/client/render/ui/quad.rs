@@ -271,9 +271,9 @@ pub struct QuadUniforms {
 }
 
 pub struct QuadTexture {
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     texture: Texture,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     texture_view: TextureView,
     bind_group: BindGroup,
     width: u32,

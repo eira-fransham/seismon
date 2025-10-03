@@ -85,7 +85,7 @@ impl std::fmt::Display for HudTextureId {
             Minus { alt } => write!(f, "{}NUM_MINUS", if alt { "A" } else { "" }),
             Colon => write!(f, "NUM_COLON"),
             Slash => write!(f, "NUM_SLASH"),
-            Weapon { id, frame } => write!(f, "INV{}_{}", frame, id),
+            Weapon { id, frame } => write!(f, "INV{frame}_{id}"),
             Ammo { id } => write!(f, "SB_{id}"),
             Armor { id } => write!(f, "SB_ARMOR{}", id + 1),
             Item { id } => write!(f, "SB_{id}"),
@@ -241,7 +241,7 @@ impl HudRenderer {
         let mut ids = Vec::new();
 
         // digits and minus
-        ids.extend((&[false, true]).iter().flat_map(|b| {
+        ids.extend([false, true].iter().flat_map(|b| {
             (0..10)
                 .map(move |i| Digit { alt: *b, value: i })
                 .chain(std::iter::once(Minus { alt: *b }))
@@ -304,6 +304,8 @@ impl HudRenderer {
         HudRenderer { textures }
     }
 
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     fn cmd_number<'a>(
         &'a self,
         number: i32,
@@ -384,6 +386,8 @@ impl HudRenderer {
     //
     // `x_ofs` and `y_ofs` are specified relative to the bottom-left corner of
     // the status bar.
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     fn cmd_sbar_number<'a>(
         &'a self,
         number: i32,
@@ -408,6 +412,8 @@ impl HudRenderer {
     }
 
     // Draw the status bar.
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     fn cmd_sbar<'a>(
         &'a self,
         time: Duration,
@@ -423,6 +429,7 @@ impl HudRenderer {
         use HudTextureId::*;
 
         const MAX_VIEW_SIZE_DRAW_HUD: u32 = 100;
+        const MAX_ITEM_PICKUPS: usize = 7;
 
         if hud_cvars.draw_hud == 0
             || hud_cvars.hud_style == 0
@@ -441,11 +448,10 @@ impl HudRenderer {
         self.cmd_sbar_quad(InvBar, 0, sbar.height() as i32, scale, quad_cmds);
 
         // weapon slots
-        for i in 0..7 {
+        for (i, pickup_time) in item_pickup_time.iter().take(MAX_ITEM_PICKUPS).enumerate() {
             if items.contains(ItemFlags::from_bits(ItemFlags::SHOTGUN.bits() << i).unwrap()) {
                 let id = WeaponId::from_usize(i).unwrap();
-                let pickup_time = item_pickup_time[i];
-                let delta = time - pickup_time;
+                let delta = time - *pickup_time;
                 let frame = if delta >= Duration::try_milliseconds(100).unwrap() {
                     if stats[ClientStat::ActiveWeapon as usize] as u32
                         == ItemFlags::SHOTGUN.bits() << i
@@ -477,7 +483,7 @@ impl HudRenderer {
                 for (chr_id, chr) in ammo_str.chars().enumerate() {
                     if chr != ' ' {
                         glyph_cmds.push(GlyphRendererCommand::Glyph {
-                            glyph_id: 18 + chr as u8 - '0' as u8,
+                            glyph_id: 18 + chr as u8 - b'0',
                             position: ScreenPosition::Relative {
                                 anchor: Anchor::BOTTOM_CENTER,
                                 x_ofs: sbar_x_ofs + 8 * (6 * i + chr_id) as i32 + 10,
@@ -696,7 +702,7 @@ impl HudRenderer {
 
     /// Generate render commands to draw the HUD in the specified state.
     // TODO: Should we keep the cvar registry solely on the main thread?
-    pub fn generate_commands<'state, 'a>(
+    pub fn generate_commands<'a>(
         &'a self,
         hud_state: &HudState<'a>,
         time: Duration,

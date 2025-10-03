@@ -1,7 +1,7 @@
 use std::{cmp, io, mem};
 use termion::event::Key;
 
-use crate::{buffer::Buffer, Editor, EditorContext, KeyMap};
+use crate::{Editor, EditorContext, KeyMap, buffer::Buffer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharMovement {
@@ -61,32 +61,32 @@ impl ModeStack {
 }
 
 fn is_movement_key(key: Key) -> bool {
-    match key {
+    matches!(
+        key,
         Key::Char('h')
-        | Key::Char('l')
-        | Key::Left
-        | Key::Right
-        | Key::Char('w')
-        | Key::Char('W')
-        | Key::Char('b')
-        | Key::Char('B')
-        | Key::Char('e')
-        | Key::Char('E')
-        | Key::Char('g')
-        | Key::Backspace
-        | Key::Char(' ')
-        | Key::Home
-        | Key::End
-        | Key::Char('^')
-        | Key::Char('$')
-        | Key::Char('t')
-        | Key::Char('f')
-        | Key::Char('T')
-        | Key::Char('F')
-        | Key::Char(';')
-        | Key::Char(',') => true,
-        _ => false,
-    }
+            | Key::Char('l')
+            | Key::Left
+            | Key::Right
+            | Key::Char('w')
+            | Key::Char('W')
+            | Key::Char('b')
+            | Key::Char('B')
+            | Key::Char('e')
+            | Key::Char('E')
+            | Key::Char('g')
+            | Key::Backspace
+            | Key::Char(' ')
+            | Key::Home
+            | Key::End
+            | Key::Char('^')
+            | Key::Char('$')
+            | Key::Char('t')
+            | Key::Char('f')
+            | Key::Char('T')
+            | Key::Char('F')
+            | Key::Char(';')
+            | Key::Char(',')
+    )
 }
 
 #[derive(PartialEq)]
@@ -381,14 +381,14 @@ impl Vi {
     fn set_mode_preserve_last<C: EditorContext>(
         &mut self,
         mode: Mode,
-        mut ed: &mut Editor<C>,
+        ed: &mut Editor<C>,
     ) -> io::Result<()> {
         use self::Mode::*;
 
         ed.no_eol = mode == Normal;
         self.movement_reset = mode != Insert;
         self.mode_stack.push(mode);
-        self.set_editor_mode(&mut ed)?;
+        self.set_editor_mode(ed)?;
 
         if mode == Insert || mode == Tilde {
             ed.current_buffer_mut().start_undo_group();
@@ -399,7 +399,7 @@ impl Vi {
     fn pop_mode_after_movement<C: EditorContext>(
         &mut self,
         move_type: MoveType,
-        mut ed: &mut Editor<C>,
+        ed: &mut Editor<C>,
     ) -> io::Result<()> {
         use self::{Mode::*, MoveType::*};
 
@@ -438,10 +438,10 @@ impl Vi {
             self.count = 0;
         }
 
-        self.set_editor_mode(&mut ed)
+        self.set_editor_mode(ed)
     }
 
-    fn pop_mode<C: EditorContext>(&mut self, mut ed: &mut Editor<C>) -> io::Result<()> {
+    fn pop_mode<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
         use self::Mode::*;
 
         let last_mode = self.mode_stack.pop();
@@ -455,15 +455,15 @@ impl Vi {
         if last_mode == Tilde {
             ed.display().unwrap();
         }
-        self.set_editor_mode(&mut ed)
+        self.set_editor_mode(ed)
     }
 
     /// Return to normal mode.
-    fn normal_mode_abort<C: EditorContext>(&mut self, mut ed: &mut Editor<C>) -> io::Result<()> {
+    fn normal_mode_abort<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
         self.mode_stack.clear();
         ed.no_eol = true;
         self.count = 0;
-        self.set_editor_mode(&mut ed)
+        self.set_editor_mode(ed)
     }
 
     /// When doing a move, 0 should behave the same as 1 as far as the count goes.
@@ -489,7 +489,7 @@ impl Vi {
 
     fn repeat<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
         self.last_count = self.count;
-        let keys = mem::replace(&mut self.last_command, Vec::new());
+        let keys = mem::take(&mut self.last_command);
 
         if let Some(insert_key) = self.last_insert {
             // enter insert mode if necessary
@@ -542,7 +542,7 @@ impl Vi {
                 if self.count > 0 {
                     self.last_count = self.count;
                     for _ in 1..self.count {
-                        let keys = mem::replace(&mut self.last_command, Vec::new());
+                        let keys = mem::take(&mut self.last_command);
                         for k in keys {
                             self.handle_key_core(k, ed)?;
                         }
@@ -1060,10 +1060,10 @@ impl Vi {
 }
 
 impl KeyMap for Vi {
-    fn init<C: EditorContext>(&mut self, mut ed: &mut Editor<C>) -> io::Result<()> {
+    fn init<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
         // since we start in insert mode, we need to start an undo group
         ed.current_buffer_mut().start_undo_group();
-        self.set_editor_mode(&mut ed)
+        self.set_editor_mode(ed)
     }
 
     fn handle_key_core<C: EditorContext>(
@@ -1086,7 +1086,7 @@ impl KeyMap for Vi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{editor::Prompt, Buffer, Completer, Context, Editor, KeyMap};
+    use crate::{Buffer, Completer, Context, Editor, KeyMap, editor::Prompt};
     use termion::event::{Key, Key::*};
 
     fn simulate_keys<'a, C: EditorContext, M: KeyMap, I>(
@@ -4085,7 +4085,7 @@ mod tests {
         ed.insert_str_after_cursor("not empty").unwrap();
 
         let res = map.handle_key(Ctrl('h'), &mut ed, &mut EmptyCompleter);
-        assert_eq!(res.is_ok(), true);
+        assert!(res.is_ok());
         assert_eq!(ed.current_buffer().to_string(), "not empt".to_string());
     }
 

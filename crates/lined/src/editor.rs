@@ -8,7 +8,7 @@ use strip_ansi_escapes::strip;
 use termion::{self, clear, color, cursor};
 
 use super::complete::Completer;
-use crate::{context::ColorClosure, event::*, util, Buffer, EditorContext, Tty};
+use crate::{Buffer, EditorContext, Tty, context::ColorClosure, event::*, util};
 use itertools::Itertools;
 
 /// Indicates the mode that should be currently displayed in the propmpt.
@@ -113,7 +113,7 @@ impl Prompt {
 impl fmt::Display for Prompt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(status) = &self.vi_status {
-            write!(f, "{}", status)?
+            write!(f, "{status}")?
         }
         write!(f, "{}", self.prompt)
     }
@@ -331,10 +331,10 @@ impl<C: EditorContext> Editor<C> {
     }
 
     pub fn set_prompt(&mut self, mut prompt: Prompt) {
-        if let Some(passed_status) = &mut prompt.vi_status {
-            if let Some(old_status) = &self.prompt.vi_status {
-                passed_status.mode = old_status.mode;
-            }
+        if let Some(passed_status) = &mut prompt.vi_status
+            && let Some(old_status) = &self.prompt.vi_status
+        {
+            passed_status.mode = old_status.mode;
         }
         self.prompt = prompt;
     }
@@ -524,7 +524,7 @@ impl<C: EditorContext> Editor<C> {
                 )
                 .map_err(io::Error::other)?;
             }
-            write!(output_buf, "{:<1$}", com, col_width).map_err(io::Error::other)?;
+            write!(output_buf, "{com:<col_width$}").map_err(io::Error::other)?;
             if Some(index) == highlighted {
                 write!(
                     output_buf,
@@ -985,7 +985,7 @@ impl<C: EditorContext> Editor<C> {
                     hplace,
                     self.history_subset_index.len()
                 ),
-                strip(&prefix).len() + 9,
+                strip(prefix).len() + 9,
             )
         } else {
             (self.prompt.to_string(), 0)
@@ -1069,7 +1069,7 @@ impl<C: EditorContext> Editor<C> {
         }
 
         // Write the prompt
-        write!(&mut out_buf, "{}", prompt).map_err(io::Error::other)?;
+        write!(&mut out_buf, "{prompt}").map_err(io::Error::other)?;
 
         // If we have an autosuggestion, we make the autosuggestion the buffer we print out.
         // We get the number of bytes in the buffer (but NOT the autosuggestion).
@@ -1099,7 +1099,7 @@ impl<C: EditorContext> Editor<C> {
                 if self.is_search() {
                     write!(&mut out_buf, "{}", color::Yellow.fg_str()).map_err(io::Error::other)?;
                 }
-                write!(&mut out_buf, "{}", start).map_err(io::Error::other)?;
+                write!(&mut out_buf, "{start}").map_err(io::Error::other)?;
                 if !self.is_search() {
                     write!(&mut out_buf, "{}", color::Yellow.fg_str()).map_err(io::Error::other)?;
                 }
@@ -1159,7 +1159,7 @@ impl<C: EditorContext> Editor<C> {
         self.term_cursor_line += completion_lines;
 
         {
-            write!(&mut self.context, "{}", out_buf).map_err(io::Error::other)?;
+            write!(&mut self.context, "{out_buf}").map_err(io::Error::other)?;
             let out = self.context.terminal_mut();
             out.write_all(out_buf.as_bytes())?;
             out.flush()

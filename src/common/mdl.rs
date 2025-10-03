@@ -433,7 +433,7 @@ where
     let _size = try_!(reader.read_i32::<LittleEndian>());
 
     assert_eq!(
-        try_!(reader.seek(SeekFrom::Current(0))),
+        try_!(reader.stream_position()),
         try_!(reader.seek(SeekFrom::Start(HEADER_SIZE))),
         "Misaligned read on MDL header"
     );
@@ -468,14 +468,14 @@ where
                         }
 
                         let mut frames = Vec::with_capacity(texture_frame_count);
-                        for frame_id in 0..texture_frame_count {
+                        for duration in durations {
                             let mut indices: Vec<u8> =
                                 Vec::with_capacity((texture_width * texture_height) as usize);
                             (&mut reader)
                                 .take((texture_width * texture_height) as u64)
                                 .read_to_end(&mut indices)?;
                             frames.push(AnimatedTextureFrame {
-                                duration: durations[frame_id as usize],
+                                duration,
                                 indices: indices.into_boxed_slice(),
                             });
                         }
@@ -585,7 +585,7 @@ where
 
                     1 => {
                         let subframe_count = match reader.read_i32::<LittleEndian>()? {
-                            s if s <= 0 => panic!("Invalid subframe count: {}", s),
+                            s if s <= 0 => panic!("Invalid subframe count: {s}"),
                             s => s,
                         };
 
@@ -642,13 +642,13 @@ where
                         })
                     }
 
-                    x => panic!("Bad frame kind value: {}", x),
+                    x => panic!("Bad frame kind value: {x}"),
                 })
             })
             .collect::<Result<_, MdlFileError>>()
     );
 
-    if try_!(reader.seek(SeekFrom::Current(0))) != try_!(reader.seek(SeekFrom::End(0))) {
+    if try_!(reader.stream_position()) != try_!(reader.seek(SeekFrom::End(0))) {
         nonfatal!(MdlFileError::Misaligned);
     }
 

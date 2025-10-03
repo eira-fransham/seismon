@@ -166,12 +166,12 @@ impl Pipeline for GlyphPipeline {
             wgpu::VertexBufferLayout {
                 array_stride: size_of::<QuadVertex>() as u64,
                 step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &VERTEX_BUFFER_ATTRIBUTES[0],
+                attributes: VERTEX_BUFFER_ATTRIBUTES[0],
             },
             wgpu::VertexBufferLayout {
                 array_stride: size_of::<GlyphInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &VERTEX_BUFFER_ATTRIBUTES[1],
+                attributes: VERTEX_BUFFER_ATTRIBUTES[1],
             },
         ]
     }
@@ -201,9 +201,9 @@ pub enum GlyphRendererCommand {
 }
 
 pub struct GlyphRenderer {
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     textures: Vec<Texture>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     texture_views: Vec<TextureView>,
     const_bind_group: BindGroup,
 }
@@ -236,11 +236,11 @@ impl GlyphRenderer {
             .chunks_exact(GLYPH_WIDTH * GLYPH_HEIGHT)
             .enumerate()
             .map(|(id, indices)| {
-                let (diffuse_data, _) = state.palette().translate(&indices);
+                let (diffuse_data, _) = state.palette().translate(indices);
                 state.create_texture(
                     device,
                     queue,
-                    Some(&format!("conchars[{}]", id)),
+                    Some(&format!("conchars[{id}]")),
                     GLYPH_WIDTH as u32,
                     GLYPH_HEIGHT as u32,
                     &TextureData::Diffuse(diffuse_data),

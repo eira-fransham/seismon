@@ -93,6 +93,8 @@ impl BrushPipeline {
         }
     }
 
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     pub fn rebuild(
         &mut self,
         device: &RenderDevice,
@@ -696,6 +698,8 @@ impl BrushRenderer {
     }
 
     /// Record the draw commands for this brush model to the given `wgpu::RenderPass`.
+    // TODO: This is a mess, but we should get rid of the entire `render` module in favour of directly using Bevy functionality anyway.
+    #[expect(clippy::too_many_arguments)]
     pub fn record_draw<'a, F>(
         &'a self,
         state: &'a GraphicsState,

@@ -44,8 +44,8 @@ impl Display for UppercaseStr<'_> {
         for block in chars.chunks(BLOCKS) {
             buf.clear();
             buf.extend(block.iter().copied());
-            (&mut *buf).make_ascii_uppercase();
-            write!(f, "{}", std::str::from_utf8(&*buf).unwrap())?;
+            buf.make_ascii_uppercase();
+            write!(f, "{}", std::str::from_utf8(&buf).unwrap())?;
         }
 
         Ok(())
@@ -63,7 +63,7 @@ impl Hash for UppercaseStr<'_> {
         for block in chars.chunks(BLOCKS) {
             buf.clear();
             buf.extend(block.iter().copied());
-            (&mut buf).make_ascii_uppercase();
+            buf.make_ascii_uppercase();
             std::str::from_utf8(&buf).unwrap().hash(state);
         }
     }
@@ -415,7 +415,7 @@ impl FromStr for Binding<'static> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse::console::binding(s) {
-            Ok(("", val)) => Ok(val.into_owned().into()),
+            Ok(("", val)) => Ok(val.into_owned()),
             Ok((rest, _)) => Err(nom::Err::Failure(nom::error::Error::new(
                 rest.to_owned(),
                 nom::error::ErrorKind::Verify,

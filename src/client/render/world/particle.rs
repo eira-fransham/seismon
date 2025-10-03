@@ -97,7 +97,7 @@ impl ParticlePipeline {
                 create_texture(
                     device,
                     queue,
-                    Some(&format!("particle texture {}", i)),
+                    Some(&format!("particle texture {i}")),
                     8,
                     8,
                     &TextureData::Diffuse(diffuse_data),

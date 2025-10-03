@@ -1,4 +1,4 @@
-use crate::{complete::Completer, event::*, Editor, EditorContext};
+use crate::{Editor, EditorContext, complete::Completer, event::*};
 use std::io::{self, ErrorKind};
 use termion::event::Key;
 
@@ -82,7 +82,7 @@ pub use emacs::Emacs;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{editor::Prompt, Context};
+    use crate::{Context, editor::Prompt};
     use std::io::ErrorKind;
     use termion::event::Key::*;
 
@@ -115,7 +115,7 @@ mod tests {
         let mut map = TestKeyMap;
 
         let res = map.handle_key(Ctrl('d'), &mut ed, &mut EmptyCompleter);
-        assert_eq!(res.is_err(), true);
+        assert!(res.is_err());
         assert_eq!(res.err().unwrap().kind(), ErrorKind::UnexpectedEof);
     }
 
@@ -128,7 +128,7 @@ mod tests {
         ed.insert_str_after_cursor("not empty").unwrap();
 
         let res = map.handle_key(Ctrl('d'), &mut ed, &mut EmptyCompleter);
-        assert_eq!(res.is_ok(), true);
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
         let mut map = TestKeyMap;
 
         let res = map.handle_key(Ctrl('c'), &mut ed, &mut EmptyCompleter);
-        assert_eq!(res.is_err(), true);
+        assert!(res.is_err());
         assert_eq!(res.err().unwrap().kind(), ErrorKind::Interrupted);
     }
 }

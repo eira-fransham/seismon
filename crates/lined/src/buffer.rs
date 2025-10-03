@@ -1,5 +1,6 @@
 use std::{
     fmt::{self, Write as FmtWrite},
+    hash::Hash,
     io::{self, Write},
     iter::FromIterator,
 };
@@ -39,11 +40,17 @@ impl Action {
 /// A buffer for text in the line editor.
 ///
 /// It keeps track of each action performed on it for use with undo/redo.
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Debug)]
 pub struct Buffer {
     data: Vec<char>,
     actions: Vec<Action>,
     undone_actions: Vec<Action>,
+}
+
+impl Hash for Buffer {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state)
+    }
 }
 
 impl PartialEq for Buffer {
@@ -190,7 +197,7 @@ impl Buffer {
         self.data
             .split(|&c| c == ' ')
             .filter(|s| !s.is_empty())
-            .last()
+            .next_back()
     }
 
     pub fn num_chars(&self) -> usize {
@@ -286,7 +293,7 @@ impl Buffer {
         out.write_all(string.as_bytes())
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         // NOTE: not particularly efficient. Could make a proper byte iterator with minimal
         // allocations if performance becomes an issue.
         self.to_string().into_bytes()
@@ -439,7 +446,7 @@ mod tests {
         buf.remove(0, 1);
         buf.remove(0, 1);
         buf.end_undo_group();
-        assert_eq!(buf.undo(), true);
+        assert!(buf.undo());
         assert_eq!(String::from(buf), "abcdefg");
     }
 
@@ -452,8 +459,8 @@ mod tests {
         buf.remove(0, 1);
         buf.remove(0, 1);
         buf.end_undo_group();
-        assert_eq!(buf.undo(), true);
-        assert_eq!(buf.redo(), true);
+        assert!(buf.undo());
+        assert!(buf.redo());
         assert_eq!(String::from(buf), "defg");
     }
 
@@ -468,7 +475,7 @@ mod tests {
         buf.end_undo_group();
         buf.remove(0, 1);
         buf.end_undo_group();
-        assert_eq!(buf.undo(), true);
+        assert!(buf.undo());
         assert_eq!(String::from(buf), "abcdefg");
     }
 
@@ -483,8 +490,8 @@ mod tests {
         buf.end_undo_group();
         buf.remove(0, 1);
         buf.end_undo_group();
-        assert_eq!(buf.undo(), true);
-        assert_eq!(buf.redo(), true);
+        assert!(buf.undo());
+        assert!(buf.redo());
         assert_eq!(String::from(buf), "defg");
     }
 
@@ -494,7 +501,7 @@ mod tests {
         buf.insert(0, &['a', 'b', 'c', 'd', 'e', 'f', 'g']);
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['a', 'b', 'c']);
-        assert_eq!(buf.starts_with(&buf2), true);
+        assert!(buf.starts_with(&buf2));
     }
 
     #[test]
@@ -503,7 +510,7 @@ mod tests {
         buf.insert(0, &['a', 'b', 'c']);
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['a', 'b', 'c']);
-        assert_eq!(buf.starts_with(&buf2), false);
+        assert!(!buf.starts_with(&buf2));
     }
 
     #[test]
@@ -512,7 +519,7 @@ mod tests {
         buf.insert(0, &['a', 'b', 'c', 'd', 'e', 'f', 'g']);
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['x', 'y', 'z']);
-        assert_eq!(buf.starts_with(&buf2), false);
+        assert!(!buf.starts_with(&buf2));
     }
 
     #[test]
@@ -521,13 +528,13 @@ mod tests {
         buf.insert(0, &['a', 'b', 'c', 'd', 'e', 'f', 'g']);
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['a', 'b', 'c']);
-        assert_eq!(buf.contains(&buf2), true);
+        assert!(buf.contains(&buf2));
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['c', 'd', 'e']);
-        assert_eq!(buf.contains(&buf2), true);
+        assert!(buf.contains(&buf2));
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['e', 'f', 'g']);
-        assert_eq!(buf.contains(&buf2), true);
+        assert!(buf.contains(&buf2));
     }
 
     #[test]
@@ -536,10 +543,10 @@ mod tests {
         buf.insert(0, &['a', 'b', 'c', 'd', 'e', 'f', 'g']);
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['x', 'b', 'c']);
-        assert_eq!(buf.contains(&buf2), false);
+        assert!(!buf.contains(&buf2));
         let mut buf2 = Buffer::new();
         buf2.insert(0, &['a', 'b', 'd']);
-        assert_eq!(buf.contains(&buf2), false);
+        assert!(!buf.contains(&buf2));
     }
 
     #[test]
