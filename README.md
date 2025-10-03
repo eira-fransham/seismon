@@ -19,7 +19,7 @@ overhauled, originally with a custom-written Bevy module but now the system has 
 
 Based on [Richter](https://github.com/cormac-obrien/richter) by Cormac O'Brien, and still shares a lot of its DNA. Seismon
 originally started as a quick weekend project to make Richter run on macOS, but I've now ended up spending months on it and
-the diff is something like +18,000, -11,000 LoC.
+the diff is something like +30,000, -20,000 LoC.
 
 To my knowledge, this is the first full from-scratch rewrite of Quake 1, i.e. not forked from the Quake 1 source code
 release.
