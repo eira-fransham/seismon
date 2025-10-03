@@ -1007,6 +1007,8 @@ impl World {
         Ok(trace.start_solid())
     }
 
+    // TODO: Make this a struct (which Quake does too)
+    #[allow(clippy::too_many_arguments)]
     pub fn trace_entity_move<F>(
         &self,
         e_id: EntityId,

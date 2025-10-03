@@ -4209,7 +4209,7 @@ pub mod systems {
                                 entity.set_impulse(impulse as _).unwrap();
 
                                 level
-                                    .handle_input_player(ent_id, delta_time, &*registry)
+                                    .handle_input_player(ent_id, delta_time, &registry)
                                     .unwrap();
                             }
                         }

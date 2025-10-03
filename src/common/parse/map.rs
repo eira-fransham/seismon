@@ -15,7 +15,6 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
 use bevy::log::info;
 use pest::Parser as _;
 use pest_derive::Parser;
@@ -26,7 +25,8 @@ struct MapEntitiesParser;
 
 pub fn entities(
     input: &str,
-) -> Result<impl Iterator<Item = impl Iterator<Item = (&str, &str)>>, pest::error::Error<Rule>> {
+) -> Result<impl Iterator<Item = impl Iterator<Item = (&str, &str)>>, Box<pest::error::Error<Rule>>>
+{
     let input = input.strip_suffix('\0').unwrap_or(input);
 
     Ok(MapEntitiesParser::parse(Rule::map, input)?
@@ -46,40 +46,39 @@ pub fn entities(
             }
         })
         .map(|pair| {
-            pair
-                .filter_map(|p| match p.as_rule() {
-                    Rule::key_value => {
-                        let mut kv = p
-                            .into_inner()
-                            .filter(|pair| matches!(pair.as_rule(), Rule::string));
+            pair.filter_map(|p| match p.as_rule() {
+                Rule::key_value => {
+                    let mut kv = p
+                        .into_inner()
+                        .filter(|pair| matches!(pair.as_rule(), Rule::string));
 
-                        let k = kv
-                            .next()
-                            .unwrap()
-                            .into_inner()
-                            .filter_map(|pair| match pair.as_rule() {
-                                Rule::string_inner => Some(pair.as_str()),
-                                _ => None,
-                            })
-                            .next()
-                            .unwrap();
-                        let v = kv
-                            .next()
-                            .unwrap()
-                            .into_inner()
-                            .filter_map(|pair| match pair.as_rule() {
-                                Rule::string_inner => Some(pair.as_str()),
-                                _ => None,
-                            })
-                            .next()
-                            .unwrap();
+                    let k = kv
+                        .next()
+                        .unwrap()
+                        .into_inner()
+                        .filter_map(|pair| match pair.as_rule() {
+                            Rule::string_inner => Some(pair.as_str()),
+                            _ => None,
+                        })
+                        .next()
+                        .unwrap();
+                    let v = kv
+                        .next()
+                        .unwrap()
+                        .into_inner()
+                        .filter_map(|pair| match pair.as_rule() {
+                            Rule::string_inner => Some(pair.as_str()),
+                            _ => None,
+                        })
+                        .next()
+                        .unwrap();
 
-                        Some((k, v))
-                    }
-                    rule => {
-                        info!("Found {rule:?}");
-                        None
-                    }
-                })
+                    Some((k, v))
+                }
+                rule => {
+                    info!("Found {rule:?}");
+                    None
+                }
+            })
         }))
 }

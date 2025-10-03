@@ -460,8 +460,7 @@ impl Globals {
     pub fn put_entity_id(&mut self, val: EntityId, addr: i16) -> Result<(), GlobalsError> {
         self.type_check(addr as usize, Type::QEntity)?;
 
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.0 as i32)?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.0)?;
         Ok(())
     }
 
@@ -504,7 +503,7 @@ impl Globals {
     // TODO: typecheck these with QPointer?
 
     pub fn get_entity_field(&self, addr: i16) -> Result<i32, GlobalsError> {
-        Ok(self.get_int(addr)?)
+        self.get_int(addr)
     }
 
     pub fn put_entity_field(&mut self, val: i32, addr: i16) -> Result<(), GlobalsError> {

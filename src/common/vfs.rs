@@ -113,6 +113,8 @@ fn traverse_case_insensitive(root: &Path, path: &Path) -> io::Result<File> {
 }
 
 impl Vfs {
+    // `FromWorld` has an auto-impl for `T: Default` so we can't implement `Default` for `Vfs`
+    #[expect(clippy::new_without_default)]
     pub fn new() -> Vfs {
         Vfs {
             components: Default::default(),
@@ -241,7 +243,13 @@ impl Vfs {
                     let mut full_path = path.to_owned();
                     full_path.push(vp);
 
-                    if let Ok(f) = OpenOptions::new().write(true).create(true).open(full_path) {
+                    if let Ok(f) = OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        // TODO: We probably want to make this optional.
+                        .truncate(true)
+                        .open(full_path)
+                    {
                         return Ok(BufWriter::new(f));
                     }
                 }

@@ -67,8 +67,8 @@ impl fmt::Display for EntityError {
                 write!(f, "I/O error: ")?;
                 err.fmt(f)
             }
-            EntityError::Address(val) => write!(f, "Invalid address ({})", val),
-            EntityError::Other(ref msg) => write!(f, "{}", msg),
+            EntityError::Address(val) => write!(f, "Invalid address ({val})"),
+            EntityError::Other(ref msg) => write!(f, "{msg}"),
             EntityError::NoVacantSlots => write!(f, "No vacant slots"),
         }
     }
@@ -959,8 +959,7 @@ where
     {
         self.type_check(addr as usize, Type::QEntity)?;
 
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.0 as i32)?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.0)?;
         Ok(())
     }
 

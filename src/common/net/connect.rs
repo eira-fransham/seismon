@@ -569,8 +569,7 @@ impl ConnectListener {
         let control_len = (control & CONNECT_LENGTH_MASK) as usize;
         if control_len != len {
             return Err(NetError::invalid_data(format!(
-                "Actual packet length ({}) differs from header value ({})",
-                len, control_len,
+                "Actual packet length ({len}) differs from header value ({control_len})",
             )));
         }
 
@@ -580,8 +579,7 @@ impl ConnectListener {
             Some(r) => r,
             None => {
                 return Err(NetError::invalid_data(format!(
-                    "request code {}",
-                    request_byte
+                    "request code {request_byte}",
                 )));
             }
         };
@@ -688,8 +686,7 @@ impl ConnectSocket {
         let control_len = (control & CONNECT_LENGTH_MASK) as usize;
         if control_len != len {
             return Err(NetError::with_msg(format!(
-                "Actual packet length ({}) differs from header value ({})",
-                len, control_len,
+                "Actual packet length ({len}) differs from header value ({control_len})",
             )));
         }
 
@@ -698,8 +695,7 @@ impl ConnectSocket {
             Some(r) => r,
             None => {
                 return Err(NetError::invalid_data(format!(
-                    "response code {}",
-                    response_byte
+                    "response code {response_byte}",
                 )));
             }
         };

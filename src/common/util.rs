@@ -233,6 +233,8 @@ where
     })
 }
 
+/// # Safety
+/// Identical to bytemuck, TODO just replace this with bytemuck.
 pub unsafe fn any_as_bytes<T>(t: &T) -> &[u8]
 where
     T: Pod,
@@ -240,13 +242,17 @@ where
     unsafe { std::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>()) }
 }
 
+/// # Safety
+/// Identical to bytemuck, TODO just replace this with bytemuck.
 pub unsafe fn any_slice_as_bytes<T>(t: &[T]) -> &[u8]
 where
     T: Pod,
 {
-    unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, size_of::<T>() * t.len()) }
+    unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, mem::size_of_val(t)) }
 }
 
+/// # Safety
+/// Identical to bytemuck, TODO just replace this with bytemuck.
 pub unsafe fn bytes_as_any<T>(bytes: &[u8]) -> T
 where
     T: Pod,
@@ -255,6 +261,8 @@ where
     unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
 }
 
+/// # Safety
+/// Identical to bytemuck, TODO just replace this with bytemuck.
 pub unsafe fn any_as_u32_slice<T>(t: &T) -> &[u32]
 where
     T: Pod,

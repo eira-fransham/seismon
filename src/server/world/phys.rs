@@ -17,10 +17,7 @@
 
 //! Physics and collision detection.
 
-use crate::{
-    common::math::Hyperplane,
-    server::progs::EntityId,
-};
+use crate::{common::math::Hyperplane, server::progs::EntityId};
 
 use bevy::prelude::*;
 use bitflags::bitflags;
@@ -30,6 +27,8 @@ use num_derive::FromPrimitive;
 /// velocity!) is instantly reduced to zero.
 ///
 /// This prevents objects from sliding indefinitely at low velocity.
+// TODO: Implement this
+#[expect(dead_code)]
 const STOP_THRESHOLD: f32 = 0.1;
 
 #[derive(Copy, Clone, Debug, Eq, FromPrimitive, PartialEq)]

@@ -46,6 +46,8 @@ struct Map {
     map_name: PathBuf,
 }
 
+// TODO: Can probably do this better but it's also possibly fine because it's a system
+#[expect(clippy::too_many_arguments)]
 fn cmd_map(
     In(Map { mut map_name }): In<Map>,
     mut commands: Commands,

@@ -25,7 +25,7 @@ use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-const MAGIC: u32 = ('I' as u32) << 0 | ('D' as u32) << 8 | ('S' as u32) << 16 | ('P' as u32) << 24;
+const MAGIC: u32 = u32::from_le_bytes(*b"IBSP");
 const VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, FromPrimitive, PartialEq)]
@@ -130,22 +130,22 @@ where
     let radius = reader.read_f32::<LittleEndian>().unwrap();
 
     let max_width = match reader.read_i32::<LittleEndian>().unwrap() {
-        w if w < 0 => panic!("Negative max width ({})", w),
+        w if w < 0 => panic!("Negative max width ({w})"),
         w => w as usize,
     };
 
     let max_height = match reader.read_i32::<LittleEndian>().unwrap() {
-        h if h < 0 => panic!("Negative max height ({})", h),
+        h if h < 0 => panic!("Negative max height ({h})"),
         h => h as usize,
     };
 
     let frame_count = match reader.read_i32::<LittleEndian>().unwrap() {
-        c if c < 1 => panic!("Invalid frame count ({}), must be at least 1", c),
+        c if c < 1 => panic!("Invalid frame count ({c}), must be at least 1"),
         c => c as usize,
     };
 
     let _beam_len = match reader.read_i32::<LittleEndian>().unwrap() {
-        l if l < 0 => panic!("Negative beam length ({})", l),
+        l if l < 0 => panic!("Negative beam length ({l})"),
         l => l as usize,
     };
 
@@ -166,12 +166,12 @@ where
                 let _origin_z = reader.read_i32::<LittleEndian>().unwrap();
 
                 let width = match reader.read_i32::<LittleEndian>().unwrap() {
-                    w if w < 0 => panic!("Negative frame width ({})", w),
+                    w if w < 0 => panic!("Negative frame width ({w})"),
                     w => w,
                 };
 
                 let height = match reader.read_i32::<LittleEndian>().unwrap() {
-                    h if h < 0 => panic!("Negative frame height ({})", h),
+                    h if h < 0 => panic!("Negative frame height ({h})"),
                     h => h,
                 };
 
@@ -191,7 +191,7 @@ where
                 }
             } else {
                 let subframe_count = match reader.read_i32::<LittleEndian>().unwrap() {
-                    c if c < 0 => panic!("Negative subframe count ({}) in frame {}", c, i),
+                    c if c < 0 => panic!("Negative subframe count ({c}) in frame {i}"),
                     c => c as usize,
                 };
 
@@ -205,12 +205,12 @@ where
                         let _origin_z = reader.read_i32::<LittleEndian>().unwrap();
 
                         let width = match reader.read_i32::<LittleEndian>().unwrap() {
-                            w if w < 0 => panic!("Negative subframe width ({}) in frame {}", w, i),
+                            w if w < 0 => panic!("Negative subframe width ({w}) in frame {i}"),
                             w => w,
                         };
 
                         let height = match reader.read_i32::<LittleEndian>().unwrap() {
-                            h if h < 0 => panic!("Negative subframe height ({}) in frame {}", h, i),
+                            h if h < 0 => panic!("Negative subframe height ({h}) in frame {i}"),
                             h => h,
                         };
 

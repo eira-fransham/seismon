@@ -37,7 +37,7 @@ impl Statement {
     pub fn new(op: i16, arg1: i16, arg2: i16, arg3: i16) -> Result<Statement, ProgsError> {
         let opcode = match Opcode::from_i16(op) {
             Some(o) => o,
-            None => return Err(ProgsError::with_msg(format!("Bad opcode 0x{:x}", op))),
+            None => return Err(ProgsError::with_msg(format!("Bad opcode 0x{op:x}"))),
         };
 
         Ok(Statement {
@@ -63,7 +63,7 @@ impl TryInto<i32> for FunctionId {
     type Error = ProgsError;
 
     fn try_into(self) -> Result<i32, Self::Error> {
-        if self.0 > ::std::i32::MAX as usize {
+        if self.0 > i32::MAX as usize {
             Err(ProgsError::with_msg("function ID out of range"))
         } else {
             Ok(self.0 as i32)
@@ -186,10 +186,7 @@ impl Functions {
         if (value as usize) < self.defs.len() {
             Ok(FunctionId(value as usize))
         } else {
-            Err(ProgsError::with_msg(format!(
-                "no function with ID {}",
-                value
-            )))
+            Err(ProgsError::with_msg(format!("no function with ID {value}")))
         }
     }
 

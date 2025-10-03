@@ -387,8 +387,7 @@ impl TempEntity {
             Some(c) => c,
             None => {
                 return Err(NetError::invalid_data(format!(
-                    "Temp entity code {}",
-                    code_byte
+                    "Temp entity code {code_byte}",
                 )));
             }
         };
@@ -516,7 +515,7 @@ impl TempEntity {
                         2 => Code::Lightning2,
                         3 => Code::Lightning3,
                         // TODO: error
-                        _ => panic!("invalid lightning model id: {}", model_id),
+                        _ => panic!("invalid lightning model id: {model_id}"),
                     },
                     BeamEntityKind::Grapple => Code::Grapple,
                 };
@@ -1189,8 +1188,7 @@ impl ServerCmd {
                     Some(c) => c,
                     None => {
                         return Err(NetError::invalid_data(format!(
-                            "value for ClientStat: {}",
-                            stat_id,
+                            "value for ClientStat: {stat_id}"
                         )));
                     }
                 };
@@ -1215,8 +1213,7 @@ impl ServerCmd {
                     Some(f) => f,
                     None => {
                         return Err(NetError::invalid_data(format!(
-                            "SoundFlags: {:b}",
-                            flags_bits
+                            "SoundFlags: {flags_bits:b}"
                         )));
                     }
                 };
@@ -1286,8 +1283,7 @@ impl ServerCmd {
                     Some(g) => g,
                     None => {
                         return Err(NetError::invalid_data(format!(
-                            "Invalid game type ({})",
-                            game_type_code
+                            "Invalid game type ({game_type_code})"
                         )));
                     }
                 };
@@ -1356,8 +1352,7 @@ impl ServerCmd {
                     Some(f) => f,
                     None => {
                         return Err(NetError::invalid_data(format!(
-                            "client update flags: {:b}",
-                            flags_bits
+                            "client update flags: {flags_bits:b}"
                         )));
                     }
                 };
@@ -1406,10 +1401,7 @@ impl ServerCmd {
                 let items = match ItemFlags::from_bits(items_bits) {
                     Some(i) => i,
                     None => {
-                        return Err(NetError::invalid_data(format!(
-                            "ItemFlags: {:b}",
-                            items_bits
-                        )));
+                        return Err(NetError::invalid_data(format!("ItemFlags: {items_bits:b}")));
                     }
                 };
 
@@ -1572,7 +1564,7 @@ impl ServerCmd {
                 let paused = match reader.read_u8()? {
                     0 => false,
                     1 => true,
-                    x => return Err(NetError::invalid_data(format!("setpause: {}", x))),
+                    x => return Err(NetError::invalid_data(format!("setpause: {x}"))),
                 };
 
                 ServerCmd::SetPause { paused }
@@ -1584,8 +1576,7 @@ impl ServerCmd {
                     Some(s) => s,
                     None => {
                         return Err(NetError::invalid_data(format!(
-                            "Invalid value for sign-on stage: {}",
-                            stage_num
+                            "Invalid value for sign-on stage: {stage_num}"
                         )));
                     }
                 };
@@ -1707,12 +1698,12 @@ impl ServerCmd {
             ServerCmd::Time { time } => writer.write_f32::<LittleEndian>(time)?,
 
             ServerCmd::Print { ref text } => {
-                writer.write_all(&*text.raw)?;
+                writer.write_all(&text.raw)?;
                 writer.write_u8(0)?;
             }
 
             ServerCmd::StuffText { ref text } => {
-                writer.write_all(&*text.raw)?;
+                writer.write_all(&text.raw)?;
                 writer.write_u8(0)?;
             }
 
@@ -1730,7 +1721,7 @@ impl ServerCmd {
                 writer.write_u8(max_clients)?;
                 writer.write_u8(game_type as u8)?;
 
-                writer.write_all(&*message.raw)?;
+                writer.write_all(&message.raw)?;
                 writer.write_u8(0)?;
 
                 for model_name in model_precache.iter() {
@@ -1748,7 +1739,7 @@ impl ServerCmd {
 
             ServerCmd::LightStyle { id, ref value } => {
                 writer.write_u8(id)?;
-                writer.write_all(&*value)?;
+                writer.write_all(value)?;
                 writer.write_u8(0)?;
             }
 
@@ -1757,7 +1748,7 @@ impl ServerCmd {
                 ref new_name,
             } => {
                 writer.write_u8(player_id)?;
-                writer.write_all(&*new_name.raw)?;
+                writer.write_all(&new_name.raw)?;
                 writer.write_u8(0)?;
             }
 
@@ -1906,8 +1897,8 @@ impl ServerCmd {
 
                 for i in 0..3 {
                     writer.write_i8(match direction[i] * PARTICLE_DIRECTION_WRITE_FACTOR {
-                        d if d > ::std::i8::MAX as f32 => ::std::i8::MAX,
-                        d if d < ::std::i8::MIN as f32 => ::std::i8::MIN,
+                        d if d > i8::MAX as f32 => i8::MAX,
+                        d if d < i8::MIN as f32 => i8::MIN,
                         d => d as i8,
                     })?;
                 }
@@ -1987,7 +1978,7 @@ impl ServerCmd {
             }
 
             ServerCmd::CenterPrint { ref text } => {
-                writer.write_all(&*text.raw)?;
+                writer.write_all(&text.raw)?;
                 writer.write_u8(0)?;
             }
 
@@ -2008,7 +1999,7 @@ impl ServerCmd {
             ServerCmd::Intermission => {}
 
             ServerCmd::Finale { ref text } => {
-                writer.write_all(&*text.raw)?;
+                writer.write_all(&text.raw)?;
                 writer.write_u8(0)?;
             }
 
@@ -2020,7 +2011,7 @@ impl ServerCmd {
             ServerCmd::SellScreen => {}
 
             ServerCmd::Cutscene { ref text } => {
-                writer.write_all(&*text.raw)?;
+                writer.write_all(&text.raw)?;
                 writer.write_u8(0)?;
             }
 
@@ -2237,7 +2228,7 @@ impl QSocket {
         }
 
         // empty messages are an error
-        if msg.len() == 0 {
+        if msg.is_empty() {
             return Err(NetError::with_msg(
                 "begin_send_msg: Input data has zero length",
             ));
@@ -2315,7 +2306,7 @@ impl QSocket {
     }
 
     pub fn send_msg_unreliable(&mut self, content: &[u8]) -> Result<(), NetError> {
-        if content.len() == 0 {
+        if content.is_empty() {
             return Err(NetError::with_msg("Unreliable message has zero length"));
         }
 
@@ -2397,8 +2388,7 @@ impl QSocket {
                 Some(f) => f,
                 None => {
                     return Err(NetError::invalid_data(format!(
-                        "Invalid message kind: {}",
-                        msg_kind_code
+                        "Invalid message kind: {msg_kind_code}"
                     )));
                 }
             };
@@ -2412,17 +2402,15 @@ impl QSocket {
             let field_len = reader.read_u16::<NetworkEndian>()?;
             if field_len as usize != packet_len {
                 return Err(NetError::invalid_data(format!(
-                    "Length field and actual length differ ({} != {})",
-                    field_len, packet_len
+                    "Length field and actual length differ ({field_len} != {packet_len})"
                 )));
             }
 
-            let sequence;
-            if msg_kind != MsgKind::Ctl {
-                sequence = reader.read_u32::<NetworkEndian>()?;
+            let sequence = if msg_kind != MsgKind::Ctl {
+                reader.read_u32::<NetworkEndian>()?
             } else {
-                sequence = 0;
-            }
+                0
+            };
 
             match msg_kind {
                 // ignore control messages
@@ -2431,7 +2419,7 @@ impl QSocket {
                 MsgKind::Unreliable => {
                     // we've received a newer datagram, ignore
                     if sequence < self.unreliable_recv_sequence {
-                        println!("Stale datagram with sequence # {}", sequence);
+                        println!("Stale datagram with sequence # {sequence}");
                         break;
                     }
 
