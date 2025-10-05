@@ -25,7 +25,7 @@ use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-const MAGIC: u32 = u32::from_le_bytes(*b"IBSP");
+const MAGIC: u32 = u32::from_le_bytes(*b"IDSP");
 const VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, FromPrimitive, PartialEq)]

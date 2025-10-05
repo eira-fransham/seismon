@@ -1022,83 +1022,72 @@ impl LevelState {
         }
 
         match builtin_id {
-            MakeVectors => self.globals.make_vectors()?,
-            SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
-            SetModel => self.builtin_set_model()?,
-            SetSize => self.builtin_set_size()?,
-            Break => todo_builtin!(Break),
-            Random => self.globals.builtin_random()?,
-            Sound => self.builtin_sound()?,
-            Normalize => self.builtin_normalize()?,
-            Error => self.builtin_err("Error")?,
-            ObjError => self.builtin_err("Object error")?,
-            VLen => self.globals.builtin_v_len()?,
-            VecToYaw => self.globals.builtin_vec_to_yaw()?,
-            Spawn => self.builtin_spawn(registry.reborrow(), vfs)?,
-            Remove => self.builtin_remove()?,
-            TraceLine => self.builtin_trace_line()?,
-            CheckClient => self.builtin_check_client()?,
-            Find => self.builtin_find()?,
-            PrecacheSound => self.builtin_precache_sound()?,
-            PrecacheModel => self.builtin_precache_model(vfs)?,
-            StuffCmd => self.builtin_stuffcmd()?,
-            FindRadius => self.builtin_find_radius()?,
-            BPrint => self.builtin_bprint()?,
-            SPrint => self.builtin_sprint()?,
-            DPrint => self.builtin_dprint()?,
-            FToS => self.builtin_ftos()?,
-            VToS => self.builtin_vtos()?,
-            CoreDump => todo_builtin!(CoreDump),
-            TraceOn => todo_builtin!(TraceOn),
-            TraceOff => todo_builtin!(TraceOff),
-            EPrint => todo_builtin!(EPrint),
-            WalkMove => self.builtin_walk_move(registry.reborrow(), vfs)?,
-            DropToFloor => self.builtin_drop_to_floor(registry.reborrow(), vfs)?,
-            LightStyle => self.builtin_light_style()?,
-            RInt => self.globals.builtin_r_int()?,
-            Floor => self.globals.builtin_floor()?,
-            Ceil => self.globals.builtin_ceil()?,
-            CheckBottom => self.builtin_check_bottom(&registry)?,
-            PointContents => self.builtin_point_contents()?,
-            FAbs => self.globals.builtin_f_abs()?,
             Aim => self.builtin_aim()?,
-            Cvar => self.builtin_cvar(&registry)?,
-            LocalCmd => todo_builtin!(LocalCmd),
-            NextEnt => todo_builtin!(NextEnt),
-            Particle => self.builtin_particle()?,
+            AmbientSound => self.builtin_ambient_sound()?,
+            BPrint => self.builtin_bprint()?,
+            Break => todo_builtin!(Break),
+            Ceil => self.globals.builtin_ceil()?,
+            CenterPrint => self.builtin_center_print()?,
+            ChangeLevel => self.builtin_change_level()?,
             ChangeYaw => self.builtin_change_yaw()?,
-            VecToAngles => self.globals.builtin_vec_to_angles()?,
-            WriteByte => self.builtin_write_byte()?,
-            WriteChar => self.builtin_write_char()?,
-            WriteShort => self.builtin_write_short()?,
-            WriteLong => self.builtin_write_long()?,
-            WriteCoord => self.builtin_write_coord()?,
-            WriteAngle => self.builtin_write_angle()?,
-            WriteString => self.builtin_write_string()?,
-            WriteEntity => self.builtin_write_entity()?,
+            CheckBottom => self.builtin_check_bottom(&registry)?,
+            CheckClient => self.builtin_check_client()?,
+            CoreDump => todo_builtin!(CoreDump),
+            Cvar => self.builtin_cvar(&registry)?,
+            CvarSet => self.builtin_cvar_set(registry.reborrow())?,
+            DPrint => self.builtin_dprint()?,
+            DropToFloor => self.builtin_drop_to_floor(registry.reborrow(), vfs)?,
+            EPrint => todo_builtin!(EPrint),
+            Error => self.builtin_err("Error")?,
+            FAbs => self.globals.builtin_f_abs()?,
+            FindRadius => self.builtin_find_radius()?,
+            Find => self.builtin_find()?,
+            Floor => self.globals.builtin_floor()?,
+            FToS => self.builtin_ftos()?,
+            LightStyle => self.builtin_light_style()?,
+            LocalCmd => todo_builtin!(LocalCmd),
+            MakeStatic => self.builtin_make_static()?,
+            MakeVectors => self.globals.make_vectors()?,
             MoveToGoal => self.builtin_move_to_goal(registry.reborrow(), vfs)?,
+            NextEnt => todo_builtin!(NextEnt),
+            Normalize => self.builtin_normalize()?,
+            ObjError => self.builtin_err("Object error")?,
+            Particle => self.builtin_particle()?,
+            PointContents => self.builtin_point_contents()?,
             // Only used in `qcc`, does nothing at runtime
             PrecacheFile => {}
-            MakeStatic => self.builtin_make_static()?,
-            ChangeLevel => {
-                // TODO: Do this properly!
-                todo_builtin!(ChangeLevel);
-                let level_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
-                let level = self.string_table.get(level_id).unwrap();
-                ServerCmd::StuffText {
-                    text: format!("map {level}\n").into(),
-                }
-                .serialize(&mut self.broadcast)?;
-            }
-            CvarSet => self.builtin_cvar_set(registry.reborrow())?,
-            CenterPrint => self.builtin_center_print()?,
-            AmbientSound => self.builtin_ambient_sound()?,
-            // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
-            PrecacheModel2 => self.builtin_precache_model(vfs)?,
-            PrecacheSound2 => self.builtin_precache_sound()?,
             // Only used in `qcc`, does nothing at runtime
             PrecacheFile2 => {}
+            // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
+            PrecacheModel | PrecacheModel2 => self.builtin_precache_model(vfs)?,
+            PrecacheSound | PrecacheSound2 => self.builtin_precache_sound()?,
+            Random => self.globals.builtin_random()?,
+            Remove => self.builtin_remove()?,
+            RInt => self.globals.builtin_r_int()?,
+            SetModel => self.builtin_set_model()?,
+            SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
+            SetSize => self.builtin_set_size()?,
             SetSpawnArgs => todo_builtin!(SetSpawnArgs),
+            Sound => self.builtin_sound()?,
+            Spawn => self.builtin_spawn(registry.reborrow(), vfs)?,
+            SPrint => self.builtin_sprint()?,
+            StuffCmd => self.builtin_stuffcmd()?,
+            TraceLine => self.builtin_trace_line()?,
+            TraceOff => todo_builtin!(TraceOff),
+            TraceOn => todo_builtin!(TraceOn),
+            VecToAngles => self.globals.builtin_vec_to_angles()?,
+            VecToYaw => self.globals.builtin_vec_to_yaw()?,
+            VLen => self.globals.builtin_v_len()?,
+            VToS => self.builtin_vtos()?,
+            WalkMove => self.builtin_walk_move(registry.reborrow(), vfs)?,
+            WriteAngle => self.builtin_write_angle()?,
+            WriteByte => self.builtin_write_byte()?,
+            WriteChar => self.builtin_write_char()?,
+            WriteCoord => self.builtin_write_coord()?,
+            WriteEntity => self.builtin_write_entity()?,
+            WriteLong => self.builtin_write_long()?,
+            WriteShort => self.builtin_write_short()?,
+            WriteString => self.builtin_write_string()?,
         }
 
         Ok(())
@@ -3990,6 +3979,19 @@ impl LevelState {
         let mut dest = self.write_dest()?;
 
         ServerCmd::CenterPrint { text }.serialize(&mut dest)?;
+
+        Ok(())
+    }
+
+    pub fn builtin_change_level(&mut self) -> progs::Result<()> {
+        // TODO: Do this properly!
+        error!("TODO: ChangeLevel");
+        let level_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
+        let level = self.string_table.get(level_id).unwrap();
+        ServerCmd::StuffText {
+            text: format!("map {level}\n").into(),
+        }
+        .serialize(&mut self.broadcast)?;
 
         Ok(())
     }
