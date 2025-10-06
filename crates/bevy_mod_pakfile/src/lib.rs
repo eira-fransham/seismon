@@ -12,17 +12,15 @@ use std::{
     sync::Arc,
 };
 
-use bevy::{
-    app::Plugin,
-    asset::{
-        AssetApp,
-        io::{
-            AssetReader, AssetReaderError, AssetSource, AssetSourceId, ErasedAssetReader,
-            PathStream, Reader, file::FileAssetReader,
-        },
+use bevy_app::Plugin;
+use bevy_asset::{
+    AssetApp,
+    io::{
+        AssetReader, AssetReaderError, AssetSource, AssetSourceId, ErasedAssetReader, PathStream,
+        Reader, file::FileAssetReader,
     },
-    log,
 };
+use bevy_log as log;
 use futures::StreamExt as _;
 use hashbrown::HashSet;
 use pak::Pak;
@@ -72,7 +70,7 @@ impl AssetReader for PakSource {
     fn read<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl bevy::asset::io::AssetReaderFuture<Value: Reader + 'a> {
+    ) -> impl bevy_asset::io::AssetReaderFuture<Value: Reader + 'a> {
         match self {
             Self::Any(reader) => reader.read(path),
             Self::File(reader) => ErasedAssetReader::read(reader, path),
@@ -82,7 +80,7 @@ impl AssetReader for PakSource {
     fn read_meta<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl bevy::asset::io::AssetReaderFuture<Value: Reader + 'a> {
+    ) -> impl bevy_asset::io::AssetReaderFuture<Value: Reader + 'a> {
         match self {
             Self::Any(reader) => reader.read_meta(path),
             Self::File(reader) => ErasedAssetReader::read_meta(reader, path),
@@ -92,7 +90,7 @@ impl AssetReader for PakSource {
     fn read_directory<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl bevy::tasks::ConditionalSendFuture<Output = Result<Box<PathStream>, AssetReaderError>>
+    ) -> impl bevy_tasks::ConditionalSendFuture<Output = Result<Box<PathStream>, AssetReaderError>>
     {
         match self {
             Self::Any(reader) => reader.read_directory(path),
@@ -103,7 +101,7 @@ impl AssetReader for PakSource {
     fn is_directory<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl bevy::tasks::ConditionalSendFuture<Output = Result<bool, AssetReaderError>> {
+    ) -> impl bevy_tasks::ConditionalSendFuture<Output = Result<bool, AssetReaderError>> {
         match self {
             Self::Any(reader) => reader.is_directory(path),
             Self::File(reader) => ErasedAssetReader::is_directory(reader, path),
@@ -404,7 +402,7 @@ impl AssetReader for PakCollection {
 }
 
 impl Plugin for PakfilePlugin {
-    fn build(&self, app: &mut bevy::app::App) {
+    fn build(&self, app: &mut bevy_app::App) {
         let sources = self.sources.clone();
         app.register_asset_source(
             AssetSourceId::Default,

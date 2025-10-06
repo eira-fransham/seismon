@@ -23,13 +23,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy::{
-    asset::{
-        Asset,
-        io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
-    },
-    reflect::TypePath,
+use bevy_asset::{
+    Asset,
+    io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
 };
+use bevy_reflect::TypePath;
 use byteorder::{LittleEndian, ReadBytesExt as _};
 use hashbrown::HashMap;
 use memmap2::Mmap;

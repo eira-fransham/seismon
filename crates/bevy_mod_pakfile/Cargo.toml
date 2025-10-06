@@ -9,8 +9,11 @@ documentation.workspace = true
 description = "Load Bevy assets from Quake 1 .pak files, with support for loading multiple and overlaying them"
 
 [dependencies]
-# TODO: We don't need all of bevy here
-bevy.workspace = true
+bevy_asset.workspace = true
+bevy_app.workspace = true
+bevy_log.workspace = true
+bevy_tasks.workspace = true
+bevy_reflect.workspace = true
 byteorder.workspace = true
 futures.workspace = true
 memmap2.workspace = true
