@@ -14,7 +14,7 @@ members = [ "crates/bevy_mod_mdl",
 [workspace.package]
 # Needs to be licensed under GPL to be compatible with Quake 1's license (since it was used
 # as reference for many functions in the server).
-license = "GPL"
+license = "GPL-2.0"
 homepage = "https://github.com/eira-fransham/seismon"
 repository = "https://github.com/eira-fransham/seismon"
 documentation = "https://docs.rs/bevy_mod_pakfile"
