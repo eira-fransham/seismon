@@ -14,7 +14,7 @@ use crate::{
 
 use super::*;
 
-pub fn register_commands(app: &mut App) {
+pub fn register_commands<A: RegisterCmdExt>(app: &mut A) {
     // TODO: Implement `changelevel` (move to new level without resetting persistant state
     app.command(cmd_map.map(|res| -> ExecResult {
         if let Err(e) = res {

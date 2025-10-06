@@ -36,7 +36,7 @@ use crate::{
         engine::{self, duration_from_f32, duration_to_f32},
         math::{CollisionResult, Hyperplane},
         model::Model,
-        net::{EntityState, ServerCmd},
+        net::{ClientMessage, EntityState, ServerCmd},
         parse,
         util::{QStr, QString},
         vfs::Vfs,
@@ -68,6 +68,7 @@ use self::{
 
 use arrayvec::ArrayVec;
 use bevy::{
+    app::{AppLabel, FixedMain},
     math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
 };
@@ -127,27 +128,55 @@ pub struct SeismonServerPlugin;
 
 impl Plugin for SeismonServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            FixedUpdate,
-            (
-                systems::recv_client_messages,
-                systems::server_update,
-                systems::server_spawn.pipe(
-                    |In(res), mut commands: Commands, mut runcmd: EventWriter<RunCmd<'static>>| {
-                        if let Err(e) = res {
-                            error!("Failed spawning server: {}", Report::from_error(e));
-                            commands.remove_resource::<Session>();
-                            runcmd.write("startdemos".into());
-                        }
-                    },
-                ),
-            )
-                .run_if(resource_exists::<Session>),
-        )
-        .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
+        #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, AppLabel)]
+        struct ServerApp;
 
-        commands::register_commands(app);
-        cvars::register_cvars(app);
+        use bevy::ecs::schedule::ScheduleLabel as _;
+
+        let mut server_sub_app = SubApp::new();
+        server_sub_app.update_schedule = Some(FixedMain.intern());
+        server_sub_app
+            .add_systems(
+                FixedUpdate,
+                (
+                    systems::recv_client_messages,
+                    systems::server_update,
+                    systems::server_spawn.pipe(
+                        |In(res),
+                         mut commands: Commands,
+                         mut runcmd: EventWriter<RunCmd<'static>>| {
+                            if let Err(e) = res {
+                                error!("Failed spawning server: {}", Report::from_error(e));
+                                commands.remove_resource::<Session>();
+                                runcmd.write("startdemos".into());
+                            }
+                        },
+                    ),
+                )
+                    .run_if(resource_exists::<Session>),
+            )
+            .add_event::<ClientMessage>()
+            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
+
+        server_sub_app.set_extract(|client_world, server_world| {
+            server_world
+                .resource_mut::<Events<ClientMessage>>()
+                .send_batch(
+                    client_world
+                        .resource_mut::<Events<ClientMessage>>()
+                        .update_drain(),
+                );
+            client_world.resource_mut::<Events<ServerCmd>>().send_batch(
+                server_world
+                    .resource_mut::<Events<ServerCmd>>()
+                    .update_drain(),
+            );
+        });
+
+        commands::register_commands(&mut server_sub_app);
+        cvars::register_cvars(&mut server_sub_app);
+
+        app.insert_sub_app(ServerApp, server_sub_app);
     }
 }
 

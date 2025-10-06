@@ -979,7 +979,7 @@ pub enum GameType {
     Deathmatch = 1,
 }
 
-#[derive(Event, Debug, PartialEq)]
+#[derive(Clone, Event, Debug, PartialEq)]
 pub enum ServerCmd {
     Bad,
     NoOp,

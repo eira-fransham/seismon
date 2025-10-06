@@ -520,6 +520,58 @@ impl RegisterCmdExt for App {
     }
 }
 
+impl RegisterCmdExt for SubApp {
+    fn command<A, S, M>(&mut self, run: S) -> &mut Self
+    where
+        A: Parser + 'static,
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+    {
+        self.world_mut().command::<A, S, M>(run);
+
+        self
+    }
+
+    fn action<N>(&mut self, name: N) -> &mut Self
+    where
+        N: Into<CName>,
+    {
+        self.world_mut().action(name);
+        self
+    }
+
+    fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
+    where
+        S: Into<CName>,
+        C: Into<CName>,
+    {
+        self.world_mut().alias(name, command);
+        self
+    }
+
+    fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
+    where
+        S: IntoSystem<In<Value>, (), M> + 'static,
+        N: Into<CName>,
+        C: Into<Cvar>,
+        I: Into<CName>,
+    {
+        self.world_mut().cvar_on_set(name, value, on_set, usage);
+
+        self
+    }
+
+    fn cvar<N, I, C>(&mut self, name: N, value: C, usage: I) -> &mut Self
+    where
+        N: Into<CName>,
+        C: Into<Cvar>,
+        I: Into<CName>,
+    {
+        self.world_mut().cvar(name, value, usage);
+
+        self
+    }
+}
+
 struct MaybeSystem<S, F, E> {
     inner: S,
     handle_error: F,

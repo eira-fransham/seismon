@@ -1,0 +1,16 @@
+[package]
+name = "bevy_mod_pakfile"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# TODO: We don't need all of bevy here
+bevy.workspace = true
+bounded-integer.workspace = true
+byteorder.workspace = true
+futures.workspace = true
+lock-free.workspace = true
+memmap2.workspace = true
+hashbrown.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }

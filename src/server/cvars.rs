@@ -1,12 +1,11 @@
 use bevy::{
-    app::App,
     ecs::system::{Commands, In},
     time::{Fixed, Time},
 };
 
 use crate::common::console::RegisterCmdExt;
 
-pub fn register_cvars(app: &mut App) {
+pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
     // TODO: X-Men: Ravages of Apocalypse uses `temp1` as a cvar, we should have some way to explicitly cvars
     //       that haven't been declared.
     app.cvar("sv_paused", "0", "1 if the server is paused, 0 otherwise")
