@@ -7,7 +7,10 @@
 
 #![deny(missing_docs)]
 
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use bevy::{
     app::Plugin,
@@ -15,7 +18,7 @@ use bevy::{
         AssetApp,
         io::{
             AssetReader, AssetReaderError, AssetSource, AssetSourceId, ErasedAssetReader,
-            PathStream, Reader,
+            PathStream, Reader, file::FileAssetReader,
         },
     },
     log,
@@ -27,15 +30,114 @@ use tokio::sync::SetOnce;
 
 mod pak;
 
-type MakeSource = dyn Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static;
+enum PakSource {
+    Any(Box<dyn ErasedAssetReader>),
+    #[cfg(not(target_arch = "wasm32"))]
+    File(FileAssetReader),
+}
+
+impl PakSource {
+    async fn load_pak(&self, file: &Path) -> Result<Pak, AssetReaderError> {
+        match self {
+            Self::Any(reader) => {
+                let mut reader = reader.read(file).await?;
+
+                let mut out = Vec::new();
+
+                reader.read_to_end(&mut out).await?;
+
+                let bytes = out.into_boxed_slice();
+
+                Ok(Pak::from_backing(file.display(), bytes)?)
+            }
+
+            Self::File(reader) => {
+                let full_path = reader.root_path().join(file);
+
+                // Safety: The file is only ever accessed as a blob of bytes, so the potential for unsoundness
+                // is low, but since it means data can change behind a `&` reference it is technically
+                // unsound to open a memmap for any purpose.
+                //
+                // TODO: Investigate the performance of copying and then unlinking the .pak in order to make
+                // the data we access inaccessible to other processes.
+                let mmap = unsafe { memmap2::Mmap::map(&std::fs::File::open(full_path)?)? };
+
+                Ok(Pak::from_backing(file.display(), mmap)?)
+            }
+        }
+    }
+}
+
+impl AssetReader for PakSource {
+    fn read<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl bevy::asset::io::AssetReaderFuture<Value: Reader + 'a> {
+        match self {
+            Self::Any(reader) => reader.read(path),
+            Self::File(reader) => ErasedAssetReader::read(reader, path),
+        }
+    }
+
+    fn read_meta<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl bevy::asset::io::AssetReaderFuture<Value: Reader + 'a> {
+        match self {
+            Self::Any(reader) => reader.read_meta(path),
+            Self::File(reader) => ErasedAssetReader::read_meta(reader, path),
+        }
+    }
+
+    fn read_directory<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = Result<Box<PathStream>, AssetReaderError>>
+    {
+        match self {
+            Self::Any(reader) => reader.read_directory(path),
+            Self::File(reader) => ErasedAssetReader::read_directory(reader, path),
+        }
+    }
+
+    fn is_directory<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = Result<bool, AssetReaderError>> {
+        match self {
+            Self::Any(reader) => reader.is_directory(path),
+            Self::File(reader) => ErasedAssetReader::is_directory(reader, path),
+        }
+    }
+}
+
+impl From<PathBuf> for PakSource {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn from(value: PathBuf) -> Self {
+        Self::File(FileAssetReader::new(value))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn from(value: PathBuf) -> Self {
+        Self::Any(AssetSource::get_default_reader(value.to_string())())
+    }
+}
+
+impl From<Box<dyn ErasedAssetReader>> for PakSource {
+    fn from(value: Box<dyn ErasedAssetReader>) -> Self {
+        Self::Any(value)
+    }
+}
+
+type MakeSource = dyn Fn() -> PakSource + Send + Sync + 'static;
 
 /// The core plugin to enable reading from pakfiles. Note that if you do not explicitly set a source ID using
 /// [`PakfilePlugin::with_source_id`], this _must_ be added before Bevy's asset plugin.
 ///
-/// For now, all pakfiles are loaded into memory on startup. The prior version of this, that did not integrate
-/// with Bevy's asset system, used memmaps, and the intention is that this is how it will work in the future
-/// once a method has been figured out to get a memory map from the Bevy asset system generically - specifically,
-/// in a way that allows pakfiles from web sources to be used transparently.
+/// Note that when using [`PakfilePlugin::push_reader`], the pak will be loaded into memory, but with
+/// [`PakfilePlugin::push_path`], the files will be mapped using [`memmap2`](https://crates.io/crates/memmap2).
+/// On platforms that do not support memory mapping, all pakfiles will be loaded into memory before they can
+/// be used.
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
@@ -66,13 +168,14 @@ impl PakfilePlugin {
     }
 
     /// Add a game directory to search for pakfiles. Note that paths are evaluated in reverse order, so
-    /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`].
-    pub fn push_path<P: ToString>(&mut self, path: P) -> &mut Self {
-        let path = path.to_string();
+    /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`]. On platforms
+    /// that support it, pakfiles in directories added using this method will be loaded using a memory
+    /// map for maximum efficiency.
+    pub fn push_path<P: Into<PathBuf>>(&mut self, path: P) -> &mut Self {
+        let path = path.into();
 
-        self.sources.push(
-            Arc::new(move || AssetSource::get_default_reader(path.clone())()) as Arc<MakeSource>,
-        );
+        self.sources
+            .push(Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>);
 
         self
     }
@@ -85,7 +188,8 @@ impl PakfilePlugin {
     where
         MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static,
     {
-        self.sources.push(Arc::new(make_reader) as Arc<MakeSource>);
+        self.sources
+            .push(Arc::new(move || PakSource::from(make_reader())) as Arc<MakeSource>);
 
         self
     }
@@ -95,15 +199,14 @@ impl PakfilePlugin {
     pub fn from_paths<I>(paths: I) -> Self
     where
         I: IntoIterator,
-        I::Item: ToString,
+        I::Item: Into<PathBuf>,
     {
         Self {
             sources: paths
                 .into_iter()
                 .map(|path| {
-                    let path = path.to_string();
-                    Arc::new(move || AssetSource::get_default_reader(path.clone())())
-                        as Arc<MakeSource>
+                    let path = path.into();
+                    Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>
                 })
                 .collect(),
             source_id: AssetSourceId::Default,
@@ -121,7 +224,7 @@ impl PakfilePlugin {
 
 struct PakCollection {
     readers: SetOnce<Box<[Box<dyn ErasedAssetReader>]>>,
-    dir_reader: Box<dyn ErasedAssetReader>,
+    dir_reader: PakSource,
 }
 
 struct VfsCollection {
@@ -136,7 +239,7 @@ impl PakCollection {
         if let Some(readers) = self.readers.get() {
             readers.iter().map(deref_box)
         } else {
-            let mut dir = match self.dir_reader.read_directory(Path::new("")).await {
+            let mut dir = match AssetReader::read_directory(&self.dir_reader, Path::new("")).await {
                 Ok(dir) => dir,
                 Err(e) => {
                     log::error!("Could not read pakfile directory: {e}");
@@ -157,19 +260,7 @@ impl PakCollection {
                     continue;
                 }
 
-                let Ok(mut reader) = self.dir_reader.read(&file).await else {
-                    continue;
-                };
-
-                let mut out = Vec::new();
-
-                if reader.read_to_end(&mut out).await.is_err() {
-                    continue;
-                }
-
-                let bytes = out.into_boxed_slice();
-
-                let pakfile = match Pak::from_backing(file.display(), bytes) {
+                let pakfile = match self.dir_reader.load_pak(&file).await {
                     Ok(pakfile) => pakfile,
                     Err(e) => {
                         let file = file.display();
@@ -263,7 +354,7 @@ impl AssetReader for PakCollection {
             }
         }
 
-        self.dir_reader.read(path).await
+        ErasedAssetReader::read(&self.dir_reader, path).await
     }
 
     async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
@@ -273,7 +364,7 @@ impl AssetReader for PakCollection {
             }
         }
 
-        self.dir_reader.read_meta(path).await
+        ErasedAssetReader::read_meta(&self.dir_reader, path).await
     }
 
     async fn read_directory<'a>(
@@ -286,7 +377,7 @@ impl AssetReader for PakCollection {
             self.readers()
                 .await
                 .rev()
-                .chain(std::iter::once(&*self.dir_reader))
+                .chain(std::iter::once(&self.dir_reader as &dyn ErasedAssetReader))
                 .map(|reader| async {
                     match reader.read_directory(&path).await {
                         Ok(paths) => paths.collect::<Vec<_>>().await,
@@ -308,7 +399,7 @@ impl AssetReader for PakCollection {
             }
         }
 
-        self.dir_reader.is_directory(path).await
+        ErasedAssetReader::is_directory(&self.dir_reader, path).await
     }
 }
 

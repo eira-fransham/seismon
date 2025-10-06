@@ -11,10 +11,8 @@ description = "Load Bevy assets from Quake 1 .pak files, with support for loadin
 [dependencies]
 # TODO: We don't need all of bevy here
 bevy.workspace = true
-bounded-integer.workspace = true
 byteorder.workspace = true
 futures.workspace = true
-lock-free.workspace = true
 memmap2.workspace = true
 hashbrown.workspace = true
 thiserror.workspace = true

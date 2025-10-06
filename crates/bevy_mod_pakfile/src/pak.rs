@@ -58,6 +58,18 @@ pub enum PakError {
     NonUtf8FileName(#[from] std::string::FromUtf8Error),
 }
 
+impl From<PakError> for AssetReaderError {
+    fn from(value: PakError) -> Self {
+        match value {
+            PakError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                AssetReaderError::NotFound(PathBuf::new())
+            }
+            PakError::Io(error) => AssetReaderError::Io(error.into()),
+            other => AssetReaderError::Io(std::io::Error::other(other).into()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum PakEntry {
     // Range in the memmap
