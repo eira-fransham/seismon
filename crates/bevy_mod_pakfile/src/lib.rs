@@ -1,3 +1,12 @@
+//! # `bevy_mod_pakfile`
+//!
+//! Enables using `.pak` files as asset sources. Currently quite limited in functionality,
+//! based on the needs of the [`seismon`](https://github.com/eira-fransham/seismon) engine.
+//!
+//! See the documentation of [`PakfilePlugin`] for usage.
+
+#![deny(missing_docs)]
+
 use std::{path::Path, sync::Arc};
 
 use bevy::{
@@ -18,25 +27,69 @@ use tokio::sync::SetOnce;
 
 mod pak;
 
-const DEFAULT_BASE_NAME: &str = "id1";
-
 type MakeSource = dyn Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static;
-#[non_exhaustive]
+
+/// The core plugin to enable reading from pakfiles. Note that if you do not explicitly set a source ID using
+/// [`PakfilePlugin::with_source_id`], this _must_ be added before Bevy's asset plugin.
+///
+/// For now, all pakfiles are loaded into memory on startup. The prior version of this, that did not integrate
+/// with Bevy's asset system, used memmaps, and the intention is that this is how it will work in the future
+/// once a method has been figured out to get a memory map from the Bevy asset system generically - specifically,
+/// in a way that allows pakfiles from web sources to be used transparently.
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_mod_pakfile::PakfilePlugin;
+///
+/// let id1_path = std::env::current_dir().unwrap().join("id1");
+/// let mut app = App::new();
+/// app.add_plugins(PakfilePlugin::from_paths([id1_path.display()]))
+///     .add_plugins(DefaultPlugins);
+/// ```
 pub struct PakfilePlugin {
     sources: Vec<Arc<MakeSource>>,
+    source_id: AssetSourceId<'static>,
 }
 
 impl Default for PakfilePlugin {
     fn default() -> Self {
-        Self {
-            sources: vec![Arc::new(|| {
-                AssetSource::get_default_reader(DEFAULT_BASE_NAME.to_string())()
-            })],
-        }
+        Self::from_paths::<[&str; 0]>([])
     }
 }
 
 impl PakfilePlugin {
+    /// Create a new empty [`PakfilePlugin`]. Note that if you add this to an app without adding any
+    /// directories with [`PakfilePlugin::push_path`] or [`PakfilePlugin::push_reader`] then trying to
+    /// read any asset will fail.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a game directory to search for pakfiles. Note that paths are evaluated in reverse order, so
+    /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`].
+    pub fn push_path<P: ToString>(&mut self, path: P) -> &mut Self {
+        let path = path.to_string();
+
+        self.sources.push(
+            Arc::new(move || AssetSource::get_default_reader(path.clone())()) as Arc<MakeSource>,
+        );
+
+        self
+    }
+
+    /// Add an arbitrary source to search for pakfiles. The returned reader must be able to list directories.
+    /// If you want to use an [`AssetReader`] that is not able to do this, such as web sources, you should
+    /// implement a wrapper that shims in this ability - e.g. by searching for `pak0.pak`, `pak1.pak`, etc and
+    /// returning the paths that resolve.
+    pub fn push_reader<MkReader>(&mut self, make_reader: MkReader) -> &mut Self
+    where
+        MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static,
+    {
+        self.sources.push(Arc::new(make_reader) as Arc<MakeSource>);
+
+        self
+    }
+
     /// Create a `PakfilePlugin` from a list of game paths. Paths are evaluated in reverse order, so
     /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`].
     pub fn from_paths<I>(paths: I) -> Self
@@ -53,18 +106,25 @@ impl PakfilePlugin {
                         as Arc<MakeSource>
                 })
                 .collect(),
+            source_id: AssetSourceId::Default,
         }
     }
-}
 
-pub const MAX_PAKFILES: usize = 32;
+    /// Set the source ID that assets in the underlying pakfiles will be accessed using. By default,
+    /// this will register to the default asset source.
+    pub fn with_source_id(&mut self, source_id: AssetSourceId<'_>) -> &mut Self {
+        self.source_id = source_id.into_owned();
+
+        self
+    }
+}
 
 struct PakCollection {
     readers: SetOnce<Box<[Box<dyn ErasedAssetReader>]>>,
     dir_reader: Box<dyn ErasedAssetReader>,
 }
 
-pub struct VfsCollection {
+struct VfsCollection {
     inner: Box<[Box<dyn ErasedAssetReader>]>,
 }
 
