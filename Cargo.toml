@@ -11,6 +11,11 @@ members = [ "crates/bevy_mod_mdl",
     "crates/lined",
 ]
 
+[workspace.package]
+# Needs to be licensed under GPL to be compatible with Quake 1's license (since it was used
+# as reference for many functions in the server).
+license = "GPL"
+
 [workspace.dependencies]
 beef = "0.5"
 bevy = { version = "0.16" }

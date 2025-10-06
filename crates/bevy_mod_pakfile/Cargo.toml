@@ -2,6 +2,8 @@
 name = "bevy_mod_pakfile"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
+description = "Load Bevy assets from Quake 1 .pak files, with support for loading multiple and overlaying them"
 
 [dependencies]
 # TODO: We don't need all of bevy here
