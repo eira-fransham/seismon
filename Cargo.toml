@@ -6,8 +6,9 @@ edition = "2024"
 resolver = "2"
 
 [workspace]
-members = [ "crates/bevy_mod_pakfile",
-    "crates/lined"
+members = [
+    "crates/bevy_mod_pakfile",
+    "crates/lined",
 ]
 
 [workspace.dependencies]
@@ -29,6 +30,9 @@ thiserror = "1.0"
 tokio = "1.47"
 
 [dependencies]
+bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
+lined = { path = "crates/lined" }
+
 arrayvec = "0.7"
 beef.workspace = true
 bevy_capture = { version = "0.3", features = ["gif", "mp4_openh264"], optional = true }
@@ -53,7 +57,6 @@ image = "0.25"
 imstr = "0.2"
 indexmap = "2.9"
 itertools = "0.14"
-lined = { path = "crates/lined" }
 memmap2.workspace = true
 nom.workspace = true
 num = "0.4"
