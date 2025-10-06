@@ -25,11 +25,10 @@ use std::{
 
 use bevy::{
     asset::{
-        Asset, AssetLoader, LoadContext,
+        Asset,
         io::{AssetReader, AssetReaderError, PathStream, Reader, SliceReader},
     },
     reflect::TypePath,
-    tasks::ConditionalSendFuture,
 };
 use byteorder::{LittleEndian, ReadBytesExt as _};
 use hashbrown::HashMap;
@@ -67,37 +66,6 @@ enum PakEntry {
     Directory(Box<[PathBuf]>),
 }
 
-#[derive(Default)]
-pub struct PakLoader {
-    // TODO
-}
-
-impl AssetLoader for PakLoader {
-    type Asset = Pak;
-    type Settings = ();
-    type Error = PakError;
-
-    fn load(
-        &self,
-        reader: &mut dyn Reader,
-        _settings: &Self::Settings,
-        _load_context: &mut LoadContext,
-    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
-        async {
-            // TODO: Support memmap
-            let mut out = Vec::new();
-            reader.read_to_end(&mut out).await?;
-            let bytes = out.into_boxed_slice();
-
-            Pak::from_backing(bytes)
-        }
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &["pak"]
-    }
-}
-
 #[derive(Debug)]
 pub enum PakBacking {
     Mmap(Mmap),
@@ -128,8 +96,25 @@ impl AsRef<[u8]> for PakBacking {
 /// An open Pak archive.
 #[derive(Asset, TypePath, Debug)]
 pub struct Pak {
+    name: String,
     memory: PakBacking,
     entries: HashMap<PathBuf, PakEntry>,
+}
+
+/// Taken from `bevy_asset`
+///
+/// Appends `.meta` to the given path:
+/// - `foo` becomes `foo.meta`
+/// - `foo.bar` becomes `foo.bar.meta`
+fn get_meta_path(path: &Path) -> PathBuf {
+    let mut meta_path = path.to_path_buf();
+    let mut extension = path.extension().unwrap_or_default().to_os_string();
+    if !extension.is_empty() {
+        extension.push(".");
+    }
+    extension.push("meta");
+    meta_path.set_extension(extension);
+    meta_path
 }
 
 impl AssetReader for Pak {
@@ -145,7 +130,15 @@ impl AssetReader for Pak {
     }
 
     async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
-        self.read(path).await
+        let path = get_meta_path(path);
+        match self.entries.get(&path) {
+            Some(PakEntry::File(range)) => {
+                Ok(SliceReader::new(&self.memory.as_ref()[range.clone()]))
+            }
+            None | Some(PakEntry::Directory(..)) => {
+                Err(AssetReaderError::NotFound(path.to_path_buf()))
+            }
+        }
     }
 
     async fn read_directory<'a>(
@@ -181,7 +174,14 @@ impl AssetReader for Pak {
 }
 
 impl Pak {
-    pub fn from_backing<B: Into<PakBacking>>(bytes: B) -> Result<Self, PakError> {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn from_backing<S: ToString, B: Into<PakBacking>>(
+        name: S,
+        bytes: B,
+    ) -> Result<Self, PakError> {
         let bytes = bytes.into();
         let mut reader = io::Cursor::new(bytes.as_ref());
 
@@ -261,7 +261,10 @@ impl Pak {
 
         map.shrink_to_fit();
 
+        let name = name.to_string();
+
         Ok(Pak {
+            name,
             memory: bytes,
             entries: map,
         })

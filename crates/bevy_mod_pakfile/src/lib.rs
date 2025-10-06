@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use bevy::{
     app::Plugin,
@@ -20,9 +20,10 @@ mod pak;
 
 const DEFAULT_BASE_NAME: &str = "id1";
 
+type MakeSource = dyn Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static;
 #[non_exhaustive]
 pub struct PakfilePlugin {
-    sources: Vec<Arc<dyn Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static>>,
+    sources: Vec<Arc<MakeSource>>,
 }
 
 impl Default for PakfilePlugin {
@@ -31,6 +32,27 @@ impl Default for PakfilePlugin {
             sources: vec![Arc::new(|| {
                 AssetSource::get_default_reader(DEFAULT_BASE_NAME.to_string())()
             })],
+        }
+    }
+}
+
+impl PakfilePlugin {
+    /// Create a `PakfilePlugin` from a list of game paths. Paths are evaluated in reverse order, so
+    /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`].
+    pub fn from_paths<I>(paths: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: ToString,
+    {
+        Self {
+            sources: paths
+                .into_iter()
+                .map(|path| {
+                    let path = path.to_string();
+                    Arc::new(move || AssetSource::get_default_reader(path.clone())())
+                        as Arc<MakeSource>
+                })
+                .collect(),
         }
     }
 }
@@ -54,18 +76,24 @@ impl PakCollection {
         if let Some(readers) = self.readers.get() {
             readers.iter().map(deref_box)
         } else {
-            let Ok(mut dir) = self.dir_reader.read_directory(Path::new(".")).await else {
-                log::error!("Could not read pakfile directory!");
-                let _ = self.readers.set(Box::new([]));
-                return self.readers.wait().await.iter().map(deref_box);
+            let mut dir = match self.dir_reader.read_directory(Path::new("")).await {
+                Ok(dir) => dir,
+                Err(e) => {
+                    log::error!("Could not read pakfile directory: {e}");
+                    let _ = self.readers.set(Box::new([]));
+                    return self.readers.wait().await.iter().map(deref_box);
+                }
             };
 
             let mut pakfiles = Vec::new();
 
             while let Some(file) = dir.next().await {
-                if file.extension().map(OsStr::to_ascii_lowercase).as_deref()
-                    != Some(OsStr::new("pak"))
-                {
+                let file_extension_is_pak = file
+                    .extension()
+                    .map(|ext| ext.eq_ignore_ascii_case("pak"))
+                    .unwrap_or(false);
+
+                if !file_extension_is_pak {
                     continue;
                 }
 
@@ -81,7 +109,7 @@ impl PakCollection {
 
                 let bytes = out.into_boxed_slice();
 
-                let pakfile = match Pak::from_backing(bytes) {
+                let pakfile = match Pak::from_backing(file.display(), bytes) {
                     Ok(pakfile) => pakfile,
                     Err(e) => {
                         let file = file.display();
@@ -90,8 +118,15 @@ impl PakCollection {
                     }
                 };
 
-                pakfiles.push(Box::new(pakfile) as Box<dyn ErasedAssetReader>);
+                pakfiles.push(pakfile);
             }
+
+            pakfiles.sort_unstable_by(|a, b| a.name().cmp(b.name()));
+
+            let pakfiles = pakfiles
+                .into_iter()
+                .map(|pakfile| Box::new(pakfile) as Box<dyn ErasedAssetReader>)
+                .collect::<Vec<_>>();
 
             let _ = self.readers.set(pakfiles.into_boxed_slice());
 
