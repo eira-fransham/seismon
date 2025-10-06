@@ -6,7 +6,7 @@ edition = "2024"
 resolver = "2"
 
 [workspace]
-members = [
+members = [ "crates/bevy_mod_mdl",
     "crates/bevy_mod_pakfile",
     "crates/lined",
 ]
