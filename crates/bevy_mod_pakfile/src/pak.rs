@@ -110,6 +110,7 @@ impl AsRef<[u8]> for PakBacking {
 pub struct Pak {
     name: String,
     memory: PakBacking,
+    // TODO: Use `case_insensitive_string`
     entries: HashMap<PathBuf, PakEntry>,
 }
 
