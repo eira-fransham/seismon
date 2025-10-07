@@ -133,6 +133,8 @@ impl Plugin for SeismonServerPlugin {
 
         use bevy::ecs::schedule::ScheduleLabel as _;
 
+        let asset_server = app.world_mut().resource::<AssetServer>().clone();
+
         let mut server_sub_app = SubApp::new();
         server_sub_app.update_schedule = Some(FixedMain.intern());
         server_sub_app
@@ -156,7 +158,8 @@ impl Plugin for SeismonServerPlugin {
                     .run_if(resource_exists::<Session>),
             )
             .add_event::<ClientMessage>()
-            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
+            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
+            .insert_resource(asset_server);
 
         server_sub_app.set_extract(|client_world, server_world| {
             server_world
