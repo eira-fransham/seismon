@@ -49,7 +49,7 @@ use clap::Parser;
 use seismon::{
     client::SeismonClientPlugin,
     common::console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
-    server::SeismonServerPlugin,
+    server::SeismonListenServerPlugin,
 };
 use serde_lexpr::Value;
 
@@ -263,7 +263,7 @@ fn main() -> ExitCode {
             game: opt.game.clone(),
             main_menu: menu::build_main_menu,
         })
-        .add_plugins(SeismonServerPlugin)
+        .add_plugins(SeismonListenServerPlugin)
         .cvar_on_set(
             "cl_title",
             "Quake",

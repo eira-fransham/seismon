@@ -126,7 +126,10 @@ const TICK_RATE: f32 = 0.05;
 #[derive(Default, Copy, Clone)]
 pub struct SeismonServerPlugin;
 
-impl Plugin for SeismonServerPlugin {
+#[derive(Default, Copy, Clone)]
+pub struct SeismonListenServerPlugin;
+
+impl Plugin for SeismonListenServerPlugin {
     fn build(&self, app: &mut App) {
         #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, AppLabel)]
         struct ServerApp;
@@ -138,27 +141,7 @@ impl Plugin for SeismonServerPlugin {
         let mut server_sub_app = SubApp::new();
         server_sub_app.update_schedule = Some(FixedMain.intern());
         server_sub_app
-            .add_systems(
-                FixedUpdate,
-                (
-                    systems::recv_client_messages,
-                    systems::server_update,
-                    systems::server_spawn.pipe(
-                        |In(res),
-                         mut commands: Commands,
-                         mut runcmd: EventWriter<RunCmd<'static>>| {
-                            if let Err(e) = res {
-                                error!("Failed spawning server: {}", Report::from_error(e));
-                                commands.remove_resource::<Session>();
-                                runcmd.write("startdemos".into());
-                            }
-                        },
-                    ),
-                )
-                    .run_if(resource_exists::<Session>),
-            )
-            .add_event::<ClientMessage>()
-            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
+            .add_plugins(SeismonServerPlugin)
             .insert_resource(asset_server);
 
         server_sub_app.set_extract(|client_world, server_world| {
@@ -176,10 +159,34 @@ impl Plugin for SeismonServerPlugin {
             );
         });
 
-        commands::register_commands(&mut server_sub_app);
-        cvars::register_cvars(&mut server_sub_app);
-
         app.insert_sub_app(ServerApp, server_sub_app);
+    }
+}
+
+impl Plugin for SeismonServerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            FixedUpdate,
+            (
+                systems::recv_client_messages,
+                systems::server_update,
+                systems::server_spawn.pipe(
+                    |In(res), mut commands: Commands, mut runcmd: EventWriter<RunCmd<'static>>| {
+                        if let Err(e) = res {
+                            error!("Failed spawning server: {}", Report::from_error(e));
+                            commands.remove_resource::<Session>();
+                            runcmd.write("startdemos".into());
+                        }
+                    },
+                ),
+            )
+                .run_if(resource_exists::<Session>),
+        )
+        .add_event::<ClientMessage>()
+        .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
+
+        commands::register_commands(app);
+        cvars::register_cvars(app);
     }
 }
 
