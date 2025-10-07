@@ -3,21 +3,27 @@ extern crate regex;
 extern crate termion;
 
 use std::{
+    borrow::Cow,
     env::{args, current_dir},
     io,
 };
 
 use lined::{
-    Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter, Prompt,
+    Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter,
+    Highlighter, Prompt,
 };
 use regex::Regex;
 use termion::color;
 
-// This prints out the text back onto the screen
-fn highlight_dodo(s: &str) -> String {
-    let reg_exp = Regex::new("(?P<k>dodo)").unwrap();
-    let format = format!("{}$k{}", color::Fg(color::Red), color::Fg(color::Reset));
-    reg_exp.replace_all(s, format.as_str()).to_string()
+/// This prints out the text back onto the screen with `dodo` highlighted.
+struct HighlightDodo;
+
+impl Highlighter for HighlightDodo {
+    fn highlight<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        let reg_exp = Regex::new("(?P<k>dodo)").unwrap();
+        let format = format!("{}$k{}", color::Fg(color::Red), color::Fg(color::Reset));
+        reg_exp.replace_all(s, format.as_str())
+    }
 }
 
 struct CommentCompleter {
@@ -92,10 +98,10 @@ fn main() {
     loop {
         // Reads the line, the first arg is the prompt, the second arg is a function called on every bit of text leaving lined, and the third is called on every key press
         // Basically highlight_dodo(read_line()), where on every keypress, the lambda is called
-        let res = con.read_line(
+        let res = con.read_line_with_highlighter(
             Prompt::from("[prompt]\n% "),
-            Some(Box::new(highlight_dodo)),
             &mut completer,
+            HighlightDodo,
         );
 
         // We are out of the lambda, and res is the result from read_line which is an Into<String>

@@ -1,7 +1,7 @@
 use std::io;
 use termion::event::Key;
 
-use crate::{CursorPosition, Editor, EditorContext, KeyMap};
+use crate::{CursorPosition, Editor, EditorContext, Highlighter, KeyMap};
 
 /// Emacs keybindings for `Editor`. This is the default for `Context::read_line()`.
 ///
@@ -20,7 +20,11 @@ impl Emacs {
         Self::default()
     }
 
-    fn handle_ctrl_key<C: EditorContext>(&mut self, c: char, ed: &mut Editor<C>) -> io::Result<()> {
+    fn handle_ctrl_key<C: EditorContext>(
+        &mut self,
+        c: char,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         match c {
             'l' => ed.clear(),
             'a' => ed.move_cursor_to_start_of_line(),
@@ -41,7 +45,11 @@ impl Emacs {
         }
     }
 
-    fn handle_alt_key<C: EditorContext>(&mut self, c: char, ed: &mut Editor<C>) -> io::Result<()> {
+    fn handle_alt_key<C: EditorContext>(
+        &mut self,
+        c: char,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         match c {
             '<' => ed.move_to_start_of_history(),
             '>' => ed.move_to_end_of_history(),
@@ -57,7 +65,10 @@ impl Emacs {
         }
     }
 
-    fn handle_last_arg_fetch<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn handle_last_arg_fetch<C: EditorContext>(
+        &mut self,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         // Empty history means no last arg to fetch.
         if ed.context().history().is_empty() {
             return Ok(());
@@ -97,7 +108,7 @@ impl KeyMap for Emacs {
     fn handle_key_core<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match key {
             Key::Alt('.') => {}
@@ -129,7 +140,7 @@ enum EmacsMoveDir {
 }
 
 fn emacs_move_word<C: EditorContext>(
-    ed: &mut Editor<C>,
+    ed: &mut Editor<C, dyn Highlighter>,
     direction: EmacsMoveDir,
 ) -> io::Result<()> {
     let (mut words, pos) = ed.get_words_and_cursor_position();
@@ -177,7 +188,7 @@ mod tests {
 
     fn simulate_keys<'b, C: EditorContext, M: KeyMap, I>(
         keymap: &mut M,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
         keys: I,
     ) -> bool
     where
@@ -203,7 +214,7 @@ mod tests {
     #[test]
     fn enter_is_done() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Emacs::new();
         ed.insert_str_after_cursor("done").unwrap();
         assert_eq!(ed.cursor(), 4);
@@ -217,7 +228,7 @@ mod tests {
     #[test]
     fn move_cursor_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Emacs::new();
         ed.insert_str_after_cursor("let").unwrap();
         assert_eq!(ed.cursor(), 3);
@@ -232,7 +243,7 @@ mod tests {
     fn move_word() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Emacs::new();
         ed.insert_str_after_cursor("abc def ghi").unwrap();
         assert_eq!(ed.cursor(), 11);
@@ -251,7 +262,7 @@ mod tests {
     #[test]
     fn cursor_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Emacs::new();
         ed.insert_str_after_cursor("right").unwrap();
         assert_eq!(ed.cursor(), 5);
@@ -265,7 +276,7 @@ mod tests {
     /// ctrl-h should act as backspace
     fn ctrl_h() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Emacs::new();
         ed.insert_str_after_cursor("not empty").unwrap();
 

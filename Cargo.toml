@@ -48,32 +48,38 @@ tokio = "1.47"
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
 lined = { path = "crates/lined" }
 
-arrayvec = "0.7"
+bevy.workspace = true
 beef.workspace = true
+byteorder.workspace = true
+clap.workspace = true
+futures.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+nom.workspace = true
+serde-lexpr.workspace = true
+serde.workspace = true
+snafu.workspace = true
+thiserror.workspace = true
+
+arrayvec = "0.7"
 bevy_capture = { version = "0.3", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { version = "0.4", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "74a5568" }
-bevy.workspace = true
+bevy-inspector-egui = "0.31"
 bitflags = "2.4"
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
-byteorder.workspace = true
 chrono = "0.4.0"
-clap.workspace = true
 dashmap = "5.5"
 failure = "0.1.8"
 firewheel = "0.4"
 fundsp = "0.20"
-futures.workspace = true
-hashbrown.workspace = true
 hashers = "1.0"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
 indexmap = "2.9"
 itertools = "0.14"
-memmap2.workspace = true
-nom.workspace = true
 num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
@@ -82,16 +88,12 @@ pest = "2.8"
 pest_derive = "2.8"
 qbsp = "0.5"
 rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
-serde-lexpr.workspace = true
-serde.workspace = true
 shaderc = "0.8"
 slab = "0.4"
 smol_str = "0.2"
-snafu.workspace = true
 strum = "0.26"
 strum_macros = "0.26"
 symphonium = "0.5"
-thiserror.workspace = true
 uluru = "3"
 uuid = "1.12"
 wgpu = { version = "24.0", features = ["spirv", "vulkan-portability"] }

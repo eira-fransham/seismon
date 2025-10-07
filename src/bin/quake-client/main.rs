@@ -20,6 +20,8 @@
 
 #![recursion_limit = "256"]
 
+#[cfg(feature = "dev_tools")]
+mod dev;
 mod menu;
 
 use std::{path::PathBuf, process::ExitCode};
@@ -254,7 +256,7 @@ fn main() -> ExitCode {
         .add(bevy_seedling::SeedlingPlugin::default());
 
     #[cfg(feature = "dev_tools")]
-    app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin::default());
+    app.add_plugins(dev::DevtoolsPlugins);
 
     app
         .add_plugins(default_plugins)

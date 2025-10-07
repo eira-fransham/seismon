@@ -41,7 +41,10 @@ use bevy::{
 use chrono::Duration;
 use clap::{FromArgMatches, Parser};
 use hashbrown::{HashMap, hash_map::Entry};
-use lined::{Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty};
+use lined::{
+    DefaultWordDivider, Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty,
+    WordDivider,
+};
 use serde::{
     Deserializer,
     de::{Error, Expected, MapAccess, Unexpected, value::StrDeserializer},
@@ -1721,7 +1724,7 @@ impl EditorContext for ConsoleInputContext {
     }
 
     fn word_divider(&self, buf: &lined::Buffer) -> Self::WordDividerIter {
-        lined::get_buffer_words(buf).into_iter()
+        DefaultWordDivider.divide(buf)
     }
 
     fn terminal(&self) -> &Self::Terminal {
@@ -1830,7 +1833,6 @@ impl ConsoleInput {
 
         let editor = match Editor::new(
             Prompt::from(Self::PROMPT.to_owned()),
-            None,
             ConsoleInputContext {
                 history,
                 ..default()

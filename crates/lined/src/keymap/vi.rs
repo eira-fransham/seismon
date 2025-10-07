@@ -1,7 +1,7 @@
 use std::{cmp, io, mem};
 use termion::event::Key;
 
-use crate::{Editor, EditorContext, KeyMap, buffer::Buffer};
+use crate::{Editor, EditorContext, Highlighter, KeyMap, buffer::Buffer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharMovement {
@@ -135,27 +135,36 @@ fn is_vi_keyword(c: char) -> bool {
     c == '_' || c.is_alphanumeric()
 }
 
-fn move_word<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_word<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word(ed, ViMoveMode::Keyword, ViMoveDir::Right, count)
 }
 
-fn move_word_ws<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_word_ws<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word(ed, ViMoveMode::Whitespace, ViMoveDir::Right, count)
 }
 
-fn move_to_end_of_word_back<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_to_end_of_word_back<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word(ed, ViMoveMode::Keyword, ViMoveDir::Left, count)
 }
 
 fn move_to_end_of_word_ws_back<C: EditorContext>(
-    ed: &mut Editor<C>,
+    ed: &mut Editor<C, dyn Highlighter>,
     count: usize,
 ) -> io::Result<()> {
     vi_move_word(ed, ViMoveMode::Whitespace, ViMoveDir::Left, count)
 }
 
 fn vi_move_word<C: EditorContext>(
-    ed: &mut Editor<C>,
+    ed: &mut Editor<C, dyn Highlighter>,
     move_mode: ViMoveMode,
     direction: ViMoveDir,
     count: usize,
@@ -206,24 +215,36 @@ fn vi_move_word<C: EditorContext>(
     ed.move_cursor_to(cursor)
 }
 
-fn move_to_end_of_word<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_to_end_of_word<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word_end(ed, ViMoveMode::Keyword, ViMoveDir::Right, count)
 }
 
-fn move_to_end_of_word_ws<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_to_end_of_word_ws<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word_end(ed, ViMoveMode::Whitespace, ViMoveDir::Right, count)
 }
 
-fn move_word_back<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_word_back<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word_end(ed, ViMoveMode::Keyword, ViMoveDir::Left, count)
 }
 
-fn move_word_ws_back<C: EditorContext>(ed: &mut Editor<C>, count: usize) -> io::Result<()> {
+fn move_word_ws_back<C: EditorContext>(
+    ed: &mut Editor<C, dyn Highlighter>,
+    count: usize,
+) -> io::Result<()> {
     vi_move_word_end(ed, ViMoveMode::Whitespace, ViMoveDir::Left, count)
 }
 
 fn vi_move_word_end<C: EditorContext>(
-    ed: &mut Editor<C>,
+    ed: &mut Editor<C, dyn Highlighter>,
     move_mode: ViMoveMode,
     direction: ViMoveDir,
     count: usize,
@@ -353,7 +374,11 @@ impl Vi {
         self.mode_stack.mode()
     }
 
-    fn set_mode<C: EditorContext>(&mut self, mode: Mode, ed: &mut Editor<C>) -> io::Result<()> {
+    fn set_mode<C: EditorContext>(
+        &mut self,
+        mode: Mode,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         use self::Mode::*;
         self.set_mode_preserve_last(mode, ed)?;
         if mode == Insert {
@@ -363,7 +388,10 @@ impl Vi {
         Ok(())
     }
 
-    fn set_editor_mode<C: EditorContext>(&self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn set_editor_mode<C: EditorContext>(
+        &self,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         use crate::editor::ViPromptMode;
         use Mode::*;
         if let Some(mode) = match self.mode() {
@@ -381,7 +409,7 @@ impl Vi {
     fn set_mode_preserve_last<C: EditorContext>(
         &mut self,
         mode: Mode,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         use self::Mode::*;
 
@@ -399,7 +427,7 @@ impl Vi {
     fn pop_mode_after_movement<C: EditorContext>(
         &mut self,
         move_type: MoveType,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         use self::{Mode::*, MoveType::*};
 
@@ -441,7 +469,10 @@ impl Vi {
         self.set_editor_mode(ed)
     }
 
-    fn pop_mode<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn pop_mode<C: EditorContext>(
+        &mut self,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         use self::Mode::*;
 
         let last_mode = self.mode_stack.pop();
@@ -459,7 +490,10 @@ impl Vi {
     }
 
     /// Return to normal mode.
-    fn normal_mode_abort<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn normal_mode_abort<C: EditorContext>(
+        &mut self,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         self.mode_stack.clear();
         ed.no_eol = true;
         self.count = 0;
@@ -475,19 +509,19 @@ impl Vi {
     }
 
     /// Get the current count or the number of remaining chars in the buffer.
-    fn move_count_left<C: EditorContext>(&self, ed: &Editor<C>) -> usize {
+    fn move_count_left<C: EditorContext>(&self, ed: &Editor<C, dyn Highlighter>) -> usize {
         cmp::min(ed.cursor(), self.move_count())
     }
 
     /// Get the current count or the number of remaining chars in the buffer.
-    fn move_count_right<C: EditorContext>(&self, ed: &Editor<C>) -> usize {
+    fn move_count_right<C: EditorContext>(&self, ed: &Editor<C, dyn Highlighter>) -> usize {
         cmp::min(
             ed.current_buffer().num_chars() - ed.cursor(),
             self.move_count(),
         )
     }
 
-    fn repeat<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn repeat<C: EditorContext>(&mut self, ed: &mut Editor<C, dyn Highlighter>) -> io::Result<()> {
         self.last_count = self.count;
         let keys = mem::take(&mut self.last_command);
 
@@ -514,7 +548,7 @@ impl Vi {
     fn handle_key_common<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match key {
             Key::Ctrl('l') => ed.clear(),
@@ -534,7 +568,7 @@ impl Vi {
     fn handle_key_insert<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match key {
             Key::Esc | Key::Ctrl('[') => {
@@ -609,7 +643,7 @@ impl Vi {
     fn handle_key_normal<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         use self::{CharMovement::*, Mode::*, MoveType::*};
 
@@ -860,7 +894,7 @@ impl Vi {
     fn handle_key_replace<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match key {
             Key::Char(c) => {
@@ -899,7 +933,7 @@ impl Vi {
     fn handle_key_delete_or_change<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match (key, self.current_insert) {
             // check if this is a movement key
@@ -953,7 +987,7 @@ impl Vi {
         &mut self,
         key: Key,
         movement: CharMovement,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         use self::{CharMovement::*, MoveType::*};
 
@@ -1031,7 +1065,11 @@ impl Vi {
         }
     }
 
-    fn handle_key_g<C: EditorContext>(&mut self, key: Key, ed: &mut Editor<C>) -> io::Result<()> {
+    fn handle_key_g<C: EditorContext>(
+        &mut self,
+        key: Key,
+        ed: &mut Editor<C, dyn Highlighter>,
+    ) -> io::Result<()> {
         use self::MoveType::*;
 
         let count = self.move_count();
@@ -1060,7 +1098,7 @@ impl Vi {
 }
 
 impl KeyMap for Vi {
-    fn init<C: EditorContext>(&mut self, ed: &mut Editor<C>) -> io::Result<()> {
+    fn init<C: EditorContext>(&mut self, ed: &mut Editor<C, dyn Highlighter>) -> io::Result<()> {
         // since we start in insert mode, we need to start an undo group
         ed.current_buffer_mut().start_undo_group();
         self.set_editor_mode(ed)
@@ -1069,7 +1107,7 @@ impl KeyMap for Vi {
     fn handle_key_core<C: EditorContext>(
         &mut self,
         key: Key,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()> {
         match self.mode() {
             Mode::Normal => self.handle_key_normal(key, ed),
@@ -1091,7 +1129,7 @@ mod tests {
 
     fn simulate_keys<'a, C: EditorContext, M: KeyMap, I>(
         keymap: &mut M,
-        ed: &mut Editor<C>,
+        ed: &mut Editor<C, dyn Highlighter>,
         keys: I,
     ) -> bool
     where
@@ -1117,7 +1155,7 @@ mod tests {
     #[test]
     fn enter_is_done() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("done").unwrap();
@@ -1132,7 +1170,7 @@ mod tests {
     #[test]
     fn move_cursor_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("let").unwrap();
@@ -1147,7 +1185,7 @@ mod tests {
     #[test]
     fn cursor_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
@@ -1161,7 +1199,7 @@ mod tests {
     #[test]
     fn move_cursor_start_end() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         let test_str = "let there be tests";
@@ -1184,7 +1222,7 @@ mod tests {
     #[test]
     fn vi_initial_insert() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1209,7 +1247,7 @@ mod tests {
     #[test]
     fn vi_left_right_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1236,7 +1274,7 @@ mod tests {
     /// Shouldn't be able to move past the last char in vi normal mode
     fn vi_no_eol() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1257,7 +1295,7 @@ mod tests {
     /// Cursor moves left when exiting insert mode.
     fn vi_switch_from_insert() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1289,7 +1327,7 @@ mod tests {
     fn vi_normal_history_cursor_eol() {
         let mut context = Context::test();
         context.history.push("data history".into()).unwrap();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1310,7 +1348,7 @@ mod tests {
         context.history.push("skip1".into()).unwrap();
         context.history.push("data one".into()).unwrap();
         context.history.push("skip2".into()).unwrap();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1332,7 +1370,7 @@ mod tests {
         context.history.push("skip1".into()).unwrap();
         context.history.push("data pat one".into()).unwrap();
         context.history.push("skip2".into()).unwrap();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("pat").unwrap();
@@ -1386,7 +1424,7 @@ mod tests {
     fn vi_normal_delete() {
         let mut context = Context::test();
         context.history.push("history".into()).unwrap();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1403,7 +1441,7 @@ mod tests {
     #[test]
     fn vi_substitute_command() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1427,7 +1465,7 @@ mod tests {
     #[test]
     fn substitute_with_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data").unwrap();
@@ -1444,7 +1482,7 @@ mod tests {
     #[test]
     fn substitute_with_count_repeat() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("data data").unwrap();
@@ -1474,7 +1512,7 @@ mod tests {
     /// make sure our count is accurate
     fn vi_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1498,7 +1536,7 @@ mod tests {
     /// make sure large counts don't overflow
     fn vi_count_overflow() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1583,7 +1621,7 @@ mod tests {
     /// make sure large counts ending in zero don't overflow
     fn vi_count_overflow_zero() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1663,7 +1701,7 @@ mod tests {
     /// Esc should cancel the count
     fn vi_count_cancel() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1677,7 +1715,7 @@ mod tests {
     fn vi_count_simple() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1704,7 +1742,7 @@ mod tests {
     /// test dot command
     fn vi_dot_command() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1720,7 +1758,7 @@ mod tests {
     /// test dot command with repeat
     fn vi_dot_command_repeat() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1736,7 +1774,7 @@ mod tests {
     /// test dot command with repeat
     fn vi_dot_command_repeat_multiple() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1753,7 +1791,7 @@ mod tests {
     fn vi_dot_command_append() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1779,7 +1817,7 @@ mod tests {
     fn vi_dot_command_append_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1805,7 +1843,7 @@ mod tests {
     fn vi_dot_command_movement() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1835,7 +1873,7 @@ mod tests {
     /// test move_count function
     fn move_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1851,7 +1889,7 @@ mod tests {
     fn vi_count_movement_reset() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -1878,7 +1916,7 @@ mod tests {
     /// test movement with counts
     fn movement_with_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
@@ -1893,7 +1931,7 @@ mod tests {
     /// test movement with counts, then insert (count should be reset before insert)
     fn movement_with_count_then_insert() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
@@ -1912,7 +1950,7 @@ mod tests {
     fn count_at_buffer_edge() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -1932,7 +1970,7 @@ mod tests {
     /// test basic replace
     fn basic_replace() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -1947,7 +1985,7 @@ mod tests {
     fn replace_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -1968,7 +2006,7 @@ mod tests {
     fn replace_with_count_eol() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -1989,7 +2027,7 @@ mod tests {
     fn replace_then_normal() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2009,7 +2047,7 @@ mod tests {
     fn dot_replace() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2038,7 +2076,7 @@ mod tests {
     fn dot_replace_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2069,7 +2107,7 @@ mod tests {
     fn dot_replace_eol() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("test").unwrap();
@@ -2096,7 +2134,7 @@ mod tests {
     fn dot_replace_eol_multiple() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("this is a test").unwrap();
@@ -2125,7 +2163,7 @@ mod tests {
     /// verify our move count
     fn move_count_right() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2144,7 +2182,7 @@ mod tests {
     /// verify our move count
     fn move_count_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2163,7 +2201,7 @@ mod tests {
     /// test delete with dot
     fn dot_x_delete() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace").unwrap();
@@ -2181,7 +2219,7 @@ mod tests {
     /// test deleting a line
     fn delete_line() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2196,7 +2234,7 @@ mod tests {
     fn delete_line_normal() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2225,7 +2263,7 @@ mod tests {
     fn delete_abort() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("don't delete").unwrap();
@@ -2252,7 +2290,7 @@ mod tests {
     /// test deleting a single char to the left
     fn delete_char_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2266,7 +2304,7 @@ mod tests {
     /// test deleting multiple chars to the left
     fn delete_chars_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2285,7 +2323,7 @@ mod tests {
     fn delete_char_right() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2304,7 +2342,7 @@ mod tests {
     fn delete_chars_right() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2323,7 +2361,7 @@ mod tests {
     fn delete_and_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2342,7 +2380,7 @@ mod tests {
     fn delete_until_end() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2360,7 +2398,7 @@ mod tests {
     /// test delete until end of line
     fn delete_until_end_shift_d() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2375,7 +2413,7 @@ mod tests {
     fn delete_until_start() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2394,7 +2432,7 @@ mod tests {
     fn delete_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
@@ -2413,7 +2451,7 @@ mod tests {
     fn delete_with_count_and_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete delete").unwrap();
@@ -2439,7 +2477,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_simple() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here are").unwrap();
         let start_pos = ed.cursor();
@@ -2455,7 +2493,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_comma() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2475,7 +2513,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2495,7 +2533,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_whitespace() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         assert_eq!(ed.cursor(), 0);
         ed.insert_str_after_cursor("here are").unwrap();
@@ -2515,7 +2553,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_whitespace_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2535,7 +2573,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_simple() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here are").unwrap();
         let start_pos = ed.cursor();
@@ -2551,7 +2589,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_comma() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2571,7 +2609,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2586,7 +2624,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_whitespace() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here are").unwrap();
         let start_pos = ed.cursor();
@@ -2602,7 +2640,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_whitespace_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ar").unwrap();
         let start_pos = ed.cursor();
@@ -2622,7 +2660,7 @@ mod tests {
     #[test]
     fn move_word_simple() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ").unwrap();
         let pos1 = ed.cursor();
@@ -2646,7 +2684,7 @@ mod tests {
     #[test]
     fn move_word_whitespace() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("   ").unwrap();
         let pos1 = ed.cursor();
@@ -2669,7 +2707,7 @@ mod tests {
     #[test]
     fn move_word_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("..=").unwrap();
         let pos1 = ed.cursor();
@@ -2690,7 +2728,7 @@ mod tests {
     #[test]
     fn move_word_whitespace_nonkeywords() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("..=   ").unwrap();
         let pos1 = ed.cursor();
@@ -2715,7 +2753,7 @@ mod tests {
     #[test]
     fn move_word_and_back() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ").unwrap();
         let pos1 = ed.cursor();
@@ -2776,7 +2814,7 @@ mod tests {
     #[test]
     fn move_word_and_back_with_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here ").unwrap();
         ed.insert_str_after_cursor("are ").unwrap();
@@ -2814,7 +2852,7 @@ mod tests {
     #[test]
     fn move_to_end_of_word_ws_whitespace_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
 
         ed.insert_str_after_cursor("here are").unwrap();
         let start_pos = ed.cursor();
@@ -2833,7 +2871,7 @@ mod tests {
     fn delete_word() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete some words").unwrap();
@@ -2852,7 +2890,7 @@ mod tests {
     fn change_line() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2879,7 +2917,7 @@ mod tests {
     /// test deleting a single char to the left
     fn change_char_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2897,7 +2935,7 @@ mod tests {
     /// test deleting multiple chars to the left
     fn change_chars_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2915,7 +2953,7 @@ mod tests {
     /// test deleting a single char to the right
     fn change_char_right() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2934,7 +2972,7 @@ mod tests {
     fn change_chars_right() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2965,7 +3003,7 @@ mod tests {
     fn change_and_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -2996,7 +3034,7 @@ mod tests {
     fn change_until_end() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -3023,7 +3061,7 @@ mod tests {
     /// test change until end of line
     fn change_until_end_shift_c() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -3042,7 +3080,7 @@ mod tests {
     fn change_until_end_from_middle_shift_c() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -3071,7 +3109,7 @@ mod tests {
     fn change_until_start() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -3102,7 +3140,7 @@ mod tests {
     fn change_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
@@ -3135,7 +3173,7 @@ mod tests {
     fn change_with_count_and_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change change").unwrap();
@@ -3165,7 +3203,7 @@ mod tests {
     fn change_word() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change some words").unwrap();
@@ -3195,7 +3233,7 @@ mod tests {
     fn test_count_reset_around_insert_and_delete() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("these are some words").unwrap();
@@ -3230,7 +3268,7 @@ mod tests {
     fn test_t_not_found() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3247,7 +3285,7 @@ mod tests {
     /// make sure t command moves the cursor
     fn test_t_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3265,7 +3303,7 @@ mod tests {
     fn test_t_movement_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg d").unwrap();
@@ -3282,7 +3320,7 @@ mod tests {
     /// test normal mode after char movement
     fn test_t_movement_then_normal() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3300,7 +3338,7 @@ mod tests {
     fn test_t_movement_with_delete() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3319,7 +3357,7 @@ mod tests {
     fn test_t_movement_with_change() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3347,7 +3385,7 @@ mod tests {
     /// make sure f command moves the cursor
     fn test_f_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3364,7 +3402,7 @@ mod tests {
     /// make sure T command moves the cursor
     fn test_cap_t_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3381,7 +3419,7 @@ mod tests {
     /// make sure F command moves the cursor
     fn test_cap_f_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
@@ -3398,7 +3436,7 @@ mod tests {
     /// make sure ; command moves the cursor
     fn test_semi_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc abc").unwrap();
@@ -3415,7 +3453,7 @@ mod tests {
     /// make sure , command moves the cursor
     fn test_comma_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc abc").unwrap();
@@ -3432,7 +3470,7 @@ mod tests {
     /// test delete with semi (;)
     fn test_semi_delete() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc abc").unwrap();
@@ -3451,7 +3489,7 @@ mod tests {
     fn test_semi_delete_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc abc abc abc").unwrap();
@@ -3478,7 +3516,7 @@ mod tests {
     /// test find_char
     fn test_find_char() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
         assert_eq!(super::find_char(ed.current_buffer(), 0, 'd', 1), Some(3));
     }
@@ -3487,7 +3525,7 @@ mod tests {
     /// test find_char with non-zero start
     fn test_find_char_with_start() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
         assert_eq!(super::find_char(ed.current_buffer(), 1, 'a', 1), Some(3));
     }
@@ -3496,7 +3534,7 @@ mod tests {
     /// test find_char with count
     fn test_find_char_with_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
         assert_eq!(super::find_char(ed.current_buffer(), 0, 'a', 2), Some(3));
     }
@@ -3505,7 +3543,7 @@ mod tests {
     /// test find_char not found
     fn test_find_char_not_found() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
         assert_eq!(super::find_char(ed.current_buffer(), 0, 'z', 1), None);
     }
@@ -3514,7 +3552,7 @@ mod tests {
     /// test find_char_rev
     fn test_find_char_rev() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
         assert_eq!(
             super::find_char_rev(ed.current_buffer(), 6, 'd', 1),
@@ -3526,7 +3564,7 @@ mod tests {
     /// test find_char_rev with non-zero start
     fn test_find_char_rev_with_start() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
         assert_eq!(
             super::find_char_rev(ed.current_buffer(), 5, 'c', 1),
@@ -3538,7 +3576,7 @@ mod tests {
     /// test find_char_rev with count
     fn test_find_char_rev_with_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
         assert_eq!(
             super::find_char_rev(ed.current_buffer(), 6, 'c', 2),
@@ -3550,7 +3588,7 @@ mod tests {
     /// test find_char_rev not found
     fn test_find_char_rev_not_found() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
         assert_eq!(super::find_char_rev(ed.current_buffer(), 6, 'z', 1), None);
     }
@@ -3559,7 +3597,7 @@ mod tests {
     /// undo with counts
     fn test_undo_with_counts() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
@@ -3576,7 +3614,7 @@ mod tests {
     /// redo with counts
     fn test_redo_with_counts() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
@@ -3606,7 +3644,7 @@ mod tests {
     fn change_word_ge_ws() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change some words").unwrap();
@@ -3637,7 +3675,7 @@ mod tests {
     fn undo_insert() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3664,7 +3702,7 @@ mod tests {
     fn undo_insert2() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3697,7 +3735,7 @@ mod tests {
             .push(Buffer::from("insert something"))
             .unwrap();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3740,7 +3778,7 @@ mod tests {
     fn undo_insert_with_history2() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3771,7 +3809,7 @@ mod tests {
     fn undo_insert_with_movement_reset() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3807,7 +3845,7 @@ mod tests {
     /// test undo in groups
     fn undo_3x() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("rm some words").unwrap();
@@ -3825,7 +3863,7 @@ mod tests {
     fn undo_insert_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3861,7 +3899,7 @@ mod tests {
     fn undo_insert_with_repeat() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
@@ -3891,7 +3929,7 @@ mod tests {
     fn undo_s_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace some words").unwrap();
@@ -3919,7 +3957,7 @@ mod tests {
     fn undo_multiple_groups() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace some words").unwrap();
@@ -3955,7 +3993,7 @@ mod tests {
     fn undo_r_command_with_count() {
         let mut context = Context::test();
 
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("replace some words").unwrap();
@@ -3972,7 +4010,7 @@ mod tests {
     /// test tilde
     fn tilde_basic() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
@@ -3985,7 +4023,7 @@ mod tests {
     /// test tilde
     fn tilde_basic2() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
@@ -3998,7 +4036,7 @@ mod tests {
     /// test tilde
     fn tilde_move() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
@@ -4015,7 +4053,7 @@ mod tests {
     /// test tilde
     fn tilde_repeat() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
@@ -4028,7 +4066,7 @@ mod tests {
     /// test tilde
     fn tilde_count() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
@@ -4045,7 +4083,7 @@ mod tests {
     /// test tilde
     fn tilde_count_short() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("TILDE").unwrap();
@@ -4062,7 +4100,7 @@ mod tests {
     /// test tilde
     fn tilde_nocase() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("ti_lde").unwrap();
@@ -4079,7 +4117,7 @@ mod tests {
     /// ctrl-h should act as backspace
     fn ctrl_h() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("not empty").unwrap();
@@ -4093,7 +4131,7 @@ mod tests {
     /// repeat char move with no last char
     fn repeat_char_move_no_char() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();

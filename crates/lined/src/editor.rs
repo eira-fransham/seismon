@@ -8,7 +8,7 @@ use strip_ansi_escapes::strip;
 use termion::{self, clear, color, cursor};
 
 use super::complete::Completer;
-use crate::{Buffer, EditorContext, Tty, context::ColorClosure, event::*, util};
+use crate::{Buffer, EditorContext, Highlighter, NoHighlighting, Tty, event::*, util};
 use itertools::Itertools;
 
 /// Indicates the mode that should be currently displayed in the propmpt.
@@ -172,41 +172,37 @@ impl CursorPosition {
 }
 
 /// The core line editor. Displays and provides editing for history and the new buffer.
-pub struct Editor<C: ?Sized> {
+pub struct Editor<C, H: ?Sized = NoHighlighting> {
     prompt: Prompt,
 
-    // A closure that is evaluated just before we write to out.
-    // This allows us to do custom syntax highlighting and other fun stuff.
-    closure: Option<ColorClosure>,
-
-    // The location of the cursor. Note that the cursor does not lie on a char, but between chars.
-    // So, if `cursor == 0` then the cursor is before the first char,
-    // and if `cursor == 1` ten the cursor is after the first char and before the second char.
+    /// The location of the cursor. Note that the cursor does not lie on a char, but between chars.
+    /// So, if `cursor == 0` then the cursor is before the first char,
+    /// and if `cursor == 1` ten the cursor is after the first char and before the second char.
     cursor: usize,
 
-    // Buffer for the new line (ie. not from editing history)
+    /// Buffer for the new line (ie. not from editing history)
     new_buf: Buffer,
 
-    // Buffer to use when editing history so we do not overwrite it.
+    /// Buffer to use when editing history so we do not overwrite it.
     hist_buf: Buffer,
     hist_buf_valid: bool,
 
-    // None if we're on the new buffer, else the index of history
+    /// None if we're on the new buffer, else the index of history
     cur_history_loc: Option<usize>,
 
-    // The line of the cursor relative to the prompt. 1-indexed.
-    // So if the cursor is on the same line as the prompt, `term_cursor_line == 1`.
-    // If the cursor is on the line below the prompt, `term_cursor_line == 2`.
+    /// The line of the cursor relative to the prompt. 1-indexed.
+    /// So if the cursor is on the same line as the prompt, `term_cursor_line == 1`.
+    /// If the cursor is on the line below the prompt, `term_cursor_line == 2`.
     term_cursor_line: usize,
 
-    // The next completion to suggest, or none
+    /// The next completion to suggest, or none
     show_completions_hint: Option<(Vec<String>, Option<usize>)>,
 
-    // Show autosuggestions based on history
+    /// Show autosuggestions based on history
     show_autosuggestions: bool,
 
-    // if set, the cursor will not be allow to move one past the end of the line, this is necessary
-    // for Vi's normal mode.
+    /// if set, the cursor will not be allow to move one past the end of the line, this is necessary
+    /// for Vi's normal mode.
     pub no_eol: bool,
 
     reverse_search: bool,
@@ -221,6 +217,25 @@ pub struct Editor<C: ?Sized> {
     history_fresh: bool,
 
     context: C,
+
+    /// A type that is evaluated just before we write to out.
+    /// This allows us to do custom syntax highlighting and other fun stuff.
+    highlighter: H,
+}
+
+impl<C, H> AsMut<Editor<C, dyn Highlighter>> for Editor<C, H>
+where
+    H: Highlighter,
+{
+    fn as_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
+        self.as_dyn_mut()
+    }
+}
+
+impl<C> AsMut<Editor<C, dyn Highlighter>> for Editor<C, dyn Highlighter> {
+    fn as_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
+        self
+    }
 }
 
 macro_rules! cur_buf_mut {
@@ -250,16 +265,7 @@ macro_rules! cur_buf {
 }
 
 impl<C: EditorContext> Editor<C> {
-    pub fn new(prompt: Prompt, f: Option<ColorClosure>, context: C) -> io::Result<Self> {
-        Editor::new_with_init_buffer(prompt, f, context, Buffer::new())
-    }
-
-    pub fn new_with_init_buffer<B: Into<Buffer>>(
-        prompt: Prompt,
-        f: Option<ColorClosure>,
-        mut context: C,
-        buffer: B,
-    ) -> io::Result<Self> {
+    pub fn new(prompt: Prompt, mut context: C) -> io::Result<Self> {
         let Prompt {
             mut prompt,
             vi_status,
@@ -282,8 +288,8 @@ impl<C: EditorContext> Editor<C> {
         let mut ed = Editor {
             prompt,
             cursor: 0,
-            closure: f,
-            new_buf: buffer.into(),
+            highlighter: NoHighlighting,
+            new_buf: Buffer::new(),
             hist_buf: Buffer::new(),
             hist_buf_valid: false,
             cur_history_loc: None,
@@ -306,6 +312,77 @@ impl<C: EditorContext> Editor<C> {
         }
         ed.display()?;
         Ok(ed)
+    }
+}
+
+impl<C, H> Editor<C, H>
+where
+    H: Highlighter,
+{
+    pub(crate) fn as_dyn_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
+        self as _
+    }
+}
+
+impl<C, H> Editor<C, H>
+where
+    C: EditorContext,
+    H: ?Sized + Highlighter,
+{
+    pub fn with_init_buffer<B>(self, buffer: B) -> Self
+    where
+        B: Into<Buffer>,
+        H: Sized,
+    {
+        Editor {
+            prompt: self.prompt,
+            cursor: self.cursor,
+            highlighter: self.highlighter,
+            new_buf: buffer.into(),
+            hist_buf: self.hist_buf,
+            hist_buf_valid: self.hist_buf_valid,
+            cur_history_loc: self.cur_history_loc,
+            context: self.context,
+            show_completions_hint: self.show_completions_hint,
+            show_autosuggestions: self.show_autosuggestions,
+            term_cursor_line: self.term_cursor_line,
+            no_eol: self.no_eol,
+            reverse_search: self.reverse_search,
+            forward_search: self.forward_search,
+            buffer_changed: self.buffer_changed,
+            history_subset_index: self.history_subset_index,
+            history_subset_loc: self.history_subset_loc,
+            autosuggestion: self.autosuggestion,
+            history_fresh: self.history_fresh,
+        }
+    }
+
+    pub fn with_highlighter<NewH>(self, highlighter: NewH) -> Editor<C, NewH>
+    where
+        H: Sized,
+        NewH: Highlighter,
+    {
+        Editor {
+            prompt: self.prompt,
+            cursor: self.cursor,
+            highlighter,
+            new_buf: self.new_buf,
+            hist_buf: self.hist_buf,
+            hist_buf_valid: self.hist_buf_valid,
+            cur_history_loc: self.cur_history_loc,
+            context: self.context,
+            show_completions_hint: self.show_completions_hint,
+            show_autosuggestions: self.show_autosuggestions,
+            term_cursor_line: self.term_cursor_line,
+            no_eol: self.no_eol,
+            reverse_search: self.reverse_search,
+            forward_search: self.forward_search,
+            buffer_changed: self.buffer_changed,
+            history_subset_index: self.history_subset_index,
+            history_subset_loc: self.history_subset_loc,
+            autosuggestion: self.autosuggestion,
+            history_fresh: self.history_fresh,
+        }
     }
 
     fn is_search(&self) -> bool {
@@ -545,7 +622,10 @@ impl<C: EditorContext> Editor<C> {
         self.show_completions_hint = None;
     }
 
-    pub fn complete<T: Completer>(&mut self, handler: &mut T) -> io::Result<()> {
+    pub fn complete<T: Completer>(&mut self, handler: &mut T) -> io::Result<()>
+    where
+        Self: AsMut<Editor<C, dyn Highlighter>>,
+    {
         handler.on_event(Event::new(self, EventKind::BeforeComplete));
 
         if let Some((completions, i_in)) = self.show_completions_hint.take() {
@@ -1092,10 +1172,7 @@ impl<C: EditorContext> Editor<C> {
                 out_buf.push_str(&line);
             } else if line.len() > buf_num_remaining_bytes {
                 let start = &line[..buf_num_remaining_bytes];
-                let start = match self.closure {
-                    Some(ref f) => f(start),
-                    None => start.to_owned(),
-                };
+                let start = self.highlighter.highlight(start);
                 if self.is_search() {
                     write!(&mut out_buf, "{}", color::Yellow.fg_str()).map_err(io::Error::other)?;
                 }
@@ -1107,10 +1184,7 @@ impl<C: EditorContext> Editor<C> {
                 buf_num_remaining_bytes = 0;
             } else {
                 buf_num_remaining_bytes -= line.len();
-                let written_line = match self.closure {
-                    Some(ref f) => f(&line),
-                    None => line,
-                };
+                let written_line = self.highlighter.highlight(&line);
                 if self.is_search() {
                     write!(&mut out_buf, "{}", color::Yellow.fg_str()).map_err(io::Error::other)?;
                 }
@@ -1204,11 +1278,11 @@ impl<C: EditorContext> Editor<C> {
     }
 }
 
-impl<C> From<Editor<C>> for String
+impl<C, H> From<Editor<C, H>> for String
 where
     C: EditorContext,
 {
-    fn from(ed: Editor<C>) -> String {
+    fn from(ed: Editor<C, H>) -> String {
         match ed.cur_history_loc {
             Some(i) => {
                 if ed.hist_buf_valid {
@@ -1232,7 +1306,7 @@ mod tests {
     /// test undoing delete_all_after_cursor
     fn delete_all_after_cursor_undo() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("delete all of this").unwrap();
         ed.move_cursor_to_start_of_line().unwrap();
         ed.delete_all_after_cursor().unwrap();
@@ -1243,7 +1317,7 @@ mod tests {
     #[test]
     fn move_cursor_left() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("let").unwrap();
         assert_eq!(ed.cursor, 3);
 
@@ -1258,7 +1332,7 @@ mod tests {
     #[test]
     fn cursor_movement() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
         assert_eq!(ed.cursor, 5);
 
@@ -1270,7 +1344,7 @@ mod tests {
     #[test]
     fn delete_until_backwards() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
         assert_eq!(ed.cursor, 5);
 
@@ -1282,7 +1356,7 @@ mod tests {
     #[test]
     fn delete_until_forwards() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
         ed.cursor = 0;
 
@@ -1294,7 +1368,7 @@ mod tests {
     #[test]
     fn delete_until() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
         ed.cursor = 4;
 
@@ -1306,7 +1380,7 @@ mod tests {
     #[test]
     fn delete_until_inclusive() {
         let mut context = Context::test();
-        let mut ed = Editor::new(Prompt::from("prompt"), None, &mut context).unwrap();
+        let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("right").unwrap();
         ed.cursor = 4;
 

@@ -2,20 +2,27 @@ extern crate regex;
 extern crate termion;
 
 use std::{
+    borrow::Cow,
     env::{args, current_dir},
     io,
 };
 
 use lined::{
-    Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter, Prompt,
+    Completer, Context, CursorPosition, EditorContext, Event, EventKind, FilenameCompleter,
+    Highlighter, Prompt,
 };
 use regex::Regex;
 use termion::color;
 
-fn highlight_dodo(s: &str) -> String {
-    let reg_exp = Regex::new("(?P<k>dodo)").unwrap();
-    let format = format!("{}$k{}", color::Fg(color::Red), color::Fg(color::Reset));
-    reg_exp.replace_all(s, format.as_str()).to_string()
+/// This prints out the text back onto the screen with `dodo` highlighted.
+struct HighlightDodo;
+
+impl Highlighter for HighlightDodo {
+    fn highlight<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        let reg_exp = Regex::new("(?P<k>dodo)").unwrap();
+        let format = format!("{}$k{}", color::Fg(color::Red), color::Fg(color::Reset));
+        reg_exp.replace_all(s, format.as_str())
+    }
 }
 
 struct NoCommentCompleter {
@@ -74,10 +81,10 @@ fn main() {
         .unwrap();
 
     loop {
-        let res = con.read_line(
+        let res = con.read_line_with_highlighter(
             Prompt::from("[prompt]$ "),
-            Some(Box::new(highlight_dodo)),
             &mut completer,
+            HighlightDodo,
         );
 
         match res {

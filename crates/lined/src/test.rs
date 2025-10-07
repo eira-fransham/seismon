@@ -54,7 +54,7 @@ impl io::Write for TestTty {
 
 fn assert_cursor_pos(s: &str, cursor: usize, expected_pos: CursorPosition) {
     let buf = Buffer::from(s.to_owned());
-    let words = context::get_buffer_words(&buf);
+    let words = DefaultWordDivider.divide(&buf);
     let pos = CursorPosition::get(cursor, words);
     assert!(
         expected_pos == pos,
