@@ -18,7 +18,7 @@
 use std::{
     fmt,
     io::{self, BufRead},
-    mem::{self, size_of},
+    mem,
     ops::{Deref, Not},
 };
 
@@ -26,9 +26,20 @@ use beef::Cow;
 use byteorder::{LittleEndian, ReadBytesExt};
 use nom::AsBytes;
 
-/// A plain-old-data type.
-pub trait Pod: 'static + Copy + Sized + Send + Sync {}
-impl<T: 'static + Copy + Sized + Send + Sync> Pod for T {}
+use chrono::Duration;
+
+pub mod model;
+
+// TODO: handle this unwrap? i64 can handle ~200,000 years in microseconds
+#[inline]
+pub fn duration_to_f32(d: Duration) -> f32 {
+    d.num_microseconds().unwrap() as f32 / 1_000_000.0
+}
+
+#[inline]
+pub fn duration_from_f32(f: f32) -> Duration {
+    Duration::microseconds((f * 1_000_000.0) as i64)
+}
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StringColor {
@@ -231,47 +242,4 @@ where
     Ok(QStr {
         raw: Cow::owned(bytes),
     })
-}
-
-/// # Safety
-/// Identical to bytemuck, TODO just replace this with bytemuck.
-pub unsafe fn any_as_bytes<T>(t: &T) -> &[u8]
-where
-    T: Pod,
-{
-    unsafe { std::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>()) }
-}
-
-/// # Safety
-/// Identical to bytemuck, TODO just replace this with bytemuck.
-pub unsafe fn any_slice_as_bytes<T>(t: &[T]) -> &[u8]
-where
-    T: Pod,
-{
-    unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, mem::size_of_val(t)) }
-}
-
-/// # Safety
-/// Identical to bytemuck, TODO just replace this with bytemuck.
-pub unsafe fn bytes_as_any<T>(bytes: &[u8]) -> T
-where
-    T: Pod,
-{
-    assert_eq!(bytes.len(), size_of::<T>());
-    unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const T) }
-}
-
-/// # Safety
-/// Identical to bytemuck, TODO just replace this with bytemuck.
-pub unsafe fn any_as_u32_slice<T>(t: &T) -> &[u32]
-where
-    T: Pod,
-{
-    assert!(size_of::<T>() % size_of::<u32>() == 0);
-    unsafe {
-        std::slice::from_raw_parts(
-            (t as *const T) as *const u32,
-            size_of::<T>() / size_of::<u32>(),
-        )
-    }
 }

@@ -9,7 +9,7 @@ use crate::{
             world::{Camera, WorldPipelineBase},
         },
     },
-    common::{math::Angles, util::any_slice_as_bytes},
+    common::math::Angles,
 };
 
 use bevy::{
@@ -21,6 +21,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
+use bytemuck::{Pod, Zeroable};
 
 #[rustfmt::skip]
 const PARTICLE_TEXTURE_PIXELS: [u8; 64] = [
@@ -62,7 +63,7 @@ impl ParticlePipeline {
 
         let vertex_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_slice_as_bytes(&VERTICES) },
+            contents: bytemuck::cast_slice(&VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -207,12 +208,14 @@ impl ParticlePipeline {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: Mat4,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct FragmentPushConstants {
     pub color: u32,
 }
@@ -311,7 +314,7 @@ impl Pipeline for ParticlePipeline {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct ParticleVertex {
     position: [f32; 3],
     texcoord: [f32; 2],

@@ -29,9 +29,8 @@ use bevy::{
         renderer::RenderDevice,
     },
 };
+use bytemuck::{AnyBitPattern, Pod};
 use wgpu::{BindGroupLayoutEntry, PipelineCompilationOptions};
-
-use crate::common::util::{Pod, any_as_bytes};
 
 /// The `Pipeline` trait, which allows render pipelines to be defined more-or-less declaratively.
 fn create_shader<S, K, V, I>(
@@ -87,13 +86,13 @@ pub enum PushConstantUpdate<T> {
 /// style, leaving the actual creation to the default implementation of `Pipeline::create()`.
 pub trait Pipeline {
     /// Push constants used for the vertex stage of the pipeline.
-    type VertexPushConstants: Pod;
+    type VertexPushConstants: Pod + AnyBitPattern;
 
     /// Push constants shared between the vertex and fragment stages of the pipeline.
-    type SharedPushConstants: Pod;
+    type SharedPushConstants: Pod + AnyBitPattern;
 
     /// Push constants used for the fragment stage of the pipeline.
-    type FragmentPushConstants: Pod;
+    type FragmentPushConstants: Pod + AnyBitPattern;
 
     type Args;
 
@@ -400,7 +399,7 @@ pub trait Pipeline {
 
         if size_of::<Self::VertexPushConstants>() > 0 {
             let data = match vpc {
-                Update(v) => Some(unsafe { any_as_bytes(v) }),
+                Update(v) => Some(bytemuck::bytes_of(v)),
                 Retain => None,
                 Clear => Some(&[][..]),
             };
@@ -417,7 +416,7 @@ pub trait Pipeline {
 
         if size_of::<Self::SharedPushConstants>() > 0 {
             let data = match spc {
-                Update(s) => Some(unsafe { any_as_bytes(s) }),
+                Update(s) => Some(bytemuck::bytes_of(s)),
                 Retain => None,
                 Clear => Some(&[][..]),
             };
@@ -438,7 +437,7 @@ pub trait Pipeline {
 
         if size_of::<Self::FragmentPushConstants>() > 0 {
             let data = match fpc {
-                Update(f) => Some(unsafe { any_as_bytes(f) }),
+                Update(f) => Some(bytemuck::bytes_of(f)),
                 Retain => None,
                 Clear => Some(&[][..]),
             };

@@ -31,17 +31,17 @@ struct CommentCompleter {
 }
 
 impl Completer for CommentCompleter {
-    fn completions(&mut self, start: &str) -> Vec<String> {
+    fn completions<'a>(&'a mut self, start: &'a str) -> impl Iterator<Item = Cow<'a, str>> + 'a {
         if let Some(inner) = &mut self.inner {
-            inner.completions(start)
+            itertools::Either::Left(inner.completions(start))
         } else {
-            Vec::new()
+            itertools::Either::Right(std::iter::empty())
         }
     }
 
     fn on_event<C: EditorContext>(&mut self, event: Event<C>) {
         if let EventKind::BeforeComplete = event.kind {
-            let (_, pos) = event.editor.get_words_and_cursor_position();
+            let (_, pos) = event.editor.words_and_cursor_position();
 
             // Figure out of we are completing a command (the first word) or a filename.
             let filename = match pos {

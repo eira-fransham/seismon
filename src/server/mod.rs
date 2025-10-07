@@ -32,13 +32,10 @@ use std::{
 use crate::{
     common::{
         bsp::BspLeafContents,
-        console::{Registry, RunCmd},
-        engine::{self, duration_from_f32, duration_to_f32},
+        console::{Registry, RunCmd, SeismonConsoleCorePlugin, UnhandledCmd},
         math::{CollisionResult, Hyperplane},
-        model::Model,
-        net::{ClientMessage, EntityState, ServerCmd},
+        net::{ClientMessage, EntityState, InMemoryMessaging, ServerCmd, ServerMessage},
         parse,
-        util::{QStr, QString},
         vfs::Vfs,
     },
     server::{
@@ -68,10 +65,12 @@ use self::{
 
 use arrayvec::ArrayVec;
 use bevy::{
-    app::{AppLabel, FixedMain},
+    app::{AppLabel, MainSchedulePlugin},
     math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
+    time::TimePlugin,
 };
+use bevy_mod_mdl::AliasModel;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt as _};
 use chrono::Duration;
@@ -79,8 +78,21 @@ use failure::bail;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use num::FromPrimitive;
+use seismon_utils::{QStr, QString, duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
+
+/// We don't need to store the model on the server.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DummyAliasModel;
+
+impl From<AliasModel> for DummyAliasModel {
+    fn from(_: AliasModel) -> Self {
+        DummyAliasModel
+    }
+}
+
+type Model = crate::common::model::Model<DummyAliasModel>;
 
 /// The destination of a message in the `Write*` family of QuakeC fns
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
@@ -131,18 +143,35 @@ pub struct SeismonListenServerPlugin;
 
 impl Plugin for SeismonListenServerPlugin {
     fn build(&self, app: &mut App) {
+        use bevy::ecs::schedule::ScheduleLabel as _;
+
         #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, AppLabel)]
         struct ServerApp;
 
-        use bevy::ecs::schedule::ScheduleLabel as _;
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let app_type_registry = app.world().resource::<AppTypeRegistry>().clone();
+        let vfs = app.world().resource::<Vfs>().clone();
 
-        let asset_server = app.world_mut().resource::<AssetServer>().clone();
+        let serverside_messaging = app
+            .world_mut()
+            .resource_mut::<InMemoryMessaging>()
+            .take_serverside()
+            .unwrap();
 
         let mut server_sub_app = SubApp::new();
-        server_sub_app.update_schedule = Some(FixedMain.intern());
+        server_sub_app.insert_resource(serverside_messaging);
+        server_sub_app.update_schedule = Some(Main.intern());
         server_sub_app
+            .insert_resource(app_type_registry)
+            .insert_resource(asset_server)
+            .insert_resource(vfs)
+            .add_event::<ServerMessage>()
+            .add_event::<ClientMessage>()
+            .add_systems(First, systems::recv_from_client)
+            .add_systems(Last, systems::send_to_client)
             .add_plugins(SeismonServerPlugin)
-            .insert_resource(asset_server);
+            .add_plugins(TimePlugin)
+            .add_plugins(MainSchedulePlugin);
 
         server_sub_app.set_extract(|client_world, server_world| {
             server_world
@@ -150,13 +179,17 @@ impl Plugin for SeismonListenServerPlugin {
                 .send_batch(
                     client_world
                         .resource_mut::<Events<ClientMessage>>()
-                        .update_drain(),
+                        .iter_current_update_events()
+                        .cloned(),
                 );
-            client_world.resource_mut::<Events<ServerCmd>>().send_batch(
-                server_world
-                    .resource_mut::<Events<ServerCmd>>()
-                    .update_drain(),
-            );
+            client_world
+                .resource_mut::<Events<ServerMessage>>()
+                .send_batch(
+                    server_world
+                        .resource_mut::<Events<ServerMessage>>()
+                        .iter_current_update_events()
+                        .cloned(),
+                );
         });
 
         app.insert_sub_app(ServerApp, server_sub_app);
@@ -165,25 +198,31 @@ impl Plugin for SeismonListenServerPlugin {
 
 impl Plugin for SeismonServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            FixedUpdate,
-            (
-                systems::recv_client_messages,
-                systems::server_update,
-                systems::server_spawn.pipe(
-                    |In(res), mut commands: Commands, mut runcmd: EventWriter<RunCmd<'static>>| {
-                        if let Err(e) = res {
-                            error!("Failed spawning server: {}", Report::from_error(e));
-                            commands.remove_resource::<Session>();
-                            runcmd.write("startdemos".into());
-                        }
-                    },
-                ),
+        // TODO: Should we share consoles between client and server? Seems like it'd be better to keep them separate.
+        app.init_resource::<Vfs>()
+            .add_systems(PreUpdate, systems::recv_client_messages)
+            .add_systems(
+                FixedUpdate,
+                (
+                    systems::server_update,
+                    systems::server_spawn.pipe(
+                        |In(res),
+                         mut commands: Commands,
+                         mut runcmd: EventWriter<RunCmd<'static>>| {
+                            if let Err(e) = res {
+                                error!("Failed spawning server: {}", Report::from_error(e));
+                                commands.remove_resource::<Session>();
+                                runcmd.write("startdemos".into());
+                            }
+                        },
+                    ),
+                )
+                    .run_if(resource_exists::<Session>),
             )
-                .run_if(resource_exists::<Session>),
-        )
-        .add_event::<ClientMessage>()
-        .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
+            .add_event::<ClientMessage>()
+            .add_event::<ServerMessage>()
+            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
+            .add_plugins(SeismonConsoleCorePlugin);
 
         commands::register_commands(app);
         cvars::register_cvars(app);
@@ -4104,17 +4143,34 @@ pub mod systems {
     use crate::common::{
         console::CmdName,
         net::{
-            self, ClientCmd, ClientMessage, GameType, ItemFlags, PlayerData, ServerMessage,
-            SignOnStage,
+            self, ClientCmd, ClientMessage, GameType, InMemoryServerMessaging, ItemFlags,
+            PlayerData, ServerMessage, SignOnStage,
         },
     };
 
     use super::*;
 
+    pub fn send_to_client(
+        mut sender: ResMut<InMemoryServerMessaging>,
+        mut server_events: ResMut<Events<ServerMessage>>,
+    ) {
+        for event in server_events.update_drain() {
+            sender.send(event);
+        }
+    }
+
+    pub fn recv_from_client(
+        mut receiver: ResMut<InMemoryServerMessaging>,
+        mut client_events: EventWriter<ClientMessage>,
+    ) {
+        client_events.write_batch(receiver.recv());
+    }
+
     pub fn recv_client_messages(
-        mut server: ResMut<Session>,
+        mut server: Option<ResMut<Session>>,
         mut client_msgs: EventReader<ClientMessage>,
         mut server_messages: EventWriter<ServerMessage>,
+        mut run_cmds: EventWriter<RunCmd<'static>>,
         mut registry: ResMut<Registry>,
         vfs: Res<Vfs>,
     ) {
@@ -4148,6 +4204,10 @@ pub mod systems {
                                         // TODO: Error handling
                                         assert!(args.is_empty());
 
+                                        let Some(server) = &mut server else {
+                                            continue;
+                                        };
+
                                         server
                                             .clientcmd_prespawn(
                                                 client_id,
@@ -4166,6 +4226,10 @@ pub mod systems {
                                         // TODO: Error handling
                                         assert!(args.len() == 1);
 
+                                        let Some(server) = &mut server else {
+                                            continue;
+                                        };
+
                                         server
                                             .clientcmd_name(
                                                 client_id,
@@ -4179,6 +4243,10 @@ pub mod systems {
                                         warn!("TODO: Set color");
                                     }
                                     "spawn" => {
+                                        let Some(server) = &mut server else {
+                                            continue;
+                                        };
+
                                         server.clientcmd_spawn(client_id).unwrap();
 
                                         ServerCmd::SignOnStage {
@@ -4190,6 +4258,10 @@ pub mod systems {
                                     "begin" => {
                                         // TODO: Error handling
                                         assert!(args.is_empty());
+
+                                        let Some(server) = &mut server else {
+                                            continue;
+                                        };
 
                                         server
                                             .clientcmd_begin(client_id, registry.reborrow(), &vfs)
@@ -4211,11 +4283,12 @@ pub mod systems {
                                         .serialize(&mut out_packet)
                                         .unwrap();
                                     }
-                                    other => {
-                                        error!(
-                                            "{}: command unrecognized in connection scope",
-                                            other
+                                    _ => {
+                                        run_cmds.write(
+                                            RunCmd(CmdName { name, trigger }, args).into_owned(),
                                         );
+                                        // HACK: We need to wait a frame to process messages.
+                                        return;
                                     }
                                 }
                             }
@@ -4229,7 +4302,9 @@ pub mod systems {
                             button_flags,
                             impulse,
                         } => {
-                            let Session { persist, level, .. } = &mut *server;
+                            let Some(Session { persist, level, .. }) = server.as_deref_mut() else {
+                                continue;
+                            };
 
                             if let Some(ent_id) = persist
                                 .client(client_id)
@@ -4271,7 +4346,7 @@ pub mod systems {
             // TODO: Should not hard-code client id 0
             server_messages.write(ServerMessage {
                 client_id: 0,
-                packet: out_packet,
+                packet: out_packet.into(),
             });
         }
     }
@@ -4355,7 +4430,7 @@ pub mod systems {
 
         server_messages.write(ServerMessage {
             client_id: 0,
-            packet,
+            packet: packet.into(),
         });
 
         Ok(())
@@ -4431,7 +4506,7 @@ pub mod systems {
                 }
 
                 ServerCmd::Time {
-                    time: engine::duration_to_f32(level.time),
+                    time: seismon_utils::duration_to_f32(level.time),
                 }
                 .serialize(&mut packet)
                 .unwrap();
@@ -4535,7 +4610,10 @@ pub mod systems {
                 // events related to those entities
                 packet.extend_from_slice(&level.broadcast);
 
-                server_messages.write(ServerMessage { client_id, packet });
+                server_messages.write(ServerMessage {
+                    client_id,
+                    packet: packet.into(),
+                });
             }
         }
     }

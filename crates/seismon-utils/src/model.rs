@@ -15,15 +15,25 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use chrono::Duration;
+use bitflags::bitflags;
+use num_derive::FromPrimitive;
 
-// TODO: handle this unwrap? i64 can handle ~200,000 years in microseconds
-#[inline]
-pub fn duration_to_f32(d: Duration) -> f32 {
-    d.num_microseconds().unwrap() as f32 / 1_000_000.0
+#[derive(Debug, FromPrimitive)]
+pub enum SyncType {
+    Sync = 0,
+    Rand = 1,
 }
 
-#[inline]
-pub fn duration_from_f32(f: f32) -> Duration {
-    Duration::microseconds((f * 1_000_000.0) as i64)
+bitflags! {
+    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
+    pub struct ModelFlags: u8 {
+        const ROCKET  = 0b00000001;
+        const GRENADE = 0b00000010;
+        const GIB     = 0b00000100;
+        const ROTATE  = 0b00001000;
+        const TRACER  = 0b00010000;
+        const ZOMGIB  = 0b00100000;
+        const TRACER2 = 0b01000000;
+        const TRACER3 = 0b10000000;
+    }
 }

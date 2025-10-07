@@ -2,7 +2,6 @@ use std::f32::consts::PI;
 
 use crate::common::{
     console::Registry,
-    engine::{duration_from_f32, duration_to_f32},
     math::{self, Angles},
 };
 
@@ -12,6 +11,7 @@ use bevy::{
     math::{Vec2, Vec3},
 };
 use chrono::Duration;
+use seismon_utils::{duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 
 #[derive(Default, Clone)]

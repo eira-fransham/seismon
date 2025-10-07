@@ -18,10 +18,7 @@
 use std::{error::Error, fmt, ops};
 
 use crate::{
-    common::{
-        engine::duration_to_f32,
-        net::{ButtonFlags, EntityEffects, EntityState},
-    },
+    common::net::{ButtonFlags, EntityEffects, EntityState},
     server::{
         progs::{EntityId, FieldDef, FunctionId, StringId, StringTable, Type},
         world::phys::MoveKind,
@@ -37,6 +34,7 @@ use im::vector::{Focus, FocusMut};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use parking_lot::Mutex;
+use seismon_utils::duration_to_f32;
 use uluru::LRUCache;
 
 pub const MAX_ENT_LEAVES: usize = 16;

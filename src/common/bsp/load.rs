@@ -30,7 +30,6 @@ use crate::common::{
     },
     math::{Axis, Hyperplane},
     model::Model,
-    util::read_f32_3,
 };
 
 use super::{BspTextureFrame, BspTextureKind};
@@ -40,6 +39,7 @@ use failure::{ResultExt as _, bail, ensure};
 use hashbrown::HashMap;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
+use seismon_utils::read_f32_3;
 use thiserror::Error;
 
 const VERSION: i32 = 29;

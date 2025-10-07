@@ -21,16 +21,13 @@
 pub mod bitset;
 pub mod bsp;
 pub mod console;
-pub mod engine;
 pub mod host;
 pub mod math;
-pub mod mdl;
 pub mod model;
 pub mod net;
 pub mod pak;
 pub mod parse;
 pub mod sprite;
-pub mod util;
 pub mod vfs;
 pub mod wad;
 

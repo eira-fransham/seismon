@@ -4,8 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::common::util::{Pod, any_as_bytes};
-
 use bevy::{
     prelude::*,
     render::{
@@ -13,6 +11,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
+use bytemuck::{Pod, Zeroable};
 use failure::{Error, bail};
 
 // minimum limit is 16384:
@@ -24,8 +23,8 @@ const DYNAMIC_UNIFORM_BUFFER_SIZE: wgpu::BufferAddress = 1 << 19;
 // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#limits-minUniformBufferOffsetAlignment
 pub const DYNAMIC_UNIFORM_BUFFER_ALIGNMENT: usize = 256;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[repr(transparent)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct UniformBool {
     value: u32,
 }
@@ -118,7 +117,7 @@ where
         let start = block.addr as usize;
         let end = start + self.block_size().get() as usize;
         let slice = &mut self.update_buf[start..end];
-        slice.copy_from_slice(unsafe { any_as_bytes(&val) });
+        slice.copy_from_slice(bytemuck::bytes_of(&val));
     }
 
     /// Removes all allocations from the underlying buffer.

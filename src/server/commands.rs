@@ -4,13 +4,7 @@ use bevy::prelude::*;
 use clap::Parser;
 use failure::Error;
 
-use crate::{
-    client::{Connection, ConnectionState, input::InputFocus},
-    common::{
-        console::{ExecResult, RegisterCmdExt},
-        net::{ClientMessage, ServerMessage, SignOnStage},
-    },
-};
+use crate::common::console::{ExecResult, RegisterCmdExt};
 
 use super::*;
 
@@ -46,17 +40,12 @@ struct Map {
     map_name: PathBuf,
 }
 
-// TODO: Can probably do this better but it's also possibly fine because it's a system
-#[expect(clippy::too_many_arguments)]
 fn cmd_map(
     In(Map { mut map_name }): In<Map>,
     mut commands: Commands,
     session: Option<ResMut<Session>>,
-    mut focus: ResMut<InputFocus>,
     vfs: Res<Vfs>,
     mut registry: ResMut<Registry>,
-    mut client_events: ResMut<Events<ClientMessage>>,
-    mut server_events: ResMut<Events<ServerMessage>>,
 ) -> Result<(), Error> {
     if map_name.extension().is_none() {
         map_name.set_extension("bsp");
@@ -68,6 +57,8 @@ fn cmd_map(
     let bsp_name = format!("{}", path.display());
     let bsp = vfs.open(&bsp_name)?;
     let (models, entmap) = crate::common::bsp::load(bsp)?;
+
+    let models = models.into_iter().map(|m| m.cast()).collect();
 
     let progs = vfs.open("progs.dat")?;
     let progs = crate::server::progs::load(progs)?;
@@ -88,14 +79,6 @@ fn cmd_map(
     } else {
         commands.insert_resource(new_session);
     }
-
-    client_events.clear();
-    server_events.clear();
-
-    // TODO: This should not be handled here, server and client should be decoupled
-    commands.insert_resource(Connection::new_server());
-    commands.insert_resource(ConnectionState::SignOn(SignOnStage::Not));
-    *focus = InputFocus::Game;
 
     Ok(())
 }

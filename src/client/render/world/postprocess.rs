@@ -1,4 +1,7 @@
-use std::{mem::size_of, num::NonZeroU64};
+use std::{
+    mem::{self, size_of},
+    num::NonZeroU64,
+};
 
 use bevy::{
     core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
@@ -17,18 +20,31 @@ use bevy::{
         view::{PostProcessWrite, ViewTarget},
     },
 };
+use bytemuck::{Pod, Zeroable};
 use serde::Deserialize;
 use wgpu::{BindGroupLayoutEntry, BlendState, ColorTargetState, ColorWrites};
 
 use crate::{
     client::render::{GraphicsState, RenderState, pipeline::Pipeline, ui::quad::QuadPipeline},
-    common::{console::Registry, net::ColorShift, util::any_as_bytes},
+    common::{console::Registry, net::ColorShift},
 };
 
+const POST_PROCESS_UNIFORMS_PAD_BYTES: usize = 256 - mem::size_of::<[[f32; 4]; 5]>();
+
 #[repr(C, align(256))]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct PostProcessUniforms {
     pub color_shift: [[f32; 4]; 5],
+    _pad: [u8; POST_PROCESS_UNIFORMS_PAD_BYTES],
+}
+
+impl Default for PostProcessUniforms {
+    fn default() -> Self {
+        Self {
+            color_shift: Default::default(),
+            _pad: [0; POST_PROCESS_UNIFORMS_PAD_BYTES],
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -52,7 +68,7 @@ impl PostProcessPipeline {
         let uniforms = PostProcessUniforms::default();
         let uniform_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_as_bytes(&uniforms) },
+            contents: bytemuck::bytes_of(&uniforms),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -234,10 +250,15 @@ impl PostProcessBindGroup {
         post_pipeline: &PostProcessPipeline,
         color_shift: [[f32; 4]; 5],
     ) {
-        let uniforms = PostProcessUniforms { color_shift }; // update color shift
-        queue.write_buffer(&post_pipeline.uniform_buffer, 0, unsafe {
-            any_as_bytes(&uniforms)
-        });
+        let uniforms = PostProcessUniforms {
+            color_shift,
+            ..Default::default()
+        }; // update color shift
+        queue.write_buffer(
+            &post_pipeline.uniform_buffer,
+            0,
+            bytemuck::bytes_of(&uniforms),
+        );
     }
 
     pub fn record_draw<'this>(

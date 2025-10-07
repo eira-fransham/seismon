@@ -1,50 +1,95 @@
+use itertools::Itertools as _;
 use std::{
+    borrow::Cow,
     fmt::{self, Write as FmtWrite},
     hash::Hash,
-    io::{self, Write},
+    io::{self, BufWriter, Write},
     iter::FromIterator,
+    mem,
+    slice::SliceIndex,
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar as _;
 
 /// A modification performed on a `Buffer`. These are used for the purpose of undo/redo.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Action {
-    Insert { start: usize, text: Vec<char> },
-    Remove { start: usize, text: Vec<char> },
-    StartGroup,
-    EndGroup,
+pub enum Action<'a> {
+    /// Insert some text before the given location.
+    Insert {
+        /// The location to insert the text.
+        start: usize,
+        /// The text to insert (as an owned vector of UTF-32 chars).
+        text: Cow<'a, [char]>,
+    },
+    /// Remove the given text at the given location.
+    Remove {
+        /// The location to remove the text.
+        start: usize,
+        /// The text to remove (as an owned vector of UTF-32 chars).
+        text: Cow<'a, [char]>,
+    },
+    /// Start an "undo group", that should be undone together in a single operation.
+    StartUndoGroup,
+    /// End an "undo group".
+    EndUndoGroup,
 }
 
-impl Action {
-    pub fn do_on(&self, buf: &mut Buffer) {
-        match *self {
-            Action::Insert { start, ref text } => buf.insert_raw(start, &text[..]),
-            Action::Remove { start, ref text } => {
-                buf.remove_raw(start, start + text.len());
-            }
-            Action::StartGroup | Action::EndGroup => {}
+impl Action<'_> {
+    fn into_owned(self) -> Action<'static> {
+        match self {
+            Action::Insert { start, text } => Action::Insert {
+                start,
+                text: text.into_owned().into(),
+            },
+            Action::Remove { start, text } => Action::Remove {
+                start,
+                text: text.into_owned().into(),
+            },
+
+            Action::StartUndoGroup => Action::StartUndoGroup,
+            Action::EndUndoGroup => Action::EndUndoGroup,
         }
     }
 
-    pub fn undo(&self, buf: &mut Buffer) {
-        match *self {
-            Action::Insert { start, ref text } => {
-                buf.remove_raw(start, start + text.len());
+    fn invert(&self) -> Action<'_> {
+        match self {
+            Action::Insert { start, text } => Action::Remove {
+                start: *start,
+                text: text.as_ref().into(),
+            },
+            Action::Remove { start, text } => Action::Insert {
+                start: *start,
+                text: text.as_ref().into(),
+            },
+
+            Action::StartUndoGroup => Action::EndUndoGroup,
+            Action::EndUndoGroup => Action::StartUndoGroup,
+        }
+    }
+}
+
+impl Action<'_> {
+    /// Apply this action to the given buffer.
+    pub fn execute(&self, data: &mut Vec<char>) {
+        match self {
+            Action::Insert { start, text } => {
+                let _ = data.splice(*start..*start, text.iter().copied());
             }
-            Action::Remove { start, ref text } => buf.insert_raw(start, &text[..]),
-            Action::StartGroup | Action::EndGroup => {}
+            Action::Remove { start, text } => {
+                let _ = data.splice(*start..*start + text.len(), []);
+            }
+            Action::StartUndoGroup | Action::EndUndoGroup => {}
         }
     }
 }
 
 /// A buffer for text in the line editor.
 ///
-/// It keeps track of each action performed on it for use with undo/redo.
+/// It keeps track of each action performed on it for use with undo/redo. Unless otherwise mentioned,
+/// all methods that manipulate the inner characters can be undone or redone using `undo`/`redo`.
 #[derive(Clone, Debug)]
 pub struct Buffer {
     data: Vec<char>,
-    actions: Vec<Action>,
-    undone_actions: Vec<Action>,
+    actions: Actions<Action<'static>>,
 }
 
 impl Hash for Buffer {
@@ -91,8 +136,7 @@ impl FromIterator<char> for Buffer {
     fn from_iter<T: IntoIterator<Item = char>>(t: T) -> Self {
         Buffer {
             data: t.into_iter().collect(),
-            actions: Vec::new(),
-            undone_actions: Vec::new(),
+            actions: Default::default(),
         }
     }
 }
@@ -103,43 +147,143 @@ impl Default for Buffer {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Actions<T> {
+    position: usize,
+    inner: Vec<T>,
+}
+
+impl<T> Default for Actions<T> {
+    fn default() -> Self {
+        Self {
+            position: 0,
+            inner: vec![],
+        }
+    }
+}
+
+impl<T> Actions<T> {
+    fn clear(&mut self) {
+        self.position = 0;
+        self.inner.clear();
+    }
+
+    fn undo_is_empty(&self) -> bool {
+        self.position == 0
+    }
+
+    fn redo_is_empty(&self) -> bool {
+        self.position == self.inner.len()
+    }
+
+    fn push(&mut self, item: T) {
+        self.inner.truncate(self.position);
+        self.inner.push(item);
+        self.position += 1;
+    }
+
+    fn undo_iter(&mut self) -> impl Iterator<Item = &T> {
+        struct ActionsUndoIter<'a, T> {
+            position: &'a mut usize,
+            iter: std::slice::Iter<'a, T>,
+        }
+
+        impl<'a, T> Iterator for ActionsUndoIter<'a, T> {
+            type Item = &'a T;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.iter.next()
+            }
+        }
+
+        impl<'a, T> Drop for ActionsUndoIter<'a, T> {
+            fn drop(&mut self) {
+                *self.position = self.iter.as_slice().len();
+            }
+        }
+
+        let original_pos = self.position;
+        ActionsUndoIter {
+            position: &mut self.position,
+            iter: self.inner[..original_pos].iter(),
+        }
+    }
+
+    fn redo_iter(&mut self) -> impl Iterator<Item = &T> {
+        struct ActionsRedoIter<'a, T> {
+            position: &'a mut usize,
+            original_len: usize,
+            iter: std::slice::Iter<'a, T>,
+        }
+
+        impl<'a, T> Iterator for ActionsRedoIter<'a, T> {
+            type Item = &'a T;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.iter.next()
+            }
+        }
+
+        impl<'a, T> Drop for ActionsRedoIter<'a, T> {
+            fn drop(&mut self) {
+                *self.position = self.original_len - self.iter.as_slice().len();
+            }
+        }
+
+        let original_pos = self.position;
+        let original_len = self.inner.len();
+        ActionsRedoIter {
+            position: &mut self.position,
+            original_len,
+            iter: self.inner.get(original_pos..).unwrap_or(&[]).iter(),
+        }
+    }
+}
+
 impl Buffer {
+    /// Create a new empty [`Buffer`].
     pub fn new() -> Self {
         Buffer {
             data: Vec::new(),
-            actions: Vec::new(),
-            undone_actions: Vec::new(),
+            actions: Default::default(),
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_data_mut(&mut self) -> &mut Vec<char> {
+        &mut self.data
+    }
+
+    /// Clear the actions buffer.
     pub fn clear_actions(&mut self) {
         self.actions.clear();
-        self.undone_actions.clear();
     }
 
+    /// Start a group of actions that should be undone as a single operation.
     pub fn start_undo_group(&mut self) {
-        self.actions.push(Action::StartGroup);
+        self.actions.push(Action::StartUndoGroup);
     }
 
+    /// End an undo group (see [`Self::start_undo_group`]).
     pub fn end_undo_group(&mut self) {
-        self.actions.push(Action::EndGroup);
+        self.actions.push(Action::EndUndoGroup);
     }
 
+    /// Undo a single operation, or an undo group.
     pub fn undo(&mut self) -> bool {
         use Action::*;
 
-        let did = !self.actions.is_empty();
+        let did = !self.actions.undo_is_empty();
         let mut group_nest = 0;
         let mut group_count = 0;
-        while let Some(act) = self.actions.pop() {
-            act.undo(self);
-            self.undone_actions.push(act.clone());
+        for act in self.actions.undo_iter() {
+            act.invert().execute(&mut self.data);
             match act {
-                EndGroup => {
+                EndUndoGroup => {
                     group_nest += 1;
                     group_count = 0;
                 }
-                StartGroup => group_nest -= 1,
+                StartUndoGroup => group_nest -= 1,
                 // count the actions in this group so we can ignore empty groups below
                 _ => group_count += 1,
             }
@@ -152,21 +296,21 @@ impl Buffer {
         did
     }
 
+    /// Redo a single operation, or an undo group.
     pub fn redo(&mut self) -> bool {
         use Action::*;
 
-        let did = !self.undone_actions.is_empty();
+        let did = !self.actions.redo_is_empty();
         let mut group_nest = 0;
         let mut group_count = 0;
-        while let Some(act) = self.undone_actions.pop() {
-            act.do_on(self);
-            self.actions.push(act.clone());
+        for act in self.actions.redo_iter() {
+            act.execute(&mut self.data);
             match act {
-                StartGroup => {
+                StartUndoGroup => {
                     group_nest += 1;
                     group_count = 0;
                 }
-                EndGroup => group_nest -= 1,
+                EndUndoGroup => group_nest -= 1,
                 // count the actions in this group so we can ignore empty groups below
                 _ => group_count += 1,
             }
@@ -179,20 +323,24 @@ impl Buffer {
         did
     }
 
+    /// Undo all actions, reverting the buffer to the earliest state that we have information for.
     pub fn revert(&mut self) -> bool {
-        if self.actions.is_empty() {
+        if self.actions.undo_is_empty() {
             return false;
         }
 
-        while self.undo() {}
+        for act in self.actions.undo_iter() {
+            act.invert().execute(&mut self.data);
+        }
+
         true
     }
 
-    fn push_action(&mut self, act: Action) {
-        self.actions.push(act);
-        self.undone_actions.clear();
+    fn push_action(&mut self, act: Action<'_>) {
+        self.actions.push(act.into_owned());
     }
 
+    /// The final WORD - split by spaces.
     pub fn last_arg(&self) -> Option<&[char]> {
         self.data
             .split(|&c| c == ' ')
@@ -200,15 +348,17 @@ impl Buffer {
             .next_back()
     }
 
+    /// The number of characters currently in the buffer.
     pub fn num_chars(&self) -> usize {
         self.data.len()
     }
 
+    /// The number of bytes this buffer will take up when encoded to UTF-8.
     pub fn num_bytes(&self) -> usize {
-        let s: String = self.clone().into();
-        s.len()
+        self.data.iter().map(|c| c.len_utf8()).sum()
     }
 
+    /// The character immediately before `cursor`.
     pub fn char_before(&self, cursor: usize) -> Option<char> {
         if cursor == 0 {
             None
@@ -217,82 +367,113 @@ impl Buffer {
         }
     }
 
+    /// The character directly at `cursor`.
     pub fn char_after(&self, cursor: usize) -> Option<char> {
         self.data.get(cursor).cloned()
     }
 
     /// Returns the number of characters removed.
     pub fn remove(&mut self, start: usize, end: usize) -> usize {
-        let s = self.remove_raw(start, end);
+        let s = self.data.drain(start..end).collect::<Vec<_>>();
         let num_removed = s.len();
-        self.push_action(Action::Remove { start, text: s });
+        self.push_action(Action::Remove {
+            start,
+            text: s.into(),
+        });
         num_removed
     }
 
-    pub fn insert(&mut self, start: usize, text: &[char]) {
+    /// Insert a set of characters at the given index.
+    pub fn insert<'a, T: Into<Cow<'a, [char]>>>(&mut self, start: usize, text: T) {
+        let text = text.into().into_owned();
         let act = Action::Insert {
             start,
             text: text.into(),
         };
-        act.do_on(self);
+        act.execute(&mut self.data);
         self.push_action(act);
     }
 
-    // XXX rename, too confusing
-    pub fn insert_from_buffer(&mut self, other: &Buffer) {
+    /// If `other` has more characters than `self`, extend `self` with the characters from `other`
+    /// in the range `self.len()..`.
+    pub fn union(&mut self, other: &Buffer) {
         let start = self.data.len();
         self.insert(start, &other.data[start..])
     }
 
-    pub fn copy_buffer(&mut self, other: &Buffer) {
+    /// Replace the contents with the contents of `other`.
+    pub fn replace(&mut self, other: &Buffer) {
         let data_len = self.data.len();
         self.remove(0, data_len);
         self.insert(0, &other.data[0..])
     }
 
-    pub fn range(&self, start: usize, end: usize) -> String {
-        self.data[start..end].iter().cloned().collect()
+    /// Iterate over a range of characters in the buffer.
+    pub fn range<R>(&self, range: R) -> impl Iterator<Item = char>
+    where
+        R: SliceIndex<[char], Output = [char]>,
+    {
+        self.data[range].iter().cloned()
     }
 
-    pub fn range_chars(&self, start: usize, end: usize) -> Vec<char> {
-        self.data[start..end].to_owned()
-    }
-
+    /// Get the unicode width of all lines in the buffer.
     pub fn width(&self) -> Vec<usize> {
-        self.range_width(0, self.num_chars())
+        self.range_width(..)
     }
 
-    pub fn range_width(&self, start: usize, end: usize) -> Vec<usize> {
-        self.range(start, end)
-            .split('\n')
-            .map(|s| s.width())
+    /// Get the unicode width of all lines in the given range.
+    pub fn range_width<R>(&self, range: R) -> Vec<usize>
+    where
+        R: SliceIndex<[char], Output = [char]>,
+    {
+        // TODO: We don't really need to collect here.
+        self.range(range)
+            .chunk_by(|c| *c == '\n')
+            .into_iter()
+            .filter_map(|(is_control, chars)| {
+                if is_control {
+                    None
+                } else {
+                    Some(chars.filter_map(|c| c.width()).sum())
+                }
+            })
             .collect()
     }
 
-    pub fn lines(&self) -> Vec<String> {
-        self.data
-            .split(|&c| c == '\n')
-            .map(|s| s.iter().cloned().collect())
-            .collect()
+    /// Get the lines in this buffer, as an iterator of slices of [`char`].
+    pub fn lines(&self) -> impl Iterator<Item = &[char]> {
+        self.data.split(|&c| c == '\n')
     }
 
-    pub fn chars(&self) -> ::std::slice::Iter<char> {
-        self.data.iter()
+    /// Get the chars in this buffer.
+    pub fn chars(&self) -> impl DoubleEndedIterator<Item = char> + ExactSizeIterator {
+        self.data.iter().copied()
     }
 
+    /// Remove characters from the end to make the buffer `num` chars in length.
     pub fn truncate(&mut self, num: usize) {
         let end = self.data.len();
         self.remove(num, end);
     }
 
+    /// Print the buffer to `out`.
     pub fn print<W>(&self, out: &mut W) -> io::Result<()>
     where
         W: Write,
     {
-        let string: String = self.data.iter().cloned().collect();
-        out.write_all(string.as_bytes())
+        let mut writer = BufWriter::new(out);
+
+        let mut bytes = [0; mem::size_of::<char>()];
+
+        for char in self.chars() {
+            let s = char.encode_utf8(&mut bytes);
+            writer.write_all(s.as_bytes())?;
+        }
+
+        Ok(())
     }
 
+    /// Convert this buffer to a vector of UTF8-encoded bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         // NOTE: not particularly efficient. Could make a proper byte iterator with minimal
         // allocations if performance becomes an issue.
@@ -310,16 +491,6 @@ impl Buffer {
         out.write_all(string.as_bytes())?;
 
         Ok(string.len())
-    }
-
-    fn remove_raw(&mut self, start: usize, end: usize) -> Vec<char> {
-        self.data.drain(start..end).collect()
-    }
-
-    fn insert_raw(&mut self, start: usize, text: &[char]) {
-        for (i, &c) in text.iter().enumerate() {
-            self.data.insert(start + i, c)
-        }
     }
 
     /// Check if the other buffer starts with the same content as this one.

@@ -2,13 +2,16 @@ use crate::{Editor, EditorContext, Highlighter, complete::Completer, event::*};
 use std::io::{self, ErrorKind};
 use termion::event::Key;
 
+/// Trait to handle key mappings.
 pub trait KeyMap: Default {
+    /// The "core" key-handling trait. At minimum, this should be implemented.
     fn handle_key_core<C: EditorContext>(
         &mut self,
         key: Key,
         editor: &mut Editor<C, dyn Highlighter>,
     ) -> io::Result<()>;
 
+    /// Initialize the context.
     fn init<C: EditorContext>(
         &mut self,
         _editor: &mut Editor<C, dyn Highlighter>,
@@ -16,6 +19,10 @@ pub trait KeyMap: Default {
         Ok(())
     }
 
+    /// The top-level key-handling function. Normally you will not need to implement this.
+    ///
+    /// The default implementation provided by this trait handles common operations like `ctrl-d`,
+    /// `ctrl-c`, newlines, tabs for completion, and so forth.
     fn handle_key<Ctx: EditorContext, C: Completer>(
         &mut self,
         mut key: Key,
@@ -86,7 +93,7 @@ pub use emacs::Emacs;
 mod tests {
     use super::*;
     use crate::{Context, editor::Prompt};
-    use std::io::ErrorKind;
+    use std::{borrow::Cow, io::ErrorKind};
     use termion::event::Key::*;
 
     #[derive(Default)]
@@ -105,8 +112,11 @@ mod tests {
     struct EmptyCompleter;
 
     impl Completer for EmptyCompleter {
-        fn completions(&mut self, _start: &str) -> Vec<String> {
-            Vec::default()
+        fn completions<'a>(
+            &'a mut self,
+            _start: &'a str,
+        ) -> impl Iterator<Item = Cow<'a, str>> + 'a {
+            std::iter::empty()
         }
     }
 

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cmp,
     fmt::{self, Write},
     io::{self, Write as _},
@@ -12,21 +13,28 @@ use crate::{Buffer, EditorContext, Highlighter, NoHighlighting, Tty, event::*, u
 use itertools::Itertools;
 
 /// Indicates the mode that should be currently displayed in the propmpt.
+///
+/// See [Vi documentation](https://en.wikibooks.org/wiki/Learning_the_vi_Editor/Vim/Modes)
+/// for a deeper explanation of modes.
 #[derive(Clone, Copy, Debug)]
 pub enum ViPromptMode {
+    /// Normal mode, where keys will perform movements and editing operations.
     Normal,
+    /// Insert mode, where keys will be written directly to the buffer.
     Insert,
 }
 
 /// Holds the current mode and the indicators for all modes.
 #[derive(Debug)]
 pub struct ViStatus {
+    /// The currently-enabled mode (see [`ViPromptMode`]).
     pub mode: ViPromptMode,
     normal: String,
     insert: String,
 }
 
 impl ViStatus {
+    /// Create a new [`ViStatus`] for a given mode, normal mode indicator, and insert mode indicator.
     pub fn new<N, I>(mode: ViPromptMode, normal: N, insert: I) -> Self
     where
         N: Into<String>,
@@ -39,6 +47,7 @@ impl ViStatus {
         }
     }
 
+    /// Get the indicator as a string, based on the current mode.
     pub fn as_str(&self) -> &str {
         use ViPromptMode::*;
         match self.mode {
@@ -89,19 +98,22 @@ impl fmt::Display for ViStatus {
 /// assert_eq!(&prompt.to_string(), "[I] prompt$ ");
 /// ```
 pub struct Prompt {
-    pub prompt: String,
+    /// The prompt to show
+    pub prompt: Cow<'static, str>,
+    /// The current status, if in Vi mode and known.
     pub vi_status: Option<ViStatus>,
 }
 
 impl Prompt {
     /// Constructs a static prompt.
-    pub fn from<P: Into<String>>(prompt: P) -> Self {
+    pub fn from<P: Into<Cow<'static, str>>>(prompt: P) -> Self {
         Prompt {
             prompt: prompt.into(),
             vi_status: None,
         }
     }
 
+    /// Get the prompt prefix.
     pub fn prefix(&self) -> &str {
         match &self.vi_status {
             Some(status) => status.as_str(),
@@ -244,7 +256,7 @@ macro_rules! cur_buf_mut {
         match $s.cur_history_loc {
             Some(i) => {
                 if !$s.hist_buf_valid {
-                    $s.hist_buf.copy_buffer(&$s.context.history()[i]);
+                    $s.hist_buf.replace(&$s.context.history()[i]);
                     $s.hist_buf_valid = true;
                 }
                 &mut $s.hist_buf
@@ -265,6 +277,7 @@ macro_rules! cur_buf {
 }
 
 impl<C: EditorContext> Editor<C> {
+    /// Create a new [`Editor`] given a certain prompt (see [`Prompt`]) and context (see [`EditorContext`]).
     pub fn new(prompt: Prompt, mut context: C) -> io::Result<Self> {
         let Prompt {
             mut prompt,
@@ -280,7 +293,10 @@ impl<C: EditorContext> Editor<C> {
             out.write_all("\r \r".as_bytes())?; // Erase the "⏎" if nothing overwrites it
             out.write_all(prompt.split('\n').join("\r\n").as_bytes())?;
             if let Some(index) = prompt.rfind('\n') {
-                prompt = prompt.split_at(index + 1).1.into()
+                prompt = match prompt {
+                    Cow::Borrowed(prompt) => prompt.split_at(index + 1).1.into(),
+                    Cow::Owned(prompt) => prompt.split_at(index + 1).1.to_owned().into(),
+                };
             }
         }
 
@@ -329,6 +345,7 @@ where
     C: EditorContext,
     H: ?Sized + Highlighter,
 {
+    /// Consume the editor, returning one with the buffer set to `buffer`.
     pub fn with_init_buffer<B>(self, buffer: B) -> Self
     where
         B: Into<Buffer>,
@@ -357,6 +374,9 @@ where
         }
     }
 
+    /// Consume the editor, returning one with the buffer set to `highlighter`.
+    ///
+    /// > *Note*: This changes the type!
     pub fn with_highlighter<NewH>(self, highlighter: NewH) -> Editor<C, NewH>
     where
         H: Sized,
@@ -401,12 +421,14 @@ where
         self.cur_history_loc
     }
 
-    pub fn get_words_and_cursor_position(&self) -> (C::WordDividerIter, CursorPosition) {
+    /// Get the words iter along with the current cursor position.
+    pub fn words_and_cursor_position(&self) -> (C::WordDividerIter, CursorPosition) {
         let words = self.context.word_divider(cur_buf!(self));
         let pos = CursorPosition::get(self.cursor, words.clone());
         (words, pos)
     }
 
+    /// Replace the prompt with `prompt`.
     pub fn set_prompt(&mut self, mut prompt: Prompt) {
         if let Some(passed_status) = &mut prompt.vi_status
             && let Some(old_status) = &self.prompt.vi_status
@@ -416,20 +438,26 @@ where
         self.prompt = prompt;
     }
 
+    /// Get a reference to the inner context.
     pub fn context(&self) -> &C {
         &self.context
     }
 
+    /// Get a mutable reference to the inner context.
     pub fn context_mut(&mut self) -> &mut C {
         &mut self.context
     }
 
+    /// Get the current cursor position.
     pub fn cursor(&self) -> usize {
         self.cursor
     }
 
-    // XXX: Returning a bool to indicate doneness is a bit awkward, maybe change it
+    /// Handle the use of `\n`. Returns `Ok(true)` if a newline was handled, `Ok(false)` if
+    /// no newline was handled.
     pub fn handle_newline(&mut self) -> io::Result<bool> {
+        // XXX: Returning a bool to indicate doneness is a bit awkward, maybe change it
+
         self.history_fresh = false;
         if self.is_search() {
             self.accept_autosuggestion()?;
@@ -442,7 +470,6 @@ where
 
         let char_before_cursor = cur_buf!(self).char_before(self.cursor);
         if char_before_cursor == Some('\\') {
-            // self.insert_after_cursor('\r')?;
             self.insert_after_cursor('\n')?;
             Ok(false)
         } else {
@@ -528,6 +555,7 @@ where
         Ok(())
     }
 
+    /// Flush the output to the underlying TTY.
     pub fn flush(&mut self) -> io::Result<()> {
         self.context.terminal_mut().flush()
     }
@@ -546,6 +574,10 @@ where
         Ok(did)
     }
 
+    /// Attempts to redo an action on the current buffer.
+    ///
+    /// Returns `Ok(true)` if an action was redone.
+    /// Returns `Ok(false)` if there was no action to redo
     pub fn redo(&mut self) -> io::Result<bool> {
         let did = cur_buf_mut!(self).redo();
         if did {
@@ -556,6 +588,7 @@ where
         Ok(did)
     }
 
+    /// Attempt to undo all actions. Returns `true` if anything was done (see [`Buffer::revert`]).
     pub fn revert(&mut self) -> io::Result<bool> {
         let did = cur_buf_mut!(self).revert();
         if did {
@@ -618,10 +651,12 @@ where
         Ok(lines)
     }
 
+    /// Clear the active completion hint.
     pub fn skip_completions_hint(&mut self) {
         self.show_completions_hint = None;
     }
 
+    /// Trigger autocompletion.
     pub fn complete<T: Completer>(&mut self, handler: &mut T) -> io::Result<()>
     where
         Self: AsMut<Editor<C, dyn Highlighter>>,
@@ -648,17 +683,18 @@ where
         }
 
         let (word, completions) = {
-            let word_range = self.get_word_before_cursor(false);
+            let word_range = self.word_before_cursor(false);
             let buf = cur_buf_mut!(self);
 
-            let word = match word_range {
-                Some((start, end)) => buf.range(start, end),
+            let word: Cow<'_, str> = match word_range {
+                Some((start, end)) => buf.range(start..end).collect::<String>().into(),
                 None => "".into(),
             };
 
-            let mut completions = handler.completions(word.as_ref());
-            completions.sort();
-            completions.dedup();
+            let completions = handler
+                .completions(&word)
+                .map(|c| c.into_owned())
+                .collect::<Vec<_>>();
             (word, completions)
         };
 
@@ -694,8 +730,8 @@ where
         }
     }
 
-    fn get_word_before_cursor(&self, ignore_space_before_cursor: bool) -> Option<(usize, usize)> {
-        let (mut words, pos) = self.get_words_and_cursor_position();
+    fn word_before_cursor(&self, ignore_space_before_cursor: bool) -> Option<(usize, usize)> {
+        let (mut words, pos) = self.words_and_cursor_position();
         match pos {
             CursorPosition::InWord(i) => words.nth(i),
             CursorPosition::InSpace(Some(i), _) => {
@@ -726,7 +762,7 @@ where
         &mut self,
         ignore_space_before_cursor: bool,
     ) -> io::Result<()> {
-        if let Some((start, _)) = self.get_word_before_cursor(ignore_space_before_cursor) {
+        if let Some((start, _)) = self.word_before_cursor(ignore_space_before_cursor) {
             let moved = cur_buf_mut!(self).remove(start, self.cursor);
             self.cursor -= moved;
         }
@@ -758,7 +794,7 @@ where
                     }
                     None => {
                         self.history_subset_index =
-                            self.context.history().get_history_subset(&self.new_buf);
+                            self.context.history().history_subset(&self.new_buf);
                         if !self.history_subset_index.is_empty() {
                             self.history_subset_loc = Some(self.history_subset_index.len() - 1);
                             self.cur_history_loc = Some(
@@ -974,6 +1010,7 @@ where
         self.display()
     }
 
+    /// `true` if the cursor is at the end of a line in the input, `false` if it is in the middle of a line.
     pub fn cursor_is_at_end_of_line(&self) -> bool {
         let num_chars = cur_buf!(self).num_chars();
         if self.no_eol {
@@ -983,13 +1020,13 @@ where
         }
     }
 
-    ///  Returns a reference to the current buffer being edited.
+    /// Returns a reference to the current buffer being edited.
     /// This may be the new buffer or a buffer from history.
     pub fn current_buffer(&self) -> &Buffer {
         cur_buf!(self)
     }
 
-    ///  Returns a mutable reference to the current buffer being edited.
+    /// Returns a mutable reference to the current buffer being edited.
     /// This may be the new buffer or a buffer from history.
     pub fn current_buffer_mut(&mut self) -> &mut Buffer {
         cur_buf_mut!(self)
@@ -999,12 +1036,12 @@ where
     pub fn accept_autosuggestion(&mut self) -> io::Result<()> {
         if self.show_autosuggestions {
             {
-                let autosuggestion = self.autosuggestion.clone();
+                let autosuggestion = &self.autosuggestion;
                 let search = self.is_search();
-                let buf = self.current_buffer_mut();
+                let buf = cur_buf_mut!(self);
                 match autosuggestion {
-                    Some(ref x) if search => buf.copy_buffer(x),
-                    Some(ref x) => buf.insert_from_buffer(x),
+                    Some(x) if search => buf.replace(x),
+                    Some(x) => buf.union(x),
                     None => (),
                 }
             }
@@ -1029,7 +1066,7 @@ where
                 .map(|i| &context_history[i])
                 .or_else(|| {
                     context_history
-                        .get_newest_match(Some(context_history.len()), &self.new_buf)
+                        .newest_match(Some(context_history.len()), &self.new_buf)
                         .map(|i| &context_history[i])
                 })
         } else {
@@ -1038,6 +1075,7 @@ where
         autosuggestion.cloned()
     }
 
+    /// `true` if an autocomplete suggestion is set.
     pub fn is_currently_showing_autosuggestion(&self) -> bool {
         self.autosuggestion.is_some()
     }
@@ -1114,9 +1152,9 @@ where
         let buf_widths_to_cursor = match self.autosuggestion {
             // Cursor might overrun autosuggestion with history search.
             Some(ref suggestion) if self.cursor < suggestion.num_chars() => {
-                suggestion.range_width(0, self.cursor)
+                suggestion.range_width(0..self.cursor)
             }
-            _ => buf.range_width(0, self.cursor),
+            _ => buf.range_width(0..self.cursor),
         };
 
         // Total number of terminal spaces taken up by prompt and buffer
@@ -1161,7 +1199,12 @@ where
         };
         let mut buf_num_remaining_bytes = buf.num_bytes();
 
-        let lines_len = lines.len();
+        // TODO: This is probably going to be renamed in the current version of `itertools`.
+        #[expect(unstable_name_collisions)]
+        let lines = lines
+            .map(|chars| <Cow<'static, str>>::from(chars.iter().copied().collect::<String>()))
+            .intersperse("\r\n".into());
+
         for (i, line) in lines.into_iter().enumerate() {
             if i > 0 {
                 write!(out_buf, "{}", cursor::Right(prompt_width as u16))
@@ -1189,10 +1232,6 @@ where
                     write!(&mut out_buf, "{}", color::Yellow.fg_str()).map_err(io::Error::other)?;
                 }
                 out_buf.push_str(&written_line);
-            }
-
-            if i + 1 < lines_len {
-                out_buf.push_str("\r\n");
             }
         }
 

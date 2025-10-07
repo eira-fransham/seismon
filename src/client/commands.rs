@@ -6,7 +6,9 @@ use clap::Parser;
 use crate::{
     common::{
         console::{AliasInfo, ExecResult, RegisterCmdExt as _, Registry, RunCmd},
-        net::{ColorShift, QSocket, SignOnStage},
+        net::{
+            ClientCmd, ClientMessage, ColorShift, MessageKind, QSocket, ServerMessage, SignOnStage,
+        },
         vfs::Vfs,
     },
     server::Session,
@@ -498,4 +500,43 @@ pub fn register_commands(app: &mut App) {
             }
         },
     );
+
+    #[derive(Parser)]
+    #[command(name = "map", about = "Load and start a new map")]
+    struct Map {
+        map_name: String,
+    }
+
+    // TODO: Can probably do this better but it's also possibly fine because it's a system
+    fn cmd_map(
+        In(Map { map_name }): In<Map>,
+        mut commands: Commands,
+        mut focus: ResMut<InputFocus>,
+        mut client_events: ResMut<Events<ClientMessage>>,
+        mut server_events: ResMut<Events<ServerMessage>>,
+    ) -> ExecResult {
+        client_events.clear();
+        server_events.clear();
+
+        let mut bytes = vec![];
+        let _ = ClientCmd::StringCmd {
+            cmd: format!("map {map_name}"),
+        }
+        .serialize(&mut bytes);
+
+        client_events.send(ClientMessage {
+            client_id: 0,
+            packet: bytes.into(),
+            kind: MessageKind::Reliable,
+        });
+
+        // TODO: This should not be handled here, server and client should be decoupled
+        commands.insert_resource(Connection::new_server());
+        commands.insert_resource(ConnectionState::SignOn(SignOnStage::Not));
+        *focus = InputFocus::Game;
+
+        Default::default()
+    }
+
+    app.command(cmd_map);
 }

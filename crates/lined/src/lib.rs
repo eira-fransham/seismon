@@ -6,9 +6,10 @@
 //! For an example of a real-world usecase, see
 //! [its use in `seismon`](https://github.com/eira-fransham/seismon/blob/69c410f6149874e7ba58ee7c35070ee544db8c5f/src/common/console/mod.rs#L1822-L1904).
 //!
-//! The core of
+//! The core of the library is the [`Editor`] type, see the documentation there for details.
 
 #![deny(unused_must_use)]
+#![warn(missing_docs)]
 
 mod event;
 pub use event::*;

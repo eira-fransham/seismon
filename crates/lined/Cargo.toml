@@ -20,10 +20,10 @@ exclude = [
 edition = "2024"
 
 [dependencies]
-termion = "3.0"
-unicode-width = "0.1"
-itertools = "0.12"
-strip-ansi-escapes = "0.2"
+termion.workspace = true
+unicode-width.workspace = true
+itertools.workspace = true
+strip-ansi-escapes.workspace = true
 
 [dev-dependencies]
 regex = "1.10"

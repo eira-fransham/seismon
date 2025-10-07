@@ -27,14 +27,11 @@ use std::{
     iter,
 };
 
-use crate::common::util;
-
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use failure::{Backtrace, Context, Error, Fail, bail};
 use hashbrown::HashMap;
-
-use super::util::QString;
+use seismon_utils::QString;
 
 // see definition of lumpinfo_t:
 // https://github.com/id-Software/Quake/blob/master/WinQuake/wad.h#L54-L63
@@ -194,7 +191,7 @@ impl Wad {
             reader.read_exact(&mut name_bytes)?;
             let name_lossy = String::from_utf8_lossy(&name_bytes);
             debug!("name: {}", name_lossy);
-            let name = util::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
+            let name = seismon_utils::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
 
             lump_infos.push(LumpInfo { offset, size, name });
         }

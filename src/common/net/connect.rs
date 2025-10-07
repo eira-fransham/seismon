@@ -24,15 +24,13 @@ use std::{
     net::{SocketAddr, ToSocketAddrs, UdpSocket},
 };
 
-use crate::common::{
-    net::{MAX_MESSAGE, NetError, QSocket},
-    util::{self, QString},
-};
+use crate::common::net::{MAX_MESSAGE, NetError, QSocket};
 
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
+use seismon_utils::QString;
 
 pub const CONNECT_PROTOCOL_VERSION: u8 = 3;
 const CONNECT_CONTROL: i32 = 1 << 31;
@@ -586,7 +584,7 @@ impl ConnectListener {
 
         let request = match request_code {
             RequestCode::Connect => {
-                let game_name = util::read_cstring(&mut reader)?.into_string();
+                let game_name = seismon_utils::read_cstring(&mut reader)?.into_string();
                 let proto_ver = reader.read_u8()?;
                 Request::Connect(RequestConnect {
                     game_name,
@@ -595,7 +593,7 @@ impl ConnectListener {
             }
 
             RequestCode::ServerInfo => {
-                let game_name = util::read_cstring(&mut reader)?.into_string();
+                let game_name = seismon_utils::read_cstring(&mut reader)?.into_string();
                 Request::ServerInfo(RequestServerInfo { game_name })
             }
 
@@ -605,7 +603,7 @@ impl ConnectListener {
             }
 
             RequestCode::RuleInfo => {
-                let prev_cvar = util::read_cstring(&mut reader)?.into_string();
+                let prev_cvar = seismon_utils::read_cstring(&mut reader)?.into_string();
                 Request::RuleInfo(RequestRuleInfo { prev_cvar })
             }
         };
@@ -707,14 +705,14 @@ impl ConnectSocket {
             }
 
             ResponseCode::Reject => {
-                let message = util::read_cstring(&mut reader)?;
+                let message = seismon_utils::read_cstring(&mut reader)?;
                 Response::Reject(ResponseReject { message })
             }
 
             ResponseCode::ServerInfo => {
-                let address = util::read_cstring(&mut reader)?.into_string();
-                let hostname = util::read_cstring(&mut reader)?.into_string();
-                let levelname = util::read_cstring(&mut reader)?.into_string();
+                let address = seismon_utils::read_cstring(&mut reader)?.into_string();
+                let hostname = seismon_utils::read_cstring(&mut reader)?.into_string();
+                let levelname = seismon_utils::read_cstring(&mut reader)?.into_string();
                 let client_count = reader.read_u8()?;
                 let client_max = reader.read_u8()?;
                 let protocol_version = reader.read_u8()?;

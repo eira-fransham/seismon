@@ -21,14 +21,12 @@ use crate::{
     common::{
         bsp,
         console::Registry,
-        engine,
         math::{self, Angles},
-        model::{Model, ModelFlags, ModelKind, SyncType},
+        model::{Model, ModelKind},
         net::{
             self, BeamEntityKind, ButtonFlags, ColorShift, EntityEffects, ItemFlags, PlayerData,
             PointEntityKind, TempEntity,
         },
-        util::QString,
         vfs::Vfs,
     },
 };
@@ -49,6 +47,10 @@ use rand::{
     SeedableRng as _,
     distr::{Distribution as _, Uniform},
     rngs::SmallRng,
+};
+use seismon_utils::{
+    QString,
+    model::{ModelFlags, SyncType},
 };
 use symphonium::{SymphoniumLoader, symphonia::core::probe::Hint};
 
@@ -154,7 +156,7 @@ impl ClientState {
     pub fn new() -> ClientState {
         ClientState {
             rng: SmallRng::from_rng(&mut rand::rng()),
-            models: iter::once(Model::default()).collect(),
+            models: iter::once(Model::none("")).collect(),
             worldmodel_id: 1,
             model_names: default(),
             sounds: default(),
@@ -201,7 +203,7 @@ impl ClientState {
         debug!("Model precache: {model_precache:?}");
 
         // TODO: validate submodel names
-        let mut models: im::Vector<_> = iter::once(Model::default()).collect();
+        let mut models: im::Vector<_> = iter::once(Model::none("")).collect();
         let mut model_names = im::HashMap::new();
         for mod_name in model_precache {
             // BSPs can have more than one model
@@ -331,30 +333,31 @@ impl ClientState {
             return;
         }
 
-        let server_delta = engine::duration_to_f32(match self.msg_times[0] - self.msg_times[1] {
-            // if no time has passed between updates, don't lerp anything
-            d if d == Duration::zero() => {
-                self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
-                self.lerp_factor = Some(1.0);
-                return;
-            }
+        let server_delta =
+            seismon_utils::duration_to_f32(match self.msg_times[0] - self.msg_times[1] {
+                // if no time has passed between updates, don't lerp anything
+                d if d == Duration::zero() => {
+                    self.time = self.time.clamp(self.msg_times[1], self.msg_times[0]);
+                    self.lerp_factor = Some(1.0);
+                    return;
+                }
 
-            d if d < Duration::zero() => {
-                warn!("Negative time delta from server!: ({d})");
+                d if d < Duration::zero() => {
+                    warn!("Negative time delta from server!: ({d})");
 
-                self.lerp_factor = None;
-                return;
-            }
+                    self.lerp_factor = None;
+                    return;
+                }
 
-            d if d > MAX_INTERP_DELTA => {
-                self.msg_times[1] = self.msg_times[0] - MAX_INTERP_DELTA;
-                MAX_INTERP_DELTA
-            }
+                d if d > MAX_INTERP_DELTA => {
+                    self.msg_times[1] = self.msg_times[0] - MAX_INTERP_DELTA;
+                    MAX_INTERP_DELTA
+                }
 
-            d => d,
-        });
+                d => d,
+            });
 
-        let frame_delta = engine::duration_to_f32(self.time - self.msg_times[1]);
+        let frame_delta = seismon_utils::duration_to_f32(self.time - self.msg_times[1]);
 
         self.lerp_factor = Some(match frame_delta / server_delta {
             f if f < 0.0 => {
@@ -408,7 +411,7 @@ impl ClientState {
 
         // TODO: if we're in demo playback, interpolate the view angles
 
-        let obj_rotate = 100.0 * engine::duration_to_f32(self.time).rem_euclid(360.);
+        let obj_rotate = 100.0 * seismon_utils::duration_to_f32(self.time).rem_euclid(360.);
 
         // rebuild the list of visible entities
         self.visible_entity_ids.clear();
@@ -1173,7 +1176,7 @@ impl ClientState {
     }
 
     pub fn update_color_shifts(&mut self, frame_time: Duration) -> Result<(), ClientError> {
-        let float_time = engine::duration_to_f32(frame_time);
+        let float_time = seismon_utils::duration_to_f32(frame_time);
 
         // set color for leaf contents
         self.color_shifts[ColorShiftCode::Contents as usize] = match self.view_leaf_contents()? {
@@ -1342,7 +1345,7 @@ impl ClientState {
     }
 
     pub fn lightstyle_values(&self) -> ArrayVec<f32, MAX_LIGHT_STYLES> {
-        let float_time = engine::duration_to_f32(self.time);
+        let float_time = seismon_utils::duration_to_f32(self.time);
         // 'z' - 'a' = 25, so divide by 12.5 to get range [0, 2]
         let factor = ((b'z' - b'a') as f32 / 2.).recip();
         self.light_styles

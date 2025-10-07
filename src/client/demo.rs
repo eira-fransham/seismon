@@ -2,7 +2,6 @@ use std::{io, ops::Range};
 
 use crate::common::{
     net::{self, NetError},
-    util::read_f32_3,
     vfs::VirtualFile,
 };
 
@@ -10,6 +9,7 @@ use arrayvec::ArrayVec;
 use bevy::{log::warn, math::Vec3};
 use byteorder::{LittleEndian, ReadBytesExt};
 use io::BufReader;
+use seismon_utils::read_f32_3;
 use thiserror::Error;
 
 /// An error returned by a demo server.

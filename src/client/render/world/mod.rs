@@ -5,7 +5,7 @@ pub mod particle;
 pub mod postprocess;
 pub mod sprite;
 
-use std::mem::size_of;
+use std::mem::{self, size_of};
 
 use crate::{
     client::{
@@ -23,11 +23,9 @@ use crate::{
         },
     },
     common::{
-        engine,
         math::Angles,
         model::{Model, ModelKind},
         sprite::SpriteKind,
-        util::any_as_bytes,
     },
 };
 
@@ -41,6 +39,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
+use bytemuck::{Pod, Zeroable};
 use chrono::Duration;
 use parking_lot::RwLock;
 
@@ -295,9 +294,10 @@ impl Camera {
     }
 }
 
-#[repr(C, align(256))]
-#[derive(Copy, Clone, Debug)]
-pub struct FrameUniforms {
+/// Helper struct to represent the sum of the inner fields' size, in order to allow us to
+/// calculcate the correct amout of explicit padding.
+#[repr(C, packed)]
+struct FrameUniformsLayoutHelper {
     lightmap_anim_frames: [Vec4; 16],
     camera_pos: Vec4,
     time: f32,
@@ -307,14 +307,36 @@ pub struct FrameUniforms {
     r_lightmap: UniformBool,
 }
 
+const FRAME_UNIFORMS_PAD_BYTES: usize = 512 - mem::size_of::<FrameUniformsLayoutHelper>();
+
 #[repr(C, align(256))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
+pub struct FrameUniforms {
+    lightmap_anim_frames: [Vec4; 16],
+    camera_pos: Vec4,
+    time: f32,
+    sky_time: f32,
+
+    // TODO: pack flags into a bit string
+    r_lightmap: UniformBool,
+
+    /// Explicit padding in order to avoid undef when copying.
+    _pad: [u8; FRAME_UNIFORMS_PAD_BYTES],
+}
+
+const ENTITY_UNIFORMS_PAD_BYTES: usize = 256 - mem::size_of::<[Mat4; 2]>();
+
+#[repr(C, align(256))]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct EntityUniforms {
     /// Model-view-projection transform matrix
     transform: Mat4,
 
     /// Model-only transform matrix
     model: Mat4,
+
+    /// Explicit padding in order to avoid undef when copying.
+    _pad: [u8; ENTITY_UNIFORMS_PAD_BYTES],
 }
 
 enum EntityRenderer {
@@ -382,6 +404,7 @@ impl WorldRenderer {
         let world_uniform_block = state.entity_uniform_buffer_mut().allocate(EntityUniforms {
             transform: Mat4::IDENTITY,
             model: Mat4::IDENTITY,
+            _pad: [0; 128],
         });
 
         for (i, model) in models.enumerate() {
@@ -466,7 +489,7 @@ impl WorldRenderer {
         I: Iterator<Item = &'a ClientEntity>,
     {
         trace!("Updating frame uniform buffer");
-        let time_secs = engine::duration_to_f32(time);
+        let time_secs = seismon_utils::duration_to_f32(time);
         let uniforms = FrameUniforms {
             lightmap_anim_frames: {
                 let mut frames = [Vec4::X; 16];
@@ -486,15 +509,19 @@ impl WorldRenderer {
             time: time_secs,
             sky_time: time_secs * render_vars.sky_scroll_speed,
             r_lightmap: UniformBool::new(render_vars.lightmap != 0),
+            _pad: [0; FRAME_UNIFORMS_PAD_BYTES],
         };
-        queue.write_buffer(state.frame_uniform_buffer(), 0, unsafe {
-            any_as_bytes(&uniforms)
-        });
+        queue.write_buffer(
+            state.frame_uniform_buffer(),
+            0,
+            bytemuck::bytes_of(&uniforms),
+        );
 
         trace!("Updating entity uniform buffer");
         let world_uniforms = EntityUniforms {
             transform: camera.view_projection(),
             model: Mat4::IDENTITY,
+            _pad: [0; ENTITY_UNIFORMS_PAD_BYTES],
         };
         state
             .entity_uniform_buffer_mut()
@@ -504,6 +531,7 @@ impl WorldRenderer {
             let ent_uniforms = EntityUniforms {
                 transform: self.calculate_mvp_transform(camera, ent),
                 model: self.calculate_model_transform(camera, ent),
+                _pad: [0; ENTITY_UNIFORMS_PAD_BYTES],
             };
 
             if ent_pos >= self.entity_uniform_blocks.read().len() {
@@ -613,6 +641,7 @@ impl WorldRenderer {
                                 model_view: Mat3::from_mat4(
                                     self.calculate_mv_transform(camera, ent),
                                 ),
+                                _pad: [0; alias::VERTEX_PUSH_CONSTANTS_PAD_BYTES],
                             })),
                             Clear,
                             Clear,
@@ -649,6 +678,7 @@ impl WorldRenderer {
                     Update(bump.alloc(alias::VertexPushConstants {
                         transform: camera.view_projection() * viewmodel_mat,
                         model_view: Mat3::from_mat4(camera.view() * viewmodel_mat),
+                        _pad: [0; alias::VERTEX_PUSH_CONSTANTS_PAD_BYTES],
                     })),
                     Clear,
                     Clear,

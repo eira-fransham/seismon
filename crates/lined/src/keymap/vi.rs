@@ -1,3 +1,7 @@
+//! # Vi-style editing modes
+//!
+//! This module implements the Vi-style editing for `lined`.
+
 use std::{cmp, io, mem};
 use termion::event::Key;
 
@@ -309,7 +313,7 @@ fn find_char(buf: &Buffer, start: usize, ch: char, count: usize) -> Option<usize
     buf.chars()
         .enumerate()
         .skip(start)
-        .filter(|&(_, &c)| c == ch)
+        .filter(|(_, c)| *c == ch)
         .nth(count - 1)
         .map(|(i, _)| i)
 }
@@ -321,7 +325,7 @@ fn find_char_rev(buf: &Buffer, start: usize, ch: char, count: usize) -> Option<u
         .enumerate()
         .rev()
         .skip(rstart)
-        .filter(|&(_, &c)| c == ch)
+        .filter(|(_, c)| *c == ch)
         .nth(count - 1)
         .map(|(i, _)| i)
 }
@@ -365,6 +369,7 @@ impl Default for Vi {
 }
 
 impl Vi {
+    /// Create a new Vi editing context.
     pub fn new() -> Self {
         Self::default()
     }
@@ -1123,6 +1128,8 @@ impl KeyMap for Vi {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::*;
     use crate::{Buffer, Completer, Context, Editor, KeyMap, editor::Prompt};
     use termion::event::{Key, Key::*};
@@ -1147,8 +1154,11 @@ mod tests {
     struct EmptyCompleter;
 
     impl Completer for EmptyCompleter {
-        fn completions(&mut self, _start: &str) -> Vec<String> {
-            Vec::default()
+        fn completions<'a>(
+            &'a mut self,
+            _start: &'a str,
+        ) -> impl Iterator<Item = Cow<'a, str>> + 'a {
+            std::iter::empty()
         }
     }
 

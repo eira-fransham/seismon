@@ -51,14 +51,13 @@ use crate::{
     common::{
         self,
         console::{ConsoleError, ConsoleOutput, RunCmd, SeismonConsolePlugin},
-        engine,
         model::{Model, ModelError},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, ClientStat, EntityEffects, EntityState,
-            GameType, NetError, PlayerColor, QSocket, ServerCmd, ServerMessage, SignOnStage,
+            GameType, InMemoryMessaging, NetError, PlayerColor, QSocket, ServerCmd, ServerMessage,
+            SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
-        util::QString,
         vfs::{Vfs, VfsError},
     },
 };
@@ -79,6 +78,7 @@ use chrono::Duration;
 use input::InputFocus;
 use menu::Menu;
 use num_derive::FromPrimitive;
+use seismon_utils::QString;
 use serde::Deserialize;
 use sound::SoundError;
 use thiserror::Error;
@@ -155,11 +155,14 @@ where
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
-            .add_event::<Impulse>()
-            .add_event::<ClientMessage>()
+            .init_resource::<InMemoryMessaging>()
             .add_event::<ServerMessage>()
+            .add_event::<ClientMessage>()
+            .add_event::<Impulse>()
             // TODO: Use bevy's state system
             .insert_resource(ConnectionState::SignOn(SignOnStage::Not))
+            .add_systems(First, systems::recv_from_server)
+            .add_systems(Last, systems::send_to_server)
             .add_systems(
                 Main,
                 (
@@ -346,6 +349,7 @@ enum ConnectionKind {
     Demo(DemoServer),
 }
 
+#[derive(Debug)]
 struct ServerUpdate<'a> {
     message: Cow<'a, [u8]>,
     angles: Option<Vec3>,
@@ -383,7 +387,7 @@ impl ConnectionKind {
                 for ServerMessage { client_id, packet } in reader.read(events) {
                     // TODO: Actually use correct client id
                     if *client_id == 0 {
-                        out.extend(packet);
+                        out.extend(packet.iter().copied());
                     }
                 }
 
@@ -912,7 +916,7 @@ impl Connection {
 
                 ServerCmd::Time { time } => {
                     self.state.msg_times[1] = self.state.msg_times[0];
-                    self.state.msg_times[0] = engine::duration_from_f32(time);
+                    self.state.msg_times[0] = seismon_utils::duration_from_f32(time);
                 }
 
                 ServerCmd::UpdateColors {
@@ -1086,7 +1090,7 @@ impl Connection {
             // respond to the server
             if !compose.is_empty() {
                 to_server.write(ClientMessage {
-                    packet: mem::take(compose),
+                    packet: mem::take(compose).into(),
                     ..default()
                 });
             }
@@ -1239,6 +1243,22 @@ mod systems {
 
     use super::*;
 
+    pub fn send_to_server(
+        mut sender: ResMut<InMemoryMessaging>,
+        mut client_events: ResMut<Events<ClientMessage>>,
+    ) {
+        for event in client_events.update_drain() {
+            sender.send(event);
+        }
+    }
+
+    pub fn recv_from_server(
+        mut receiver: ResMut<InMemoryMessaging>,
+        mut server_events: EventWriter<ServerMessage>,
+    ) {
+        server_events.write_batch(receiver.recv());
+    }
+
     pub fn lock_cursor(
         mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
         registry: Res<Registry>,
@@ -1296,7 +1316,7 @@ mod systems {
             move_cmd.serialize(&mut msg)?;
             client_events.write(ClientMessage {
                 client_id: 0,
-                packet: msg,
+                packet: msg.into(),
                 kind: MessageKind::Unreliable,
             });
 
@@ -1357,11 +1377,13 @@ mod systems {
         let status = match conn.as_deref_mut() {
             Some(conn) => conn.frame(
                 conn_state.reborrow(),
-                if cvars.read_cvar::<u8>("sv_paused").unwrap() != 0 {
-                    default()
-                } else {
-                    time.as_generic()
-                },
+                // TODO: Client<->server cvar replication
+                // if cvars.read_cvar::<u8>("sv_paused").unwrap() != 0 {
+                //     default()
+                // } else {
+                //     time.as_generic()
+                //},
+                time.as_generic(),
                 &vfs,
                 &asset_server,
                 &from_server,
@@ -1492,7 +1514,7 @@ mod systems {
 
         server_events.write(ServerMessage {
             client_id: 0,
-            packet: qsock.recv_msg(blocking_mode)?,
+            packet: qsock.recv_msg(blocking_mode)?.into(),
         });
 
         for event in client_events.read() {

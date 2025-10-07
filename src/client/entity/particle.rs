@@ -22,10 +22,7 @@ use std::{mem, ops::RangeInclusive, sync::LazyLock};
 
 use crate::{
     client::ClientEntity,
-    common::{
-        engine,
-        math::{self, VERTEX_NORMAL_COUNT},
-    },
+    common::math::{self, VERTEX_NORMAL_COUNT},
 };
 
 use bevy::math::Vec3;
@@ -77,7 +74,7 @@ impl ColorRamp {
     ///
     /// If the animation has already completed by `elapsed`, returns `None`.
     pub fn color(&self, elapsed: Duration, frame_skip: usize) -> Option<u8> {
-        let frame = (engine::duration_to_f32(elapsed) * self.fps) as usize + frame_skip;
+        let frame = (seismon_utils::duration_to_f32(elapsed) * self.fps) as usize + frame_skip;
         self.ramp.get(frame).copied()
     }
 }
@@ -146,7 +143,7 @@ impl Particle {
     pub fn update(&mut self, time: Duration, frame_time: Duration, sv_gravity: f32) -> bool {
         use ParticleKind::*;
 
-        let velocity_factor = engine::duration_to_f32(frame_time);
+        let velocity_factor = seismon_utils::duration_to_f32(frame_time);
         let gravity = velocity_factor * sv_gravity * PARTICLE_GRAVITY_FACTOR;
 
         // don't bother updating expired particles
@@ -328,7 +325,7 @@ impl Particles {
         let dist = 64.0;
 
         for i in 0..VERTEX_NORMAL_COUNT {
-            let float_time = engine::duration_to_f32(time);
+            let float_time = seismon_utils::duration_to_f32(time);
 
             let angles = float_time * self.angle_velocities[i];
 

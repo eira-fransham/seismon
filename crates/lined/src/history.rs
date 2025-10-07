@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use super::*;
 
 use std::{
@@ -29,6 +31,7 @@ pub struct History {
     // TODO: just make this public?
     max_file_size: usize,
     // TODO set from environment variable?
+    /// If true, duplicate entries will be allowed in the history buffer.
     pub append_duplicate_entries: bool,
     /// Append each entry to history file as entered?
     pub inc_append: bool,
@@ -221,7 +224,7 @@ impl History {
     }
 
     /// Number of items in history.
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> usize {
         self.buffers.len()
     }
@@ -298,8 +301,13 @@ impl History {
     /// Removes duplicate entries in the history
     pub fn remove_duplicates(&mut self, input: &str) {
         self.buffers.retain(|buffer| {
-            let command = buffer.lines().concat();
-            command != input
+            input
+                .chars()
+                .zip_longest(buffer.chars())
+                .any(|a_and_b| match a_and_b {
+                    itertools::EitherOrBoth::Both(a, b) => a != b,
+                    _ => true,
+                })
         });
     }
 
@@ -314,11 +322,7 @@ impl History {
 
     /// Go through the history and try to find an index (newest to oldest) which starts the same
     /// as the new buffer given to this function as argument.  Starts at curr_position.  Does no wrap.
-    pub fn get_newest_match(
-        &self,
-        curr_position: Option<usize>,
-        new_buff: &Buffer,
-    ) -> Option<usize> {
+    pub fn newest_match(&self, curr_position: Option<usize>, new_buff: &Buffer) -> Option<usize> {
         let pos = curr_position.unwrap_or(self.buffers.len());
         if pos > 0 {
             self.get_match((0..pos).rev(), new_buff)
@@ -327,7 +331,12 @@ impl History {
         }
     }
 
-    pub fn get_history_subset(&self, search_term: &Buffer) -> Vec<usize> {
+    /// Get the subset of the history that matches the search term (similar to reverse-i-search, see
+    /// [Bash documentation](https://www.gnu.org/software/bash/manual/html_node/Commands-For-History.html)).
+    ///
+    /// Similar to [`Self::search_index`], but tries to order the results in a helpful manner (specifically,
+    /// will put results that start with the search term first).
+    pub fn history_subset(&self, search_term: &Buffer) -> Vec<usize> {
         let mut v: Vec<usize> = Vec::new();
         let mut ret: Vec<usize> = (0..self.len())
             .filter(|i| {
@@ -347,6 +356,10 @@ impl History {
         ret
     }
 
+    /// Reverse-i-search (see
+    /// [Bash documentation](https://www.gnu.org/software/bash/manual/html_node/Commands-For-History.html))
+    /// without any bias - simply returns the items from the history in the order they appear. Similar to
+    /// [`Self::history_subset`].
     pub fn search_index(&self, search_term: &Buffer) -> Vec<usize> {
         (0..self.len())
             .filter_map(|i| self.buffers.get(i).map(|t| (i, t)))
@@ -356,7 +369,7 @@ impl History {
     }
 
     /// Get the history file name.
-    #[inline(always)]
+    #[inline]
     pub fn file_name(&self) -> Option<&str> {
         self.file_name.as_deref()
     }
@@ -384,6 +397,7 @@ impl History {
         Ok("Wrote history to file.".to_string())
     }
 
+    /// Write the history to a given file path.
     pub fn commit_to_file_path<P: AsRef<Path>>(&mut self, path: P) -> io::Result<String> {
         if self.inc_append {
             Ok("Nothing to commit.".to_string())
@@ -392,6 +406,7 @@ impl History {
         }
     }
 
+    /// Write the history to the configured file path.
     pub fn commit_to_file(&mut self) {
         if let Some(file_name) = self.file_name.clone() {
             let _ = self.commit_to_file_path(file_name);

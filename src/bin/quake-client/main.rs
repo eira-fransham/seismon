@@ -255,9 +255,6 @@ fn main() -> ExitCode {
         .disable::<AudioPlugin>()
         .add(bevy_seedling::SeedlingPlugin::default());
 
-    #[cfg(feature = "dev_tools")]
-    app.add_plugins(dev::DevtoolsPlugins);
-
     app
         .add_plugins(default_plugins)
         .add_plugins(SeismonClientPlugin{
@@ -303,6 +300,9 @@ fn main() -> ExitCode {
             "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
         ).insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
+
+    #[cfg(feature = "dev_tools")]
+    app.add_plugins(dev::DevtoolsPlugins);
 
     #[cfg(feature = "capture")]
     {

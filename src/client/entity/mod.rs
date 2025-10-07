@@ -22,10 +22,7 @@ pub mod particle;
 
 use std::mem;
 
-use crate::common::{
-    engine,
-    net::{EntityEffects, EntityState, EntityUpdate},
-};
+use crate::common::net::{EntityEffects, EntityState, EntityUpdate};
 
 use bevy::prelude::*;
 use chrono::Duration;
@@ -69,23 +66,6 @@ pub struct ClientEntity {
     // vis_frame: usize,
 }
 
-#[derive(Debug, Clone, Component)]
-pub struct QuakeEntity {
-    pub id: usize,
-    pub force_link: bool,
-    pub baseline: EntityState,
-    pub msg_time: Duration,
-    pub msg_origins: [Vec3; 2],
-    pub msg_angles: [Vec3; 2],
-    pub frame_id: usize,
-    pub skin_id: usize,
-    pub colormap: Option<u8>,
-    pub sync_base: Duration,
-    pub effects: EntityEffects,
-    pub light_id: Option<usize>,
-    // vis_frame: usize,
-}
-
 impl ClientEntity {
     pub fn from_baseline(id: usize, baseline: EntityState) -> ClientEntity {
         ClientEntity {
@@ -101,7 +81,7 @@ impl ClientEntity {
             model_changed: false,
             frame_id: baseline.frame_id,
             skin_id: baseline.skin_id,
-            colormap: None,
+            colormap: Some(baseline.colormap),
             sync_base: Duration::zero(),
             effects: baseline.effects,
             light_id: None,
@@ -276,7 +256,7 @@ impl Light {
     /// If the radius would decay to a negative value, returns 0.
     pub fn radius(&self, time: Duration) -> f32 {
         let lived = time - self.spawned;
-        let decay = self.decay_rate * engine::duration_to_f32(lived);
+        let decay = self.decay_rate * seismon_utils::duration_to_f32(lived);
         let radius = (self.init_radius - decay).max(0.0);
 
         if let Some(min) = self.min_radius

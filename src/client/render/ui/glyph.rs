@@ -1,15 +1,12 @@
 use std::{mem::size_of, num::NonZeroU32};
 
-use crate::{
-    client::render::{
-        Extent2d, GraphicsState, Pipeline, TextureData,
-        ui::{
-            layout::{Anchor, ScreenPosition},
-            quad::{QuadPipeline, QuadVertex},
-            screen_space_vertex_scale, screen_space_vertex_translate,
-        },
+use crate::client::render::{
+    Extent2d, GraphicsState, Pipeline, TextureData,
+    ui::{
+        layout::{Anchor, ScreenPosition},
+        quad::{QuadPipeline, QuadVertex},
+        screen_space_vertex_scale, screen_space_vertex_translate,
     },
-    common::util::any_slice_as_bytes,
 };
 
 use bevy::{
@@ -23,6 +20,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
+use bytemuck::{Pod, Zeroable};
 
 pub const GLYPH_WIDTH: usize = 8;
 pub const GLYPH_HEIGHT: usize = 8;
@@ -178,7 +176,7 @@ impl Pipeline for GlyphPipeline {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct GlyphInstance {
     pub position: Vec2,
     pub scale: Vec2,
@@ -369,9 +367,11 @@ impl GlyphRenderer {
         commands: &[GlyphRendererCommand],
     ) {
         let instances = self.generate_instances(commands, target_size);
-        queue.write_buffer(state.glyph_pipeline().instance_buffer(), 0, unsafe {
-            any_slice_as_bytes(&instances)
-        });
+        queue.write_buffer(
+            state.glyph_pipeline().instance_buffer(),
+            0,
+            bytemuck::cast_slice(&instances),
+        );
         pass.set_render_pipeline(state.glyph_pipeline().pipeline());
         pass.set_vertex_buffer(0, state.quad_pipeline().vertex_buffer().slice(..));
         pass.set_vertex_buffer(1, state.glyph_pipeline().instance_buffer().slice(..));

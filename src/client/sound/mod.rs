@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-mod limiter;
 mod music;
 
 use bevy::{
@@ -28,7 +27,6 @@ use bevy::{
 use bevy_seedling::{prelude::*, sample::Sample};
 use firewheel::sample_resource::DecodedAudioF32;
 
-use limiter::{LimiterConfig, LimiterNode};
 pub use music::MusicPlayer;
 use symphonium::symphonia::core::probe::Hint;
 
@@ -147,8 +145,6 @@ pub struct MusicPool;
 
 impl Plugin for SeismonSoundPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.register_node::<LimiterNode>();
-
         let mut commands = app.world_mut().commands();
 
         commands
@@ -161,15 +157,7 @@ impl Plugin for SeismonSoundPlugin {
             .chain_node(FreeverbNode::default())
             .connect(MasterOut);
 
-        commands
-            .spawn((VolumeNode::default(), MasterOut))
-            .chain_node((
-                LimiterConfig {
-                    lookahead: Some(0.08),
-                    ..default()
-                },
-                LimiterNode::default(),
-            ));
+        commands.spawn((VolumeNode::default(), MasterOut));
 
         commands.spawn(SpatialListener3D);
 

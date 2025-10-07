@@ -42,7 +42,6 @@ use crate::{
             BspTextureMipmap,
         },
         math,
-        util::any_slice_as_bytes,
     },
 };
 
@@ -58,6 +57,7 @@ use bevy::{
     },
 };
 use bumpalo::Bump;
+use bytemuck::{Pod, Zeroable};
 use chrono::Duration;
 use failure::Error;
 use hashbrown::HashMap;
@@ -132,14 +132,14 @@ impl BrushPipeline {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: [[f32; 4]; 4],
     pub inv_view: [[f32; 3]; 3],
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct FramePushConstants {
     pub diffuse_index: u16,
     pub fullbright_index: u16,
@@ -242,7 +242,6 @@ type Normal = [f32; 3];
 type Texcoord = [f32; 2];
 type LightmapAnim = [u8; 4];
 
-#[repr(C)]
 #[derive(Clone, Debug)]
 struct BrushVertexInput {
     position: Vec3,
@@ -254,7 +253,7 @@ struct BrushVertexInput {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Default, Clone, Copy, Debug)]
 struct BrushVertex {
     position: Position,
     normal: Normal,
@@ -691,7 +690,7 @@ impl BrushRenderer {
         self.vertex_buffer = Some(device.create_buffer_with_data(
             &wgpu::util::BufferInitDescriptor {
                 label: None,
-                contents: unsafe { any_slice_as_bytes(self.vertices.outputs()) },
+                contents: bytemuck::cast_slice(self.vertices.outputs()),
                 usage: wgpu::BufferUsages::VERTEX,
             },
         ));

@@ -1,14 +1,12 @@
-use std::{mem::size_of, ops::Range, sync::LazyLock};
+use std::{
+    mem::{self, size_of},
+    ops::Range,
+    sync::LazyLock,
+};
 
-use crate::{
-    client::render::{
-        GraphicsState, Pipeline, TextureData,
-        world::{BindGroupLayoutId, WorldPipelineBase},
-    },
-    common::{
-        mdl::{self, AliasModel},
-        util::any_slice_as_bytes,
-    },
+use crate::client::render::{
+    GraphicsState, Pipeline, TextureData,
+    world::{BindGroupLayoutId, WorldPipelineBase},
 };
 
 use bevy::{
@@ -21,6 +19,8 @@ use bevy::{
         texture::CachedTexture,
     },
 };
+use bevy_mod_mdl::{AliasModel, Keyframe, Texture};
+use bytemuck::{Pod, Zeroable};
 use chrono::Duration;
 use failure::Error;
 
@@ -82,11 +82,16 @@ impl AliasPipeline {
     }
 }
 
+pub const VERTEX_PUSH_CONSTANTS_PAD_BYTES: usize =
+    mem::align_of::<Mat4>() - mem::align_of::<Mat3>();
+type VertexPushConstantPadding = [u8; VERTEX_PUSH_CONSTANTS_PAD_BYTES];
+
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Zeroable, Pod, Copy, Clone, Debug)]
 pub struct VertexPushConstants {
     pub transform: Mat4,
     pub model_view: Mat3,
+    pub _pad: VertexPushConstantPadding,
 }
 
 static VERTEX_ATTRIBUTES: LazyLock<[wgpu::VertexAttribute; 3]> = LazyLock::new(|| {
@@ -168,14 +173,14 @@ type Normal = [f32; 3];
 type DiffuseTexcoord = [f32; 2];
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 struct AliasVertex {
     position: Position,
     normal: Normal,
     diffuse_texcoord: DiffuseTexcoord,
 }
 
-enum Keyframe {
+enum GpuKeyframe {
     Static {
         vertex_range: Range<u32>,
     },
@@ -186,11 +191,11 @@ enum Keyframe {
     },
 }
 
-impl Keyframe {
+impl GpuKeyframe {
     fn animate(&self, time: Duration) -> Range<u32> {
         match self {
-            Keyframe::Static { vertex_range } => vertex_range.clone(),
-            Keyframe::Animated {
+            GpuKeyframe::Static { vertex_range } => vertex_range.clone(),
+            GpuKeyframe::Animated {
                 vertex_ranges,
                 total_duration,
                 durations,
@@ -210,7 +215,7 @@ impl Keyframe {
     }
 }
 
-enum Texture {
+enum GpuTexture {
     Static {
         _diffuse_texture: CachedTexture,
         bind_group: BindGroup,
@@ -223,11 +228,11 @@ enum Texture {
     },
 }
 
-impl Texture {
+impl GpuTexture {
     fn animate(&self, time: Duration) -> &BindGroup {
         match self {
-            Texture::Static { bind_group, .. } => bind_group,
-            Texture::Animated {
+            GpuTexture::Static { bind_group, .. } => bind_group,
+            GpuTexture::Animated {
                 bind_groups,
                 total_duration,
                 durations,
@@ -250,8 +255,8 @@ impl Texture {
 
 #[derive(Component)]
 pub struct AliasRenderer {
-    keyframes: Vec<Keyframe>,
-    textures: Vec<Texture>,
+    keyframes: Vec<GpuKeyframe>,
+    textures: Vec<GpuTexture>,
     // vertices: Mapped<CompiledAtlases, AliasVertexInput, AliasVertex>,
     vertex_buffer: Buffer,
 }
@@ -270,7 +275,7 @@ impl AliasRenderer {
         let h = alias_model.texture_height();
         for keyframe in alias_model.keyframes() {
             match *keyframe {
-                mdl::Keyframe::Static(ref static_keyframe) => {
+                Keyframe::Static(ref static_keyframe) => {
                     let vertex_start = vertices.len() as u32;
                     for polygon in alias_model.polygons() {
                         let mut tri = [Vec3::ZERO; 3];
@@ -300,12 +305,12 @@ impl AliasRenderer {
                     }
                     let vertex_end = vertices.len() as u32;
 
-                    keyframes.push(Keyframe::Static {
+                    keyframes.push(GpuKeyframe::Static {
                         vertex_range: vertex_start..vertex_end,
                     });
                 }
 
-                mdl::Keyframe::Animated(ref kf) => {
+                Keyframe::Animated(ref kf) => {
                     let mut durations = Vec::new();
                     let mut vertex_ranges = Vec::new();
 
@@ -345,7 +350,7 @@ impl AliasRenderer {
                     }
 
                     let total_duration = durations.iter().fold(Duration::zero(), |s, d| s + *d);
-                    keyframes.push(Keyframe::Animated {
+                    keyframes.push(GpuKeyframe::Animated {
                         vertex_ranges,
                         durations,
                         total_duration,
@@ -356,14 +361,14 @@ impl AliasRenderer {
 
         let vertex_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_slice_as_bytes(vertices.as_slice()) },
+            contents: bytemuck::cast_slice(vertices.as_slice()),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let mut textures = Vec::new();
         for texture in alias_model.textures() {
-            match *texture {
-                mdl::Texture::Static(ref tex) => {
+            match texture {
+                Texture::Static(tex) => {
                     let (diffuse_data, _fullbright_data) = state.palette.translate(tex.indices());
                     let diffuse_texture = state.create_texture(
                         device,
@@ -384,7 +389,7 @@ impl AliasRenderer {
                             resource: wgpu::BindingResource::TextureView(&diffuse_view),
                         }],
                     );
-                    textures.push(Texture::Static {
+                    textures.push(GpuTexture::Static {
                         _diffuse_texture: CachedTexture {
                             texture: diffuse_texture,
                             default_view: diffuse_view,
@@ -392,7 +397,7 @@ impl AliasRenderer {
                         bind_group,
                     });
                 }
-                mdl::Texture::Animated(ref tex) => {
+                Texture::Animated(tex) => {
                     let mut total_duration = Duration::zero();
                     let mut durations = Vec::new();
                     let mut diffuse_textures = Vec::new();
@@ -430,7 +435,7 @@ impl AliasRenderer {
                         bind_groups.push(bind_group);
                     }
 
-                    textures.push(Texture::Animated {
+                    textures.push(GpuTexture::Animated {
                         _diffuse_textures: diffuse_textures,
                         bind_groups,
                         total_duration,

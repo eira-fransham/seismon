@@ -17,13 +17,12 @@
 
 use std::io::{BufReader, Read, Seek};
 
-use crate::common::{engine, model::SyncType};
-
 use bevy::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
+use seismon_utils::model::SyncType;
 
 const MAGIC: u32 = u32::from_le_bytes(*b"IDSP");
 const VERSION: u32 = 1;
@@ -196,7 +195,9 @@ where
                 };
 
                 let durations = (0..subframe_count)
-                    .map(|_| engine::duration_from_f32(reader.read_f32::<LittleEndian>().unwrap()))
+                    .map(|_| {
+                        seismon_utils::duration_from_f32(reader.read_f32::<LittleEndian>().unwrap())
+                    })
                     .collect();
 
                 let subframes = (0..subframe_count)

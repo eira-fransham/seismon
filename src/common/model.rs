@@ -15,17 +15,16 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+use bevy::{log::debug, math::Vec3};
+use bevy_mod_mdl::{AliasModel, MdlFileError};
+use seismon_utils::model::{ModelFlags, SyncType};
+use thiserror::Error;
+
 use crate::common::{
     bsp::{BspFileError, BspModel},
-    mdl::{self, AliasModel, MdlFileError},
     sprite::{self, SpriteModel},
     vfs::{Vfs, VfsError},
 };
-
-use bevy::prelude::*;
-use bitflags::bitflags;
-use num_derive::FromPrimitive;
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -39,41 +38,50 @@ pub enum ModelError {
     Vfs(#[from] VfsError),
 }
 
-#[derive(Debug, FromPrimitive)]
-pub enum SyncType {
-    Sync = 0,
-    Rand = 1,
+#[derive(Default, Debug, Clone)]
+pub struct Model<A = AliasModel, S = SpriteModel> {
+    pub name: String,
+    pub kind: ModelKind<A, S>,
+    pub flags: ModelFlags,
 }
 
-bitflags! {
-    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
-    pub struct ModelFlags: u8 {
-        const ROCKET  = 0b00000001;
-        const GRENADE = 0b00000010;
-        const GIB     = 0b00000100;
-        const ROTATE  = 0b00001000;
-        const TRACER  = 0b00010000;
-        const ZOMGIB  = 0b00100000;
-        const TRACER2 = 0b01000000;
-        const TRACER3 = 0b10000000;
+impl<A0, S0> Model<A0, S0> {
+    pub fn cast<A1, S1>(self) -> Model<A1, S1>
+    where
+        A0: Into<A1>,
+        S0: Into<S1>,
+    {
+        Model {
+            name: self.name,
+            flags: self.flags,
+            kind: self.kind.cast(),
+        }
     }
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct Model {
-    pub name: String,
-    pub kind: ModelKind,
-    pub flags: ModelFlags,
-}
-
-#[derive(Default, Debug, Clone)]
-pub enum ModelKind {
+pub enum ModelKind<A = AliasModel, S = SpriteModel> {
     // TODO: find a more elegant way to express the null model
     #[default]
     None,
     Brush(BspModel),
-    Alias(AliasModel),
-    Sprite(SpriteModel),
+    Alias(A),
+    Sprite(S),
+}
+
+impl<A0, S0> ModelKind<A0, S0> {
+    pub fn cast<A1, S1>(self) -> ModelKind<A1, S1>
+    where
+        A0: Into<A1>,
+        S0: Into<S1>,
+    {
+        match self {
+            ModelKind::None => ModelKind::None,
+            ModelKind::Brush(model) => ModelKind::Brush(model),
+            ModelKind::Alias(model) => ModelKind::Alias(model.into()),
+            ModelKind::Sprite(model) => ModelKind::Sprite(model.into()),
+        }
+    }
 }
 
 const DEFAULT_MODEL_KIND: ModelKind = ModelKind::None;
@@ -85,9 +93,9 @@ impl Default for &'_ ModelKind {
 }
 
 impl Model {
-    pub fn none<S>(path: S) -> Model
+    pub fn none<Str>(path: Str) -> Model
     where
-        S: Into<String>,
+        Str: Into<String>,
     {
         Model {
             name: path.into(),
@@ -96,22 +104,18 @@ impl Model {
         }
     }
 
-    pub fn kind(&self) -> &ModelKind {
-        &self.kind
-    }
-
-    pub fn load<S>(vfs: &Vfs, name: S) -> Result<Model, ModelError>
+    pub fn load<Str>(vfs: &Vfs, name: Str) -> Result<Model, ModelError>
     where
-        S: AsRef<str>,
+        Str: AsRef<str>,
     {
         let name = name.as_ref().trim();
         // TODO: original engine uses the magic numbers of each format instead of the extension.
         if name.ends_with(".bsp") {
             panic!("BSP files may contain multiple models, use bsp::load for this");
         } else if name.ends_with(".mdl") {
-            Ok(Model::from_alias_model(
+            Ok(Self::from_alias_model(
                 name,
-                mdl::load(vfs.open(name)?).into_result()?,
+                bevy_mod_mdl::load(vfs.open(name)?).into_result()?,
             ))
         } else if name.ends_with(".spr") {
             Ok(Model::from_sprite_model(
@@ -124,9 +128,9 @@ impl Model {
     }
 
     /// Construct a new generic model from a brush model.
-    pub fn from_brush_model<S>(name: S, brush_model: BspModel) -> Model
+    pub fn from_brush_model<Str>(name: Str, brush_model: BspModel) -> Model
     where
-        S: AsRef<str>,
+        Str: AsRef<str>,
     {
         Model {
             name: name.as_ref().into(),
@@ -136,9 +140,9 @@ impl Model {
     }
 
     /// Construct a new generic model from an alias model.
-    pub fn from_alias_model<S>(name: S, alias_model: AliasModel) -> Model
+    pub fn from_alias_model<Str>(name: Str, alias_model: AliasModel) -> Model
     where
-        S: AsRef<str>,
+        Str: AsRef<str>,
     {
         let flags = alias_model.flags();
 
@@ -150,9 +154,9 @@ impl Model {
     }
 
     /// Construct a new generic model from a sprite model.
-    pub fn from_sprite_model<S>(name: S, sprite_model: SpriteModel) -> Model
+    pub fn from_sprite_model<Str>(name: Str, sprite_model: SpriteModel) -> Model
     where
-        S: AsRef<str>,
+        Str: AsRef<str>,
     {
         Model {
             name: name.as_ref().into(),
@@ -160,12 +164,8 @@ impl Model {
             flags: ModelFlags::empty(),
         }
     }
-
-    /// Return the name of this model.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
+}
+impl<A> Model<A> {
     /// Return the minimum extent of this model.
     pub fn min(&self) -> Vec3 {
         debug!("Retrieving min of model {}", self.name);
@@ -192,6 +192,17 @@ impl Model {
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
             ModelKind::Alias(_) => Vec3::splat(16.0),
         }
+    }
+}
+
+impl<A, S> Model<A, S> {
+    pub fn kind(&self) -> &ModelKind<A, S> {
+        &self.kind
+    }
+
+    /// Return the name of this model.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn sync_type(&self) -> SyncType {

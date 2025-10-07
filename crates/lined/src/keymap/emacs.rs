@@ -1,3 +1,7 @@
+//! # Emacs-style editing modes
+//!
+//! This module implements the Emacs-style editing for `lined`.
+
 use std::io;
 use termion::event::Key;
 
@@ -16,6 +20,7 @@ pub struct Emacs {
 }
 
 impl Emacs {
+    /// Create a new emacs editing context.
     pub fn new() -> Self {
         Self::default()
     }
@@ -143,7 +148,7 @@ fn emacs_move_word<C: EditorContext>(
     ed: &mut Editor<C, dyn Highlighter>,
     direction: EmacsMoveDir,
 ) -> io::Result<()> {
-    let (mut words, pos) = ed.get_words_and_cursor_position();
+    let (mut words, pos) = ed.words_and_cursor_position();
 
     let word_index = match pos {
         CursorPosition::InWord(i) => Some(i),
@@ -182,6 +187,8 @@ fn emacs_move_word<C: EditorContext>(
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::*;
     use crate::{Completer, Context, Editor, KeyMap, editor::Prompt};
     use termion::event::Key;
@@ -206,8 +213,11 @@ mod tests {
     struct EmptyCompleter;
 
     impl Completer for EmptyCompleter {
-        fn completions(&mut self, _start: &str) -> Vec<String> {
-            Vec::default()
+        fn completions<'a>(
+            &'a mut self,
+            _start: &'a str,
+        ) -> impl Iterator<Item = Cow<'a, str>> + 'a {
+            std::iter::empty()
         }
     }
 

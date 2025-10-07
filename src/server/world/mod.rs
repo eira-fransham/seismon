@@ -39,14 +39,16 @@ use hashbrown::HashSet;
 use crate::{
     common::{
         bsp::{self, BspCollisionHull, BspLeafContents},
-        mdl,
-        model::{Model, ModelKind},
+        model::ModelKind,
         parse, sprite,
         vfs::Vfs,
     },
-    server::progs::{
-        EntityFieldAddr, EntityId, FieldAddr, FieldDef, FunctionId, ProgsError, StringId,
-        StringTable, Type,
+    server::{
+        Model,
+        progs::{
+            EntityFieldAddr, EntityId, FieldAddr, FieldDef, FunctionId, ProgsError, StringId,
+            StringTable, Type,
+        },
     },
 };
 
@@ -537,7 +539,7 @@ impl World {
         let mut models = Vec::with_capacity(brush_models.len() + 1);
 
         // put null model at index 0
-        models.push(Model::default());
+        models.push(crate::common::model::Model::none("").cast());
 
         // take ownership of all brush models
         models.append(&mut brush_models);
@@ -573,23 +575,26 @@ impl World {
 
         if name.ends_with(b".bsp") {
             let data = vfs.open(name.to_str()).unwrap();
-            let (mut brush_models, _) = bsp::load(data).unwrap();
+            let (brush_models, _) = bsp::load(data).unwrap();
             if brush_models.len() > 1 {
                 return Err(ProgsError::with_msg(
                     "Complex brush models must be loaded before world creation",
                 ));
             }
-            self.models.append(&mut brush_models);
+            self.models
+                .extend(brush_models.into_iter().map(|m| m.cast()));
         } else if name.ends_with(b".mdl") {
             let data = vfs.open(name.to_str()).unwrap();
-            let alias_model = mdl::load(data).into_result().unwrap();
-            self.models
-                .push(Model::from_alias_model(name.to_str(), alias_model));
+            let alias_model = bevy_mod_mdl::load(data).into_result().unwrap();
+            self.models.push(
+                crate::common::model::Model::from_alias_model(name.to_str(), alias_model).cast(),
+            );
         } else if name.ends_with(b".spr") {
             let data = vfs.open(name.to_str()).unwrap();
             let sprite_model = sprite::load(data);
-            self.models
-                .push(Model::from_sprite_model(name.to_str(), sprite_model));
+            self.models.push(
+                crate::common::model::Model::from_sprite_model(name.to_str(), sprite_model).cast(),
+            );
         } else {
             return Err(ProgsError::with_msg(format!(
                 "Unrecognized model type: {name}"

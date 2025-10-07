@@ -1,41 +1,59 @@
 use crate::EditorContext;
 
 use super::event::Event;
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
+/// Trait representing how to autocomplete unfinished inputs.
 pub trait Completer {
-    fn completions(&mut self, start: &str) -> Vec<String>;
+    /// Get the list of possible completions for the given prefix.
+    ///
+    /// > *NOTE*: This should return a sorted, deduplicated iterator.
+    fn completions<'a>(&'a mut self, start: &'a str) -> impl Iterator<Item = Cow<'a, str>> + 'a;
+    /// Respond to an editor event.
     fn on_event<C: EditorContext>(&mut self, _event: Event<C>) {}
 }
 
+/// Simple completer that just takes a set of prefixes.
 pub struct BasicCompleter {
     prefixes: Vec<String>,
 }
 
 impl BasicCompleter {
-    pub fn new<T: Into<String>>(prefixes: Vec<T>) -> BasicCompleter {
-        BasicCompleter {
-            prefixes: prefixes.into_iter().map(|s| s.into()).collect(),
-        }
+    /// Create a new [`BasicCompleter`] from an iterator of prefixes.
+    pub fn new<I>(prefixes: I) -> BasicCompleter
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        let mut prefixes = prefixes
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<String>>();
+        prefixes.sort();
+        prefixes.dedup();
+
+        BasicCompleter { prefixes }
     }
 }
 
 impl Completer for BasicCompleter {
-    fn completions(&mut self, start: &str) -> Vec<String> {
+    fn completions<'a>(&'a mut self, start: &'a str) -> impl Iterator<Item = Cow<'a, str>> + 'a {
         self.prefixes
             .iter()
-            .filter(|s| s.starts_with(start))
-            .cloned()
-            .collect()
+            .filter(move |s| s.starts_with(start))
+            .map(Into::into)
     }
 }
 
+/// A completer based on filenames in a given directory.
 pub struct FilenameCompleter {
     working_dir: Option<PathBuf>,
     case_sensitive: bool,
 }
 
 impl FilenameCompleter {
+    /// Create a new [`FilenameCompleter`] in a given working directory (or `None` to use the current working
+    /// directory from the environment).
     pub fn new<T: Into<PathBuf>>(working_dir: Option<T>) -> Self {
         FilenameCompleter {
             working_dir: working_dir.map(|p| p.into()),
@@ -43,6 +61,8 @@ impl FilenameCompleter {
         }
     }
 
+    /// Create a new [`FilenameCompleter`] that optionally uses case-sensitive filename matching based on the
+    /// `case_sensitive` argument.
     pub fn with_case_sensitivity<T: Into<PathBuf>>(
         working_dir: Option<T>,
         case_sensitive: bool,
@@ -55,7 +75,10 @@ impl FilenameCompleter {
 }
 
 impl Completer for FilenameCompleter {
-    fn completions(&mut self, mut start: &str) -> Vec<String> {
+    fn completions<'a>(
+        &'a mut self,
+        mut start: &'a str,
+    ) -> impl Iterator<Item = Cow<'a, str>> + 'a {
         // XXX: this function is really bad, TODO rewrite
 
         let start_owned: String = if start.starts_with('\"') || start.starts_with('\'') {
@@ -115,7 +138,7 @@ impl Completer for FilenameCompleter {
 
         let read_dir = match p.read_dir() {
             Ok(x) => x,
-            Err(_) => return vec![],
+            Err(_) => return vec![].into_iter(),
         };
 
         let mut matches = vec![];
@@ -136,7 +159,7 @@ impl Completer for FilenameCompleter {
                 if !a.is_absolute() {
                     a = PathBuf::new();
                 } else if !completing_dir && !a.pop() {
-                    return vec![];
+                    return vec![].into_iter();
                 }
 
                 a.push(dir.file_name());
@@ -153,10 +176,10 @@ impl Completer for FilenameCompleter {
                 }
                 b.push(s.as_ref());
 
-                matches.push(b.to_string_lossy().replace(" ", r"\ "));
+                matches.push(b.to_string_lossy().replace(" ", r"\ ").into());
             }
         }
 
-        matches
+        matches.into_iter()
     }
 }

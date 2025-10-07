@@ -5,7 +5,7 @@ edition = "2024"
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/bevy_mod_pakfile"
 description = "Load Bevy assets from Quake 1 .pak files, with support for loading multiple and overlaying them"
 
 [dependencies]

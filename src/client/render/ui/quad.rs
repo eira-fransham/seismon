@@ -1,5 +1,5 @@
 use std::{
-    mem::size_of,
+    mem::{self, size_of},
     num::NonZeroU64,
     ops::{Deref, DerefMut},
 };
@@ -13,7 +13,7 @@ use crate::{
         },
         uniform::{self, DynamicUniformBuffer, DynamicUniformBufferBlock},
     },
-    common::{util::any_slice_as_bytes, wad::QPic},
+    common::wad::QPic,
 };
 
 use bevy::{
@@ -27,6 +27,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
+use bytemuck::{Pod, Zeroable};
 use parking_lot::RwLock;
 
 pub const VERTICES: [QuadVertex; 6] = [
@@ -61,7 +62,7 @@ pub type Position = [f32; 2];
 pub type Texcoord = [f32; 2];
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct QuadVertex {
     position: Position,
     texcoord: Texcoord,
@@ -107,7 +108,7 @@ impl QuadPipeline {
 
         let vertex_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_slice_as_bytes(&VERTICES) },
+            contents: bytemuck::cast_slice(&VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -264,10 +265,15 @@ impl Pipeline for QuadPipeline {
     }
 }
 
+const QUAD_UNIFORMS_PAD_AMT: usize = 256 - mem::size_of::<Mat4>();
+type QuadUniformsPadding = [u8; QUAD_UNIFORMS_PAD_AMT];
+
 #[repr(C, align(256))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct QuadUniforms {
     transform: Mat4,
+    // Prevents undef.
+    _pad: QuadUniformsPadding,
 }
 
 pub struct QuadTexture {
@@ -419,6 +425,7 @@ impl QuadRenderer {
                     x,
                     y,
                 ),
+                _pad: [0; QUAD_UNIFORMS_PAD_AMT],
             });
         }
 

@@ -45,6 +45,7 @@ use lined::{
     DefaultWordDivider, Editor, EditorContext, Emacs, Key, KeyBindings, KeyMap as _, Prompt, Tty,
     WordDivider,
 };
+use seismon_utils::{QStr, QString};
 use serde::{
     Deserializer,
     de::{Error, Expected, MapAccess, Unexpected, value::StrDeserializer},
@@ -59,31 +60,12 @@ use crate::client::{
     render::{Palette, TextureData},
 };
 
-use super::{
-    parse,
-    util::{QStr, QString},
-    vfs::Vfs,
-    wad::Wad,
-};
+use super::{parse, vfs::Vfs, wad::Wad};
 
-pub struct SeismonConsolePlugin;
+pub struct SeismonConsoleCorePlugin;
 
-impl Plugin for SeismonConsolePlugin {
+impl Plugin for SeismonConsoleCorePlugin {
     fn build(&self, app: &mut App) {
-        let vfs = app.world().resource::<Vfs>();
-
-        let mut history = lined::History::default();
-
-        if let Ok(history_path) = vfs.find_writable_filename("history.cfg") {
-            match history.set_file_name_and_load_history(history_path) {
-                Ok(_) => history.inc_append = true,
-                Err(e) => {
-                    warn!(target: "console", "Error loading history: {}", e);
-                    history = lined::History::default();
-                }
-            }
-        }
-
         #[derive(Parser)]
         #[command(
             name = "stuffcmds",
@@ -109,37 +91,8 @@ impl Plugin for SeismonConsolePlugin {
         #[command(name = "resetall", about = "Reset all cvars to their initial values")]
         struct ResetAll;
 
-        app.init_resource::<ConsoleOutput>()
-            .insert_resource(ConsoleInput::new(history).unwrap())
-            .init_resource::<RenderConsoleOutput>()
-            .init_resource::<RenderConsoleInput>()
-            .init_resource::<Registry>()
-            .init_resource::<ConsoleAlertSettings>()
-            .init_resource::<Gfx>()
+        app.init_resource::<Registry>()
             .add_event::<RunCmd<'static>>()
-            .add_systems(
-                Startup,
-                (
-                    systems::startup::init_alert_output,
-                    systems::startup::init_console,
-                ),
-            )
-            .add_systems(
-                Update,
-                (
-                    systems::update_console_size
-                        .run_if(resource_changed_or_removed::<ConnectionState>),
-                    systems::update_render_console,
-                    systems::write_alert,
-                    (systems::write_console_out, systems::write_center_print)
-                        .run_if(resource_changed::<RenderConsoleOutput>),
-                    systems::write_console_in.run_if(resource_changed::<RenderConsoleInput>),
-                    systems::update_console_visibility.run_if(resource_changed::<InputFocus>),
-                    console_text::systems::update_atlas_text,
-                    systems::execute_console,
-                    systems::update_cvars,
-                ),
-            )
             .command(
                 |In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
                     ExecResult {
@@ -200,7 +153,62 @@ impl Plugin for SeismonConsolePlugin {
 
                     default()
                 },
+            )
+            .add_systems(
+                PostUpdate,
+                (systems::execute_console, systems::update_cvars),
             );
+    }
+}
+
+pub struct SeismonConsolePlugin;
+
+impl Plugin for SeismonConsolePlugin {
+    fn build(&self, app: &mut App) {
+        let vfs = app.world().resource::<Vfs>();
+
+        let mut history = lined::History::default();
+
+        if let Ok(history_path) = vfs.find_writable_filename("history.cfg") {
+            match history.set_file_name_and_load_history(history_path) {
+                Ok(_) => history.inc_append = true,
+                Err(e) => {
+                    warn!(target: "console", "Error loading history: {}", e);
+                    history = lined::History::default();
+                }
+            }
+        }
+
+        app.add_plugins(SeismonConsoleCorePlugin)
+            .add_event::<UnhandledCmd>()
+            .init_resource::<ConsoleOutput>()
+            .insert_resource(ConsoleInput::new(history).unwrap())
+            .init_resource::<RenderConsoleOutput>()
+            .init_resource::<RenderConsoleInput>()
+            .init_resource::<ConsoleAlertSettings>()
+            .init_resource::<Gfx>()
+            .add_systems(
+                Startup,
+                (
+                    systems::startup::init_alert_output,
+                    systems::startup::init_console,
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::update_console_size
+                        .run_if(resource_changed_or_removed::<ConnectionState>),
+                    systems::update_render_console,
+                    systems::write_alert,
+                    (systems::write_console_out, systems::write_center_print)
+                        .run_if(resource_changed::<RenderConsoleOutput>),
+                    systems::write_console_in.run_if(resource_changed::<RenderConsoleInput>),
+                    systems::update_console_visibility.run_if(resource_changed::<InputFocus>),
+                    console_text::systems::update_atlas_text,
+                ),
+            )
+            .add_systems(PostUpdate, systems::send_unhandled_commands_to_server);
     }
 }
 
@@ -371,6 +379,10 @@ impl std::fmt::Display for CmdName<'_> {
         }
     }
 }
+
+#[derive(Event, PartialEq, Eq, Clone, Debug)]
+#[repr(transparent)]
+pub struct UnhandledCmd(pub RunCmd<'static>);
 
 #[derive(Event, PartialEq, Eq, Clone, Debug)]
 pub struct RunCmd<'a>(pub CmdName<'a>, pub Box<[String]>);
@@ -1781,26 +1793,29 @@ pub fn to_terminal_key<'a>(
 
 // TODO: This can be a tree for much better completions but we don't have enough commands to make it necessary right now
 //       The `lined` interface allocates a lot anyway, so micro-optimisation isn't necessary here.
-struct IterCompleter<I> {
+struct IterCompleter<'a, I> {
     iter: I,
+    _marker: PhantomData<&'a ()>,
 }
 
-impl<I> lined::Completer for IterCompleter<I>
+impl<'iter, I, Item> lined::Completer for IterCompleter<'iter, I>
 where
-    I: Iterator + Clone,
-    I::Item: AsRef<str>,
+    Item: ?Sized + 'iter,
+    I: Iterator<Item = &'iter Item> + Clone + 'iter,
+    &'iter Item: Into<std::borrow::Cow<'iter, str>>,
 {
-    fn completions(&mut self, start: &str) -> Vec<String> {
-        self.iter
-            .clone()
-            .filter_map(|candidate| {
-                if candidate.as_ref().starts_with(start) {
-                    Some(candidate.as_ref().to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect()
+    fn completions<'a>(
+        &'a mut self,
+        start: &'a str,
+    ) -> impl Iterator<Item = std::borrow::Cow<'a, str>> + 'a {
+        self.iter.clone().filter_map(move |candidate: &'iter Item| {
+            let candidate = candidate.into();
+            if candidate.starts_with(start) {
+                Some(candidate)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -1856,7 +1871,7 @@ impl ConsoleInput {
     }
 
     /// Send characters to the inner editor
-    pub fn update<'a, I, C>(
+    pub fn update<'a, I, C, Item>(
         &'a mut self,
         keys: I,
         candidates: C,
@@ -1864,10 +1879,14 @@ impl ConsoleInput {
     where
         I: IntoIterator<Item = Key>,
         I::IntoIter: 'a,
-        C: Iterator + Clone + 'a,
-        C::Item: AsRef<str>,
+        C: Iterator<Item = &'a Item> + Clone + 'a,
+        Item: ?Sized + 'a,
+        &'a Item: Into<std::borrow::Cow<'a, str>>,
     {
-        let mut completer = IterCompleter { iter: candidates };
+        let mut completer = IterCompleter {
+            iter: candidates,
+            _marker: PhantomData,
+        };
         keys.into_iter().filter_map(move |key| {
             let editor = self.editor.as_mut()?;
 
@@ -1897,11 +1916,9 @@ impl ConsoleInput {
 
     /// Returns the text currently being edited
     pub fn get_text(&self) -> impl Iterator<Item = char> + '_ {
-        Self::PROMPT.chars().chain(
-            self.editor
-                .iter()
-                .flat_map(|e| e.current_buffer().chars().copied()),
-        )
+        Self::PROMPT
+            .chars()
+            .chain(self.editor.iter().flat_map(|e| e.current_buffer().chars()))
     }
 }
 
@@ -2269,7 +2286,10 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::client::ConnectionState;
+    use crate::{
+        client::ConnectionState,
+        common::net::{ClientCmd, ClientMessage, MessageKind},
+    };
 
     use self::console_text::AtlasText;
 
@@ -2466,6 +2486,22 @@ mod systems {
         }
     }
 
+    pub fn send_unhandled_commands_to_server(
+        mut unhandled: EventReader<UnhandledCmd>,
+        mut to_server: EventWriter<ClientMessage>,
+    ) {
+        to_server.write_batch(unhandled.read().map(|UnhandledCmd(e)| {
+            let mut bytes = vec![];
+            let _ = ClientCmd::StringCmd { cmd: e.to_string() }.serialize(&mut bytes);
+
+            ClientMessage {
+                client_id: 0,
+                packet: bytes.into(),
+                kind: MessageKind::Reliable,
+            }
+        }));
+    }
+
     pub fn update_render_console(
         mut console_out: ResMut<ConsoleOutput>,
         mut render_out: ResMut<RenderConsoleOutput>,
@@ -2596,6 +2632,9 @@ mod systems {
 
         let mut changed_cvars = Vec::new();
 
+        let mut unhandled = Some(Vec::<UnhandledCmd>::new())
+            .filter(|_| world.get_resource::<Events<UnhandledCmd>>().is_some());
+
         while let Some(cmd) = commands.pop_front() {
             debug!(target: "console", "{cmd}");
             let RunCmd(CmdName { mut name, trigger }, args) = cmd;
@@ -2703,20 +2742,40 @@ mod systems {
                             ),
                         }
                     }
-                    None => (
-                        Cow::from(format!("Unrecognized comand \"{name}\"")),
-                        OutputType::Console,
-                    ),
+                    None => {
+                        if let Some(unhandled) = &mut unhandled {
+                            // TODO: Receive cmd output from server(?)
+                            let output = Cow::from(format!("Sending \"{name}\" to server..."));
+                            unhandled.push(UnhandledCmd(RunCmd(CmdName { name, trigger }, args)));
+                            (output, OutputType::Console)
+                        } else {
+                            (
+                                Cow::from(format!("Unrecognized comand \"{name}\"")),
+                                OutputType::Console,
+                            )
+                        }
+                    }
                 };
 
                 if !output.is_empty() {
-                    match output_ty {
-                        OutputType::Console => world
-                            .resource_mut::<ConsoleOutput>()
-                            .println(output.as_bytes(), timestamp),
-                        OutputType::Alert => world
-                            .resource_mut::<ConsoleOutput>()
-                            .println_alert(output.as_bytes(), timestamp),
+                    if let Some(mut console_out) = world.get_resource_mut::<ConsoleOutput>() {
+                        match output_ty {
+                            OutputType::Console => {
+                                console_out.println(output.as_bytes(), timestamp)
+                            }
+                            OutputType::Alert => {
+                                console_out.println_alert(output.as_bytes(), timestamp)
+                            }
+                        }
+                    } else {
+                        match output_ty {
+                            OutputType::Console => {
+                                info!("{output}");
+                            }
+                            OutputType::Alert => {
+                                warn!("{output}");
+                            }
+                        }
                     }
                 }
 

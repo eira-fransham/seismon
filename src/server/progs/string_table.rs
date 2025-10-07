@@ -1,8 +1,6 @@
-use crate::{
-    common::util::QStr,
-    server::progs::{ProgsError, StringId},
-};
+use crate::server::progs::{ProgsError, StringId};
 use dashmap::DashMap;
+use seismon_utils::QStr;
 use std::str;
 
 #[derive(Debug)]

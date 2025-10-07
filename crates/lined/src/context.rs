@@ -12,16 +12,24 @@ use termion::{
 use super::*;
 use crate::editor::Prompt;
 
+/// A trait to add syntax highlighting to a line in a buffer.
 pub trait Highlighter: Send + Sync + 'static {
+    /// Add terminal-compatible color directives to the string for syntax highlighting.
     fn highlight<'a>(&self, input: &'a str) -> Cow<'a, str>;
 }
 
+/// Divide a string into words.
 pub trait WordDivider {
+    /// The return type of [`Self::divide`].
+    // TODO: Should this return `Range<usize>`?
     type DividerIter: ExactSizeIterator<Item = (usize, usize)> + Clone;
 
+    /// Get an iterator of `(start, end)` pairs that represent word boundaries (indices are based
+    /// on char index, not byte index).
     fn divide(&self, buf: &Buffer) -> Self::DividerIter;
 }
 
+/// Dummy [`Highlighter`] implementation that does nothing.
 pub struct NoHighlighting;
 
 impl Highlighter for NoHighlighting {
@@ -42,7 +50,7 @@ impl WordDivider for DefaultWordDivider {
         let mut word_start = None;
         let mut just_had_backslash = false;
 
-        for (i, &c) in buf.chars().enumerate() {
+        for (i, c) in buf.chars().enumerate() {
             if c == '\\' {
                 just_had_backslash = true;
                 continue;
@@ -147,13 +155,20 @@ pub struct Context<T = DefaultTty, W = DefaultWordDivider> {
     pub history: History,
     /// The function that is used to divide words, for splitting lines at the terminal width.
     pub word_divider: W,
+    /// The type of keybindings to use.
     pub key_bindings: KeyBindings,
+    /// The underlying TTY (see [`Tty`]).
     pub terminal: T,
+    /// The current line buffer.
     pub buffer: String,
 }
 
+/// The core trait of `lined`. This is the entry point that your should interact with if you want to embed
+/// this readline implementation in your code.
 pub trait EditorContext: fmt::Write {
+    /// The inner TTY (see [`Tty`]).
     type Terminal: Tty;
+    /// The iterator over `(start, end)` pairs returned by the `WordDivider` implementation.
     type WordDividerIter: ExactSizeIterator<Item = (usize, usize)> + Clone;
 
     /// Get an immutable reference to the context history
@@ -241,6 +256,7 @@ pub trait EditorContext: fmt::Write {
         }
     }
 
+    /// Send keystrokes to the [`EditorContext`].
     fn handle_keys<M, C, H>(
         mut keymap: M,
         mut ed: Editor<Self, H>,
@@ -268,6 +284,7 @@ pub trait EditorContext: fmt::Write {
         Ok(ed.into())
     }
 
+    /// Undo any changes to the buffers used for the history.
     fn revert_all_history(&mut self) {
         for buf in &mut self.history_mut().buffers {
             buf.revert();
@@ -352,12 +369,14 @@ impl<T: Default> Default for Context<T> {
 }
 
 impl Context {
+    /// Create a new [`Context`]
     pub fn new() -> io::Result<Self> {
         Ok(Self::from_terminal(DefaultTty::new()?))
     }
 }
 
 impl<T> Context<T> {
+    /// Create a new [`Context`] for a specific implementation of [`Tty`].
     pub fn from_terminal(terminal: T) -> Self {
         Context {
             history: History::new(),
@@ -370,6 +389,7 @@ impl<T> Context<T> {
 }
 
 impl<T, W> Context<T, W> {
+    /// Consume this [`Context`], returning a new one that has the word divider set to `word_divider`.
     pub fn with_word_divider<NewW>(self, word_divider: NewW) -> Context<T, NewW> {
         Context {
             history: self.history,

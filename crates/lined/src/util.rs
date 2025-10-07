@@ -50,7 +50,7 @@ pub enum AnsiState {
     Osc,
 }
 
-pub fn remove_codes(input: &str) -> Cow<str> {
+pub fn remove_codes(input: &str) -> Cow<'_, str> {
     if input.contains('\x1B') {
         let mut clean = String::new();
 

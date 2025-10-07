@@ -86,7 +86,7 @@ fn test_get_cursor_position() {
 fn assert_buffer_actions(start: &str, expected: &str, actions: &[Action]) {
     let mut buf = Buffer::from(start.to_owned());
     for a in actions {
-        a.do_on(&mut buf);
+        a.execute(buf.test_data_mut());
     }
 
     assert_eq!(expected, String::from(buf));

@@ -27,19 +27,17 @@ use std::{
     io::{self, BufRead, BufReader, Cursor, Read, Write},
     mem,
     net::{SocketAddr, UdpSocket},
+    sync::{Arc, mpsc},
 };
 
-use crate::common::{engine, util};
-
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::synccell::SyncCell};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
+use seismon_utils::QString;
 use snafu::{Backtrace, prelude::*};
-
-use super::util::QString;
 
 pub const MAX_MESSAGE: usize = 8192;
 const MAX_DATAGRAM: usize = 1024;
@@ -65,10 +63,76 @@ pub const MAX_ITEMS: usize = 32;
 
 pub const DEFAULT_VIEWHEIGHT: f32 = 22.0;
 
-#[derive(Event)]
+struct InMemoryMessagingInner {
+    client_to_server: mpsc::Sender<ClientMessage>,
+    client_from_server: mpsc::Receiver<ServerMessage>,
+    server_side: Option<InMemoryServerMessagingInner>,
+}
+
+struct InMemoryServerMessagingInner {
+    server_to_client: mpsc::Sender<ServerMessage>,
+    server_from_client: mpsc::Receiver<ClientMessage>,
+}
+
+// TODO: Use `lightyear` once this is working again.
+#[derive(Resource)]
+pub struct InMemoryMessaging {
+    inner: SyncCell<InMemoryMessagingInner>,
+}
+
+impl Default for InMemoryMessaging {
+    fn default() -> Self {
+        let (client_to_server, server_from_client) = mpsc::channel();
+        let (server_to_client, client_from_server) = mpsc::channel();
+
+        Self {
+            inner: SyncCell::new(InMemoryMessagingInner {
+                client_to_server,
+                client_from_server,
+                server_side: Some(InMemoryServerMessagingInner {
+                    server_to_client,
+                    server_from_client,
+                }),
+            }),
+        }
+    }
+}
+
+impl InMemoryMessaging {
+    pub fn take_serverside(&mut self) -> Option<InMemoryServerMessaging> {
+        Some(InMemoryServerMessaging {
+            inner: SyncCell::new(self.inner.get().server_side.take()?),
+        })
+    }
+
+    pub fn send(&mut self, message: ClientMessage) {
+        let _ = self.inner.get().client_to_server.send(message);
+    }
+
+    pub fn recv(&mut self) -> impl Iterator<Item = ServerMessage> {
+        std::iter::from_fn(|| self.inner.get().client_from_server.try_recv().ok())
+    }
+}
+
+#[derive(Resource)]
+pub struct InMemoryServerMessaging {
+    inner: SyncCell<InMemoryServerMessagingInner>,
+}
+
+impl InMemoryServerMessaging {
+    pub fn send(&mut self, message: ServerMessage) {
+        let _ = self.inner.get().server_to_client.send(message);
+    }
+
+    pub fn recv(&mut self) -> impl Iterator<Item = ClientMessage> {
+        std::iter::from_fn(|| self.inner.get().server_from_client.try_recv().ok())
+    }
+}
+
+#[derive(Clone, Event)]
 pub struct ServerMessage {
     pub client_id: usize,
-    pub packet: Vec<u8>,
+    pub packet: Arc<[u8]>,
 }
 
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Default)]
@@ -81,7 +145,7 @@ pub enum MessageKind {
 #[derive(Event, Default, Clone)]
 pub struct ClientMessage {
     pub client_id: usize,
-    pub packet: Vec<u8>,
+    pub packet: Arc<[u8]>,
     pub kind: MessageKind,
 }
 
@@ -1254,13 +1318,13 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::Print => {
-                let text = util::read_cstring(reader)?;
+                let text = seismon_utils::read_cstring(reader)?;
 
                 ServerCmd::Print { text }
             }
 
             BasicServerCmdCode::StuffText => {
-                let text = util::read_cstring(reader)?;
+                let text = seismon_utils::read_cstring(reader)?;
 
                 ServerCmd::StuffText { text }
             }
@@ -1288,11 +1352,11 @@ impl ServerCmd {
                     }
                 };
 
-                let message = util::read_cstring(reader)?;
+                let message = seismon_utils::read_cstring(reader)?;
 
                 let mut model_precache = Vec::new();
                 loop {
-                    let model_name = util::read_cstring(reader)?.into_string();
+                    let model_name = seismon_utils::read_cstring(reader)?.into_string();
                     if model_name.is_empty() {
                         break;
                     }
@@ -1301,7 +1365,7 @@ impl ServerCmd {
 
                 let mut sound_precache = Vec::new();
                 loop {
-                    let sound_name = util::read_cstring(reader)?.into_string();
+                    let sound_name = seismon_utils::read_cstring(reader)?.into_string();
                     if sound_name.is_empty() {
                         break;
                     }
@@ -1320,7 +1384,7 @@ impl ServerCmd {
 
             BasicServerCmdCode::LightStyle => {
                 let id = reader.read_u8()?;
-                let value = util::read_cstring(reader)?.into_string();
+                let value = seismon_utils::read_cstring(reader)?.into_string();
                 ServerCmd::LightStyle {
                     id,
                     value: value.into(),
@@ -1329,7 +1393,7 @@ impl ServerCmd {
 
             BasicServerCmdCode::UpdateName => {
                 let player_id = reader.read_u8()?;
-                let new_name = util::read_cstring(reader)?;
+                let new_name = seismon_utils::read_cstring(reader)?;
                 ServerCmd::UpdateName {
                     player_id,
                     new_name,
@@ -1585,7 +1649,7 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::CenterPrint => {
-                let text = util::read_cstring(reader)?;
+                let text = seismon_utils::read_cstring(reader)?;
 
                 ServerCmd::CenterPrint { text }
             }
@@ -1610,7 +1674,7 @@ impl ServerCmd {
             BasicServerCmdCode::Intermission => ServerCmd::Intermission,
 
             BasicServerCmdCode::Finale => {
-                let text = util::read_cstring(reader)?;
+                let text = seismon_utils::read_cstring(reader)?;
 
                 ServerCmd::Finale { text }
             }
@@ -1624,7 +1688,7 @@ impl ServerCmd {
             BasicServerCmdCode::SellScreen => ServerCmd::SellScreen,
 
             BasicServerCmdCode::Cutscene => {
-                let text = util::read_cstring(reader)?;
+                let text = seismon_utils::read_cstring(reader)?;
 
                 ServerCmd::Cutscene { text }
             }
@@ -1633,7 +1697,6 @@ impl ServerCmd {
         Ok(Some(cmd))
     }
 
-    #[inline(always)]
     pub fn serialize<W>(&self, writer: &mut W) -> Result<(), NetError>
     where
         W: Write,
@@ -2087,7 +2150,7 @@ impl ClientCmd {
             ClientCmdCode::Disconnect => ClientCmd::Disconnect,
             ClientCmdCode::Move => {
                 let delta_time =
-                    engine::duration_from_f32(reader.read_f32::<LittleEndian>()? / 1000.);
+                    seismon_utils::duration_from_f32(reader.read_f32::<LittleEndian>()? / 1000.);
                 let angles = Vec3::new(
                     read_angle(reader)?,
                     read_angle(reader)?,
@@ -2117,7 +2180,7 @@ impl ClientCmd {
                 }
             }
             ClientCmdCode::StringCmd => {
-                let cmd = util::read_cstring(reader)?.into_str().into_owned();
+                let cmd = seismon_utils::read_cstring(reader)?.into_str().into_owned();
                 ClientCmd::StringCmd { cmd }
             }
         };
@@ -2145,7 +2208,9 @@ impl ClientCmd {
                 impulse,
             } => {
                 // Delta time is in ms for this field.
-                writer.write_f32::<LittleEndian>(engine::duration_to_f32(delta_time) * 1000.)?;
+                writer.write_f32::<LittleEndian>(
+                    seismon_utils::duration_to_f32(delta_time) * 1000.,
+                )?;
                 write_angle_vector3(writer, angles)?;
                 writer.write_i16::<LittleEndian>(fwd_move)?;
                 writer.write_i16::<LittleEndian>(side_move)?;

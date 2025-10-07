@@ -5,10 +5,7 @@ use crate::{
         GraphicsState, Pipeline, TextureData,
         world::{BindGroupLayoutId, WorldPipelineBase},
     },
-    common::{
-        sprite::{SpriteFrame, SpriteKind, SpriteModel, SpriteSubframe},
-        util::any_slice_as_bytes,
-    },
+    common::sprite::{SpriteFrame, SpriteKind, SpriteModel, SpriteSubframe},
 };
 
 use bevy::{
@@ -22,6 +19,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
+use bytemuck::{Pod, Zeroable};
 use chrono::Duration;
 
 pub struct SpritePipeline {
@@ -49,7 +47,7 @@ impl SpritePipeline {
 
         let vertex_buffer = device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: unsafe { any_slice_as_bytes(&VERTICES) },
+            contents: bytemuck::cast_slice(&VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -171,7 +169,7 @@ type Normal = [f32; 3];
 type DiffuseTexcoord = [f32; 2];
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Zeroable, Pod, Clone, Copy, Debug)]
 pub struct SpriteVertex {
     position: Position,
     normal: Normal,
