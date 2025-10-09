@@ -54,8 +54,7 @@ use crate::{
         model::{Model, ModelError},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, ClientStat, EntityEffects, EntityState,
-            GameType, InMemoryMessaging, NetError, PlayerColor, QSocket, ServerCmd, ServerMessage,
-            SignOnStage,
+            GameType, NetError, PlayerColor, QSocket, ServerCmd, ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         vfs::{Vfs, VfsError},
@@ -155,14 +154,11 @@ where
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
-            .init_resource::<InMemoryMessaging>()
             .add_event::<ServerMessage>()
             .add_event::<ClientMessage>()
             .add_event::<Impulse>()
             // TODO: Use bevy's state system
             .insert_resource(ConnectionState::SignOn(SignOnStage::Not))
-            .add_systems(First, systems::recv_from_server)
-            .add_systems(Last, systems::send_to_server)
             .add_systems(
                 Main,
                 (
@@ -1242,22 +1238,6 @@ mod systems {
     use self::common::console::Registry;
 
     use super::*;
-
-    pub fn send_to_server(
-        mut sender: ResMut<InMemoryMessaging>,
-        mut client_events: ResMut<Events<ClientMessage>>,
-    ) {
-        for event in client_events.update_drain() {
-            sender.send(event);
-        }
-    }
-
-    pub fn recv_from_server(
-        mut receiver: ResMut<InMemoryMessaging>,
-        mut server_events: EventWriter<ServerMessage>,
-    ) {
-        server_events.write_batch(receiver.recv());
-    }
 
     pub fn lock_cursor(
         mut q_windows: Query<&mut Window, With<PrimaryWindow>>,

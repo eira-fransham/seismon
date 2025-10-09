@@ -63,69 +63,61 @@ pub const MAX_ITEMS: usize = 32;
 
 pub const DEFAULT_VIEWHEIGHT: f32 = 22.0;
 
-struct InMemoryMessagingInner {
-    client_to_server: mpsc::Sender<ClientMessage>,
-    client_from_server: mpsc::Receiver<ServerMessage>,
-    server_side: Option<InMemoryServerMessagingInner>,
-}
-
-struct InMemoryServerMessagingInner {
-    server_to_client: mpsc::Sender<ServerMessage>,
-    server_from_client: mpsc::Receiver<ClientMessage>,
+// TODO: Use `lightyear` once this is working again.
+#[derive(Resource)]
+pub struct InMemoryMessagingClient {
+    client_to_server: SyncCell<mpsc::Sender<ClientMessage>>,
+    client_from_server: SyncCell<mpsc::Receiver<ServerMessage>>,
 }
 
 // TODO: Use `lightyear` once this is working again.
 #[derive(Resource)]
-pub struct InMemoryMessaging {
-    inner: SyncCell<InMemoryMessagingInner>,
+pub struct InMemoryMessagingServer {
+    server_to_client: SyncCell<mpsc::Sender<ServerMessage>>,
+    server_from_client: SyncCell<mpsc::Receiver<ClientMessage>>,
 }
 
-impl Default for InMemoryMessaging {
-    fn default() -> Self {
-        let (client_to_server, server_from_client) = mpsc::channel();
-        let (server_to_client, client_from_server) = mpsc::channel();
+pub fn in_memory_messaging() -> (InMemoryMessagingClient, InMemoryMessagingServer) {
+    let (client_to_server, server_from_client) = mpsc::channel();
+    let (server_to_client, client_from_server) = mpsc::channel();
+    let (client_to_server, server_from_client) = (
+        SyncCell::new(client_to_server),
+        SyncCell::new(server_from_client),
+    );
+    let (server_to_client, client_from_server) = (
+        SyncCell::new(server_to_client),
+        SyncCell::new(client_from_server),
+    );
 
-        Self {
-            inner: SyncCell::new(InMemoryMessagingInner {
-                client_to_server,
-                client_from_server,
-                server_side: Some(InMemoryServerMessagingInner {
-                    server_to_client,
-                    server_from_client,
-                }),
-            }),
-        }
-    }
+    (
+        InMemoryMessagingClient {
+            client_to_server,
+            client_from_server,
+        },
+        InMemoryMessagingServer {
+            server_to_client,
+            server_from_client,
+        },
+    )
 }
 
-impl InMemoryMessaging {
-    pub fn take_serverside(&mut self) -> Option<InMemoryServerMessaging> {
-        Some(InMemoryServerMessaging {
-            inner: SyncCell::new(self.inner.get().server_side.take()?),
-        })
-    }
-
+impl InMemoryMessagingClient {
     pub fn send(&mut self, message: ClientMessage) {
-        let _ = self.inner.get().client_to_server.send(message);
+        let _ = self.client_to_server.get().send(message);
     }
 
     pub fn recv(&mut self) -> impl Iterator<Item = ServerMessage> {
-        std::iter::from_fn(|| self.inner.get().client_from_server.try_recv().ok())
+        std::iter::from_fn(|| self.client_from_server.get().try_recv().ok())
     }
 }
 
-#[derive(Resource)]
-pub struct InMemoryServerMessaging {
-    inner: SyncCell<InMemoryServerMessagingInner>,
-}
-
-impl InMemoryServerMessaging {
+impl InMemoryMessagingServer {
     pub fn send(&mut self, message: ServerMessage) {
-        let _ = self.inner.get().server_to_client.send(message);
+        let _ = self.server_to_client.get().send(message);
     }
 
     pub fn recv(&mut self) -> impl Iterator<Item = ClientMessage> {
-        std::iter::from_fn(|| self.inner.get().server_from_client.try_recv().ok())
+        std::iter::from_fn(|| self.server_from_client.get().try_recv().ok())
     }
 }
 

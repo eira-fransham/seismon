@@ -32,9 +32,12 @@ use std::{
 use crate::{
     common::{
         bsp::BspLeafContents,
-        console::{Registry, RunCmd, SeismonConsoleCorePlugin, UnhandledCmd},
+        console::{Registry, RunCmd, SeismonConsoleCorePlugin},
         math::{CollisionResult, Hyperplane},
-        net::{ClientMessage, EntityState, InMemoryMessaging, ServerCmd, ServerMessage},
+        net::{
+            ClientMessage, EntityState, InMemoryMessagingClient, InMemoryMessagingServer,
+            ServerCmd, ServerMessage, in_memory_messaging,
+        },
         parse,
         vfs::Vfs,
     },
@@ -145,33 +148,67 @@ impl Plugin for SeismonListenServerPlugin {
     fn build(&self, app: &mut App) {
         use bevy::ecs::schedule::ScheduleLabel as _;
 
+        pub fn server_send_to_client(
+            mut sender: ResMut<InMemoryMessagingServer>,
+            mut server_events: EventReader<ServerMessage>,
+        ) {
+            for event in server_events.read().cloned() {
+                sender.send(event);
+            }
+        }
+
+        pub fn server_recv_from_client(
+            mut receiver: ResMut<InMemoryMessagingServer>,
+            mut client_events: EventWriter<ClientMessage>,
+        ) {
+            client_events.write_batch(receiver.recv());
+        }
+
+        pub fn client_send_to_server(
+            mut sender: ResMut<InMemoryMessagingClient>,
+            mut client_events: EventReader<ClientMessage>,
+        ) {
+            for event in client_events.read().cloned() {
+                sender.send(event);
+            }
+        }
+
+        pub fn client_recv_from_server(
+            mut receiver: ResMut<InMemoryMessagingClient>,
+            mut server_events: EventWriter<ServerMessage>,
+        ) {
+            server_events.write_batch(receiver.recv());
+        }
+
         #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, AppLabel)]
         struct ServerApp;
+
+        let (client_messaging, server_messaging) = in_memory_messaging();
+        app.add_event::<ServerMessage>()
+            .add_event::<ClientMessage>()
+            .insert_resource(client_messaging)
+            .add_systems(First, client_recv_from_server)
+            .add_systems(Last, client_send_to_server);
 
         let asset_server = app.world().resource::<AssetServer>().clone();
         let app_type_registry = app.world().resource::<AppTypeRegistry>().clone();
         let vfs = app.world().resource::<Vfs>().clone();
 
-        let serverside_messaging = app
-            .world_mut()
-            .resource_mut::<InMemoryMessaging>()
-            .take_serverside()
-            .unwrap();
-
         let mut server_sub_app = SubApp::new();
-        server_sub_app.insert_resource(serverside_messaging);
-        server_sub_app.update_schedule = Some(Main.intern());
         server_sub_app
             .insert_resource(app_type_registry)
             .insert_resource(asset_server)
             .insert_resource(vfs)
+            .insert_resource(server_messaging)
             .add_event::<ServerMessage>()
             .add_event::<ClientMessage>()
-            .add_systems(First, systems::recv_from_client)
-            .add_systems(Last, systems::send_to_client)
+            .add_systems(First, server_recv_from_client)
+            .add_systems(Last, server_send_to_client)
             .add_plugins(SeismonServerPlugin)
             .add_plugins(TimePlugin)
             .add_plugins(MainSchedulePlugin);
+
+        server_sub_app.update_schedule = Some(Main.intern());
 
         server_sub_app.set_extract(|client_world, server_world| {
             server_world
@@ -4143,28 +4180,12 @@ pub mod systems {
     use crate::common::{
         console::CmdName,
         net::{
-            self, ClientCmd, ClientMessage, GameType, InMemoryServerMessaging, ItemFlags,
-            PlayerData, ServerMessage, SignOnStage,
+            self, ClientCmd, ClientMessage, GameType, ItemFlags, PlayerData, ServerMessage,
+            SignOnStage,
         },
     };
 
     use super::*;
-
-    pub fn send_to_client(
-        mut sender: ResMut<InMemoryServerMessaging>,
-        mut server_events: ResMut<Events<ServerMessage>>,
-    ) {
-        for event in server_events.update_drain() {
-            sender.send(event);
-        }
-    }
-
-    pub fn recv_from_client(
-        mut receiver: ResMut<InMemoryServerMessaging>,
-        mut client_events: EventWriter<ClientMessage>,
-    ) {
-        client_events.write_batch(receiver.recv());
-    }
 
     pub fn recv_client_messages(
         mut server: Option<ResMut<Session>>,
