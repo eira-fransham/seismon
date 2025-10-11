@@ -22,14 +22,12 @@ use bevy_seedling::{
     sample::{Sample, SamplePlayer},
 };
 use firewheel::sample_resource::DecodedAudioF32;
-use symphonium::{SymphoniumLoader, symphonia::core::probe::Hint};
 
 use super::MasterOut;
 
 /// Plays music tracks.
 #[derive(Resource)]
 pub struct MusicPlayer {
-    loader: SymphoniumLoader,
     playing: Option<(String, Entity)>,
 }
 
@@ -62,7 +60,7 @@ impl MusicPlayer {
     where
         S: AsRef<str>,
     {
-        let name = Path::new(name.as_ref());
+        let name = name.as_ref();
 
         // don't replay the same track
         if let Some((playing, _)) = &self.playing
@@ -71,37 +69,19 @@ impl MusicPlayer {
             return Ok(());
         }
 
+        let path = Path::new(name);
+
+        let pathbuf;
         // TODO: there's probably a better way to do this extension check
-        let file: Cow<Path> = if name.extension().is_none() {
+        let file: Cow<str> = if path.extension().is_none() {
             // TODO: Have some way to do globbing in `bevy_mod_pakfile` so we can try a few different filenames.
-            name.with_extension("mp3").into()
+            pathbuf = path.with_extension("mp3");
+            pathbuf.to_string_lossy().into()
         } else {
             name.into()
         };
 
-        // TODO: Turn VFS into an AssetReader so that this is asynchronous
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
-
-        let cursor = Cursor::new(data);
-
-        let mut decode_hint = Hint::new();
-
-        if let Some(extension) = extension {
-            decode_hint.with_extension(&extension);
-        }
-
-        let decoded = self.loader.load_f32_from_source(
-            Box::new(cursor),
-            Some(decode_hint),
-            None,
-            Default::default(),
-            None,
-        )?;
-
-        let source =
-            SamplePlayer::new(asset_server.add(Sample::new(DecodedAudioF32::from(decoded))))
-                .looping();
+        let source = SamplePlayer::new(asset_server.load(&*file)).looping();
 
         self.stop(commands);
 
@@ -121,17 +101,10 @@ impl MusicPlayer {
         &mut self,
         asset_server: &AssetServer,
         commands: &mut Commands,
-        vfs: &Vfs,
         pool: Pool,
         track_id: usize,
     ) -> Result<(), SoundError> {
-        self.play_named(
-            asset_server,
-            commands,
-            vfs,
-            pool,
-            format!("track{track_id:02}"),
-        )
+        self.play_named(asset_server, commands, pool, format!("track{track_id:02}"))
     }
 
     /// Stop the current music track.

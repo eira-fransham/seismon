@@ -42,15 +42,15 @@ use crate::{
         demo::{DemoServer, DemoServerError},
         entity::ClientEntity,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
-        state::{ClientState, PlayerInfo},
-        view::{IdleVars, KickVars, MouseVars, RollVars},
+        state::ClientState,
+        view::{KickVars, MouseVars},
     },
     common::{
         self,
         console::{ConsoleError, ConsoleOutput, RunCmd, SeismonConsolePlugin},
         net::{
-            self, BlockingMode, ClientCmd, ClientMessage, EntityEffects, EntityState, GameType,
-            NetError, PlayerColor, QSocket, ServerCmd, ServerMessage, SignOnStage,
+            self, BlockingMode, ClientCmd, ClientMessage, GameType, NetError, QSocket, ServerCmd,
+            ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         vfs::{Vfs, VfsError},
@@ -157,7 +157,10 @@ where
                 Main,
                 (
                     systems::lock_cursor,
-                    systems::send_input_to_server
+                    systems::send_input_to_server,
+                    systems::frame::parse_server_msg
+                        .pipe(systems::frame::advance_frame)
+                        .pipe(systems::frame::end_frame)
                         .pipe(|In(res)| {
                             // TODO: Error handling
                             if let Err(e) = res {
@@ -169,12 +172,6 @@ where
                             resource_exists::<Connection>
                                 .and(|conn: Res<Connection>| conn.is_connected()),
                         ),
-                    // systems::frame.pipe(|In(res)| {
-                    //     // TODO: Error handling
-                    //     if let Err(e) = res {
-                    //         error!("Error handling frame: {}", e);
-                    //     }
-                    // }),
                     systems::process_network_messages
                         .pipe(|In(res)| {
                             // TODO: Error handling
@@ -188,8 +185,6 @@ where
             .add_plugins(SeismonConsolePlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin);
-
-        app.world().resource_mut::<Time<Virtual>>().pause();
 
         cvars::register_cvars(app);
         commands::register_commands(app);
@@ -309,7 +304,7 @@ enum ConnectionStatus {
 }
 
 /// Indicates the state of an active connection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ConnectionStage {
     /// The client is in the sign-on process.
     SignOn(SignOnStage),
@@ -318,8 +313,11 @@ pub enum ConnectionStage {
     Connected,
 }
 
+#[derive(Event, Copy, Clone, Default)]
+pub struct Connected(pub bool);
+
 /// Possible targets that a client can be connected to.
-enum ConnectionKind {
+enum ConnectionTarget {
     /// A regular Quake server.
     Server {
         /// The socket used to communicate with the server.
@@ -334,6 +332,15 @@ enum ConnectionKind {
 
     /// A demo server.
     Demo(DemoServer),
+}
+
+impl ConnectionTarget {
+    pub fn stage(&self) -> ConnectionStage {
+        match self {
+            ConnectionTarget::Server { stage, .. } => *stage,
+            ConnectionTarget::Demo(_) => ConnectionStage::Connected,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -363,7 +370,7 @@ impl Default for ServerUpdate<'_> {
     }
 }
 
-impl ConnectionKind {
+impl ConnectionTarget {
     fn recv(
         &mut self,
         events: &Events<ServerMessage>,
@@ -429,7 +436,7 @@ pub struct ClientVars<'a> {
 #[derive(Resource)]
 pub struct Connection {
     client_state: ClientState,
-    kind: ConnectionKind,
+    target: ConnectionTarget,
     last_msg_time: Time,
 }
 
@@ -437,7 +444,7 @@ impl Connection {
     pub fn new_server(connection_state: ConnectionStage) -> Self {
         Self {
             client_state: default(),
-            kind: ConnectionKind::Server {
+            target: ConnectionTarget::Server {
                 reader: default(),
                 compose: default(),
                 stage: connection_state,
@@ -450,8 +457,8 @@ impl Connection {
 impl Connection {
     pub fn is_connected(&self) -> bool {
         !matches!(
-            self.kind,
-            ConnectionKind::Server {
+            self.target,
+            ConnectionTarget::Server {
                 stage: ConnectionStage::SignOn(_),
                 ..
             }
@@ -466,11 +473,11 @@ impl Connection {
     ) -> Result<(), ClientError> {
         use SignOnStage as S;
 
-        let ConnectionKind::Server {
+        let ConnectionTarget::Server {
             compose,
             stage: stage @ ConnectionStage::SignOn(_),
             ..
-        } = &mut self.kind
+        } = &mut self.target
         else {
             return Ok(());
         };
@@ -653,6 +660,7 @@ where
 pub struct Impulse(pub u8);
 
 mod systems {
+
     use bevy::window::CursorGrabMode;
     use common::net::MessageKind;
     use serde::Deserialize;
@@ -757,8 +765,8 @@ mod systems {
 
         let Connection {
             client_state: state,
-            kind:
-                ConnectionKind::Server {
+            target:
+                ConnectionTarget::Server {
                     stage: ConnectionStage::Connected,
                     ..
                 },
@@ -812,16 +820,16 @@ mod systems {
         mut server_events: EventWriter<ServerMessage>,
         mut client_events: EventReader<ClientMessage>,
     ) -> Result<(), NetError> {
-        let blocking_mode = match &state.kind {
+        let blocking_mode = match &state.target {
             // if we're in the game, don't block waiting for messages
-            ConnectionKind::Server {
+            ConnectionTarget::Server {
                 stage: ConnectionStage::Connected,
                 ..
             } => BlockingMode::NonBlocking,
 
             // otherwise, give the server some time to respond
             // TODO: might make sense to make this a future or something
-            ConnectionKind::Server {
+            ConnectionTarget::Server {
                 stage: ConnectionStage::SignOn(_),
                 ..
             } => BlockingMode::Timeout(Duration::try_seconds(5).unwrap()),
@@ -844,15 +852,37 @@ mod systems {
         Ok(())
     }
 
-    mod frame {
-        use chrono::TimeDelta;
+    pub fn send_connected_event(
+        conn: Option<Res<Connection>>,
+        mut connected: EventWriter<Connected>,
+        mut old_stage: Local<Option<ConnectionStage>>,
+    ) {
+        let Some(conn) = conn.as_ref() else {
+            *old_stage = None;
+            return;
+        };
 
+        if !conn.is_changed() {
+            return;
+        }
+
+        let new_stage = conn.target.stage();
+        let old_stage = old_stage.replace(new_stage);
+
+        if old_stage != Some(ConnectionStage::Connected) {
+            connected.write(Connected(new_stage == ConnectionStage::Connected));
+        }
+    }
+
+    mod frame {
         use super::*;
 
-        fn parse_server_msg(
+        pub enum FrameSystem {}
+
+        pub fn parse_server_msg(
             commands: Commands<'_, '_>,
             mut conn: ResMut<Connection>,
-            time: Res<Time<Real>>,
+            time: Res<Time<Virtual>>,
             asset_server: &AssetServer,
             server_events: &Events<ServerMessage>,
             mixer_events: &mut EventWriter<MixerEvent>,
@@ -863,12 +893,12 @@ mod systems {
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
 
-            if time.as_generic() < conn.last_msg_time {
+            if time.elapsed() < conn.last_msg_time.elapsed() {
                 return Ok(S::Maintain);
             }
 
-            let Some(server_update) = conn.kind.recv(server_events)? else {
-                return if conn.kind.is_demo() {
+            let Some(server_update) = conn.target.recv(server_events)? else {
+                return if conn.target.is_demo() {
                     Ok(S::NextDemo)
                 } else {
                     Ok(S::Maintain)
@@ -921,9 +951,9 @@ mod systems {
                             Err(ClientError::UnrecognizedProtocol(protocol_version))?;
                         }
 
-                        console_output.println_alert(CONSOLE_DIVIDER, time);
-                        console_output.println_alert(message.raw, time);
-                        console_output.println_alert(CONSOLE_DIVIDER, time);
+                        console_output.println_alert(CONSOLE_DIVIDER, &time);
+                        console_output.println_alert(message.raw, &time);
+                        console_output.println_alert(CONSOLE_DIVIDER, &time);
 
                         let _server_info = ServerInfo {
                             _max_clients: max_clients,
@@ -947,7 +977,7 @@ mod systems {
                     }
 
                     ServerCmd::CenterPrint { text } => {
-                        console_output.set_center_print(text, time);
+                        console_output.set_center_print(text, &time);
                     }
 
                     ServerCmd::PlayerData(player_data) => {
@@ -968,9 +998,9 @@ mod systems {
                         .handle_damage(armor, blood, source, kick_vars),
 
                     ServerCmd::Disconnect => {
-                        return Ok(match &conn.kind {
-                            ConnectionKind::Demo(_) => S::NextDemo,
-                            ConnectionKind::Server { .. } => S::Disconnect,
+                        return Ok(match &conn.target {
+                            ConnectionTarget::Demo(_) => S::NextDemo,
+                            ConnectionTarget::Server { .. } => S::Disconnect,
                         });
                     }
 
@@ -1006,7 +1036,7 @@ mod systems {
                         warn!("TODO: particle")
                     }
 
-                    ServerCmd::Print { text } => console_output.print_alert(text.raw, time),
+                    ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
 
                     ServerCmd::SetAngle { .. } => warn!("TODO: set angle"),
 
@@ -1123,13 +1153,7 @@ mod systems {
                         Ok(parsed) => {
                             console_commands.write(parsed);
                         }
-                        Err(err) => console_output.println(
-                            format!("{err}"),
-                            TimeDelta::from_std(std::time::Duration::from_secs_f64(
-                                time.elapsed_secs_f64(),
-                            ))
-                            .unwrap(),
-                        ),
+                        Err(err) => console_output.println(format!("{err}"), &time),
                     },
 
                     ServerCmd::Time { time } => {
@@ -1140,79 +1164,79 @@ mod systems {
                         player_id,
                         new_colors,
                     } => {
-                        let player_id = player_id as usize;
-                        conn.client_state.check_player_id(player_id)?;
+                        // let player_id = player_id as usize;
+                        // conn.client_state.check_player_id(player_id)?;
 
-                        match conn.client_state.player_info[player_id] {
-                            Some(ref mut info) => {
-                                trace!(
-                                    "Player {} (ID {}) colors: {:?} -> {:?}",
-                                    info.name, player_id, info.colors, new_colors,
-                                );
-                                info.colors = new_colors;
-                            }
+                        // match conn.client_state.player_info[player_id] {
+                        //     Some(ref mut info) => {
+                        //         trace!(
+                        //             "Player {} (ID {}) colors: {:?} -> {:?}",
+                        //             info.name, player_id, info.colors, new_colors,
+                        //         );
+                        //         info.colors = new_colors;
+                        //     }
 
-                            None => {
-                                error!(
-                                    "Attempted to set colors on nonexistent player with ID {}",
-                                    player_id
-                                );
-                            }
-                        }
+                        //     None => {
+                        //         error!(
+                        //             "Attempted to set colors on nonexistent player with ID {}",
+                        //             player_id
+                        //         );
+                        //     }
+                        // }
                     }
 
                     ServerCmd::UpdateFrags {
                         player_id,
                         new_frags,
                     } => {
-                        let player_id = player_id as usize;
-                        conn.client_state.check_player_id(player_id)?;
+                        // let player_id = player_id as usize;
+                        // conn.client_state.check_player_id(player_id)?;
 
-                        match conn.client_state.player_info[player_id] {
-                            Some(ref mut info) => {
-                                trace!(
-                                    "Player {} (ID {}) frags: {} -> {}",
-                                    &info.name, player_id, info.frags, new_frags
-                                );
-                                info.frags = new_frags as i32;
-                            }
-                            None => {
-                                error!(
-                                    "Attempted to set frags on nonexistent player with ID {}",
-                                    player_id
-                                );
-                            }
-                        }
+                        // match conn.client_state.player_info[player_id] {
+                        //     Some(ref mut info) => {
+                        //         trace!(
+                        //             "Player {} (ID {}) frags: {} -> {}",
+                        //             &info.name, player_id, info.frags, new_frags
+                        //         );
+                        //         info.frags = new_frags as i32;
+                        //     }
+                        //     None => {
+                        //         error!(
+                        //             "Attempted to set frags on nonexistent player with ID {}",
+                        //             player_id
+                        //         );
+                        //     }
+                        // }
                     }
 
                     ServerCmd::UpdateName {
                         player_id,
                         new_name,
                     } => {
-                        let player_id = player_id as usize;
-                        conn.client_state.check_player_id(player_id)?;
+                        // let player_id = player_id as usize;
+                        // conn.client_state.check_player_id(player_id)?;
 
-                        if let Some(ref mut info) = conn.client_state.player_info[player_id] {
-                            // if this player is already connected, it's a name change
-                            debug!("Player {} has changed name to {}", &info.name, &new_name);
-                            info.name = new_name.into_string().into();
-                        } else {
-                            // if this player is not connected, it's a join
-                            debug!("Player {} with ID {} has joined", &new_name, player_id);
-                            conn.client_state.player_info[player_id] = Some(PlayerInfo {
-                                name: new_name.into_string().into(),
-                                colors: PlayerColor::new(0, 0),
-                                frags: 0,
-                            });
-                        }
+                        // if let Some(ref mut info) = conn.client_state.player_info[player_id] {
+                        //     // if this player is already connected, it's a name change
+                        //     debug!("Player {} has changed name to {}", &info.name, &new_name);
+                        //     info.name = new_name.into_string().into();
+                        // } else {
+                        //     // if this player is not connected, it's a join
+                        //     debug!("Player {} with ID {} has joined", &new_name, player_id);
+                        //     conn.client_state.player_info[player_id] = Some(PlayerInfo {
+                        //         name: new_name.into_string().into(),
+                        //         colors: PlayerColor::new(0, 0),
+                        //         frags: 0,
+                        //     });
+                        // }
                     }
 
                     ServerCmd::UpdateStat { stat, value } => {
-                        debug!(
-                            "{:?}: {} -> {}",
-                            stat, conn.client_state.stats[stat as usize], value
-                        );
-                        conn.client_state.stats[stat as usize] = value;
+                        // debug!(
+                        //     "{:?}: {} -> {}",
+                        //     stat, conn.client_state.stats[stat as usize], value
+                        // );
+                        // conn.client_state.stats[stat as usize] = value;
                     }
 
                     ServerCmd::Version { version } => {
@@ -1242,25 +1266,18 @@ mod systems {
             Ok(S::Maintain)
         }
 
-        fn advance_frame(
-            In(status): In<ConnectionStatus>,
+        pub fn advance_frame(
+            In(status): In<Result<ConnectionStatus, ClientError>>,
             mut conn: Mut<Connection>,
-            time: Res<Time>,
-            asset_server: Res<AssetServer>,
-            registry: Res<Registry>,
-            from_server: &Events<ServerMessage>,
             to_server: &mut EventWriter<ClientMessage>,
-            mixer_events: &mut EventWriter<MixerEvent>,
-            console_commands: &mut EventWriter<RunCmd<'static>>,
-            mut console: Mut<ConsoleOutput>,
         ) -> Result<ConnectionStatus, ClientError> {
-            match status {
+            match status? {
                 ConnectionStatus::Maintain => {}
                 // if Disconnect or NextDemo, delegate up the chain
                 s => return Ok(s),
             }
 
-            if let ConnectionKind::Server { compose, .. } = &mut conn.kind {
+            if let ConnectionTarget::Server { compose, .. } = &mut conn.target {
                 // respond to the server
                 if !compose.is_empty() {
                     to_server.write(ClientMessage {
@@ -1270,42 +1287,24 @@ mod systems {
                 }
             }
 
-            let idle_vars: IdleVars = registry.read_cvars()?;
-            let kick_vars: KickVars = registry.read_cvars()?;
-            let roll_vars: RollVars = registry.read_cvars()?;
-            let bob_vars: BobVars = registry.read_cvars()?;
-            let client_vars = ClientVars {
-                name: registry
-                    .get_cvar("_cl_name")
-                    .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
-                        backtrace: snafu::Backtrace::capture(),
-                    }))?
-                    .value()
-                    .as_name()
-                    .unwrap_or("player"),
-                color: registry.read_cvar("_cl_color")?,
-            };
-            let cl_nolerp: bool = registry.read_cvars()?;
-            let sv_gravity: f32 = registry.read_cvars()?;
-
             // these all require the player entity to have spawned
             // TODO: Need to improve this code - maybe split it out into surrounding function?
-            if let ConnectionStage::Connected = todo!() {
-                // update view
-                // conn.client_state.calc_final_view(
-                //     idle_vars,
-                //     kick_vars,
-                //     roll_vars,
-                //     if conn.client_state.intermission().is_none() {
-                //         bob_vars
-                //     } else {
-                //         default()
-                //     },
-                // );
+            // if let ConnectionStage::Connected = todo!() {
+            //     // update view
+            //     // conn.client_state.calc_final_view(
+            //     //     idle_vars,
+            //     //     kick_vars,
+            //     //     roll_vars,
+            //     //     if conn.client_state.intermission().is_none() {
+            //     //         bob_vars
+            //     //     } else {
+            //     //         default()
+            //     //     },
+            //     // );
 
-                // // update camera color shifts for new position/effects
-                // conn.client_state.update_color_shifts(frame_time)?;
-            }
+            //     // // update camera color shifts for new position/effects
+            //     // conn.client_state.update_color_shifts(frame_time)?;
+            // }
 
             Ok(ConnectionStatus::Maintain)
         }
@@ -1313,46 +1312,16 @@ mod systems {
         #[allow(clippy::too_many_arguments)]
         pub fn end_frame(
             // TODO: This can almost certainly be simplified.
-            In(status): In<ConnectionStatus>,
+            In(status): In<Result<ConnectionStatus, ClientError>>,
             mut commands: Commands,
-            cvars: Res<Registry>,
             vfs: Res<Vfs>,
             time: Res<Time<Virtual>>,
-            asset_server: Res<AssetServer>,
-            mut mixer_events: EventWriter<MixerEvent>,
-            from_server: Res<Events<ServerMessage>>,
-            mut to_server: EventWriter<ClientMessage>,
             mut console: ResMut<ConsoleOutput>,
-            mut console_commands: EventWriter<RunCmd<'static>>,
             mut demo_queue: ResMut<DemoQueue>,
             mut focus: ResMut<InputFocus>,
-            mut conn: Option<ResMut<Connection>>,
         ) -> Result<(), ClientError> {
-            let NetworkVars {
-                disable_lerp,
-                gravity,
-            } = cvars.read_cvars()?;
-            let idle_vars: IdleVars = cvars.read_cvars()?;
-            let kick_vars: KickVars = cvars.read_cvars()?;
-            let roll_vars: RollVars = cvars.read_cvars()?;
-            let bob_vars: BobVars = cvars.read_cvars()?;
-            // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't recognise symbols
-            // as valid strings, so we need to use `.value().as_name()` and can't use `read_cvars`.
-            let client_vars: ClientVars = ClientVars {
-                name: cvars
-                    .get_cvar("_cl_name")
-                    .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
-                        backtrace: snafu::Backtrace::capture(),
-                    }))?
-                    .value()
-                    .as_name()
-                    .unwrap_or("player"),
-                color: cvars.read_cvar("_cl_color")?,
-            };
-
-            let time = Duration::from_std(time.elapsed()).unwrap();
             use ConnectionStatus::*;
-            let new_conn = match status {
+            let new_conn = match status? {
                 Maintain => return Ok(()),
                 // if client is already disconnected, this is a no-op
                 Disconnect => None,
@@ -1369,7 +1338,7 @@ mod systems {
                                 Ok(f) => Some(f),
                                 Err(e) => {
                                     // log the error, dump the demo queue and disconnect
-                                    console.println(format!("{e}"), time);
+                                    console.println(format!("{e}"), &time);
 
                                     match demo_queue.index() {
                                         Some(0) => break None,
@@ -1380,12 +1349,12 @@ mod systems {
 
                             break demo_file.as_mut().and_then(|df| match DemoServer::new(df) {
                                 Ok(d) => Some(Connection {
-                                    kind: ConnectionKind::Demo(d),
+                                    target: ConnectionTarget::Demo(d),
                                     client_state: ClientState::new(),
                                     last_msg_time: Time::default(),
                                 }),
                                 Err(e) => {
-                                    console.println(format!("{e}"), time);
+                                    console.println(format!("{e}"), &time);
                                     demo_queue.reset();
                                     None
                                 }
@@ -1399,14 +1368,13 @@ mod systems {
             };
 
             // don't allow game focus when disconnected
-            if new_conn.is_none() {
-                *focus = InputFocus::Console;
-            }
+            if new_conn.is_none() {}
 
-            if let Some(new_conn) = conn {
+            if let Some(new_conn) = new_conn {
                 commands.insert_resource(new_conn);
             } else {
                 commands.remove_resource::<Connection>();
+                *focus = InputFocus::Console;
             }
 
             Ok(())

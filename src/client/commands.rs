@@ -6,16 +6,14 @@ use clap::Parser;
 use crate::{
     common::{
         console::{AliasInfo, ExecResult, RegisterCmdExt as _, Registry, RunCmd},
-        net::{
-            ClientCmd, ClientMessage, ColorShift, MessageKind, QSocket, ServerMessage, SignOnStage,
-        },
+        net::{ClientCmd, ClientMessage, MessageKind, QSocket, ServerMessage, SignOnStage},
         vfs::Vfs,
     },
     server::Session,
 };
 
 use super::{
-    ColorShiftCode, Connection, ConnectionKind, ConnectionStage, DemoQueue, connect,
+    Connection, ConnectionStage, ConnectionTarget, DemoQueue, connect,
     demo::DemoServer,
     input::InputFocus,
     sound::{MixerEvent, MusicSource},
@@ -120,7 +118,7 @@ pub fn register_commands(app: &mut App) {
     app.command(
         |In(Reconnect), mut conn: Option<ResMut<Connection>>, mut focus: ResMut<InputFocus>| {
             if let Some(conn) = conn.as_deref_mut()
-                && let ConnectionKind::Server { stage, .. } = &mut conn.kind
+                && let ConnectionTarget::Server { stage, .. } = &mut conn.target
             {
                 // TODO: is this all that's needed to reconnect to a server?
                 *stage = ConnectionStage::SignOn(SignOnStage::Prespawn);
@@ -176,7 +174,7 @@ pub fn register_commands(app: &mut App) {
                     *focus = InputFocus::Game;
 
                     commands.insert_resource(Connection {
-                        kind: ConnectionKind::Demo(d),
+                        target: ConnectionTarget::Demo(d),
                         client_state: ClientState::new(),
                         last_msg_time: *time,
                     });
@@ -228,7 +226,7 @@ pub fn register_commands(app: &mut App) {
 
                         match DemoServer::new(&mut demo_file) {
                             Ok(d) => Connection {
-                                kind: ConnectionKind::Demo(d),
+                                target: ConnectionTarget::Demo(d),
                                 client_state: ClientState::new(),
                                 last_msg_time: *time,
                             },

@@ -67,7 +67,6 @@ pub mod systems {
         prelude::*,
         window::PrimaryWindow,
     };
-    use chrono::TimeDelta;
 
     use crate::{
         client::menu::Menu,
@@ -193,8 +192,6 @@ pub mod systems {
             }
         }
 
-        let elapsed = TimeDelta::from_std(time.elapsed()).unwrap();
-
         for exec in console_in.update(
             keys.iter()
                 .filter_map(
@@ -215,8 +212,8 @@ pub mod systems {
         ) {
             match exec {
                 Ok(cmd) => {
-                    console_out.print(ConsoleInput::PROMPT, elapsed);
-                    console_out.println(&cmd, elapsed);
+                    console_out.print(ConsoleInput::PROMPT, &*time);
+                    console_out.println(&cmd, &*time);
 
                     let cmd = RunCmd::parse(&cmd);
 

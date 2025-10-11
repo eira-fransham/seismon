@@ -14,7 +14,7 @@ use crate::{
     },
     common::{
         math::Angles,
-        net::{EntityState, EntityUpdate, PlayerColor},
+        net::{EntityEffects, EntityState, EntityUpdate, PlayerColor},
     },
 };
 use beef::Cow;
@@ -22,7 +22,7 @@ use bevy::{
     asset::{AssetServer, Handle},
     ecs::{entity::Entity, system::Commands},
     log::*,
-    math::{Quat, Vec3},
+    math::{EulerRot, Quat, Vec3},
     prelude::default,
     scene::{Scene, SceneRoot},
     transform::components::Transform,
@@ -230,7 +230,7 @@ impl ClientState {
 
     pub fn update_entity(
         &mut self,
-        commands: Commands<'_, '_>,
+        mut commands: Commands<'_, '_>,
         update: &EntityUpdate,
     ) -> Result<(), ClientError> {
         if let Some(entity) = self.server_entity_to_client_entity.get(&update.ent_id) {
@@ -258,7 +258,17 @@ impl ClientState {
             //     e.colormap = Some(c);
             // }
         } else {
-            let baseline = EntityState {
+            let EntityState {
+                origin,
+                angles,
+                model_id,
+
+                // TODO
+                frame_id: _,
+                colormap: _,
+                skin_id: _,
+                effects: _,
+            } = EntityState {
                 origin: Vec3::new(
                     update.origin_x.unwrap_or_default(),
                     update.origin_y.unwrap_or_default(),
@@ -278,7 +288,7 @@ impl ClientState {
             };
 
             commands.spawn((
-                SceneRoot(conn.client_state.models[model_id].clone()),
+                SceneRoot(self.models[model_id].clone()),
                 Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(Quat::from_euler(
                     EulerRot::YZX,
                     angles.x,
@@ -288,10 +298,6 @@ impl ClientState {
             ));
         }
         Ok(())
-    }
-
-    pub fn models(&self) -> &[Model] {
-        &self.models
     }
 }
 

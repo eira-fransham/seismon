@@ -36,7 +36,6 @@ use bevy::{
         world::{DeferredWorld, World},
     },
     prelude::*,
-    render::render_asset::RenderAssetUsages,
 };
 use chrono::Duration;
 use clap::{FromArgMatches, Parser};
@@ -52,12 +51,10 @@ use serde::{
 };
 use serde_lexpr::Value;
 use snafu::{Backtrace, prelude::*};
-use wgpu::{Extent3d, TextureDimension};
 
 use crate::client::{
-    ConnectionStage,
+    Connected, ConnectionStage,
     input::{InputFocus, game::Trigger},
-    render::{Palette, TextureData},
 };
 
 use super::{parse, vfs::Vfs, wad::Wad};
@@ -194,11 +191,23 @@ impl Plugin for SeismonConsolePlugin {
                     systems::startup::init_console,
                 ),
             )
+            .add_observer(
+                |trigger: bevy::ecs::observer::Trigger<Connected>,
+                 mut console_ui: Query<&mut Node, With<ConsoleUi>>| {
+                    let height = if trigger.event().0 {
+                        Val::Percent(30.)
+                    } else {
+                        Val::Percent(100.)
+                    };
+
+                    for mut style in &mut console_ui {
+                        style.height = height;
+                    }
+                },
+            )
             .add_systems(
                 Update,
                 (
-                    systems::update_console_size
-                        .run_if(resource_changed_or_removed::<ConnectionStage>),
                     systems::update_render_console,
                     systems::write_alert,
                     (systems::write_console_out, systems::write_center_print)
@@ -1959,21 +1968,25 @@ pub struct RenderConsoleOutput {
     pub center_print: (Timestamp, QString),
 }
 
+fn elapsed_millis(time: &Time<impl Default>) -> i64 {
+    (time.elapsed_secs() * 1000.) as i64
+}
+
 impl ConsoleOutput {
-    pub fn print<S: AsRef<[u8]>>(&mut self, s: S, timestamp: Duration) {
-        self.push(s, timestamp.num_milliseconds(), OutputType::Console);
+    pub fn print<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
+        self.push(s, elapsed_millis(timestamp), OutputType::Console);
     }
 
-    pub fn print_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: Duration) {
-        self.push(s, timestamp.num_milliseconds(), OutputType::Alert);
+    pub fn print_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
+        self.push(s, elapsed_millis(timestamp), OutputType::Alert);
     }
 
-    pub fn println<S: AsRef<[u8]>>(&mut self, s: S, timestamp: Duration) {
-        self.push_line(s, timestamp.num_milliseconds(), OutputType::Console);
+    pub fn println<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
+        self.push_line(s, elapsed_millis(timestamp), OutputType::Console);
     }
 
-    pub fn println_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: Duration) {
-        self.push_line(s, timestamp.num_milliseconds(), OutputType::Alert);
+    pub fn println_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
+        self.push_line(s, elapsed_millis(timestamp), OutputType::Alert);
     }
 
     pub fn new() -> ConsoleOutput {
@@ -2125,85 +2138,177 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
-#[derive(Debug, Clone)]
-pub struct Conchars {
-    pub image: ImageNode,
-    pub layout: Handle<TextureAtlasLayout>,
-    pub glyph_size: (Val, Val),
-}
+/// TODO: Properly this with Bevy (needs WAD support somehow)
+mod gfx {
+    use super::Vfs;
+    use crate::common::wad::Wad;
+    use bevy::{prelude::*, render::render_asset::RenderAssetUsages};
+    use std::io::{BufReader, Read as _};
+    use wgpu::{Extent3d, TextureDimension};
 
-#[derive(Resource)]
-pub struct Gfx {
-    pub palette: Palette,
-    pub conchars: Conchars,
-    pub wad: Wad,
-}
+    pub struct DiffuseData {
+        pub rgba: Vec<u8>,
+    }
 
-impl FromWorld for Gfx {
-    fn from_world(world: &mut World) -> Self {
-        // TODO: Deduplicate with glyph.rs
-        const GLYPH_WIDTH: usize = 8;
-        const GLYPH_HEIGHT: usize = 8;
-        const GLYPH_COLS: usize = 16;
-        const GLYPH_ROWS: usize = 16;
-        const SCALE: f32 = 2.;
+    impl From<Vec<u8>> for DiffuseData {
+        fn from(value: Vec<u8>) -> Self {
+            Self { rgba: value }
+        }
+    }
 
-        let vfs = world.resource::<Vfs>();
-        let assets = world.resource::<AssetServer>();
+    pub struct FullbrightData {
+        pub fullbright: Vec<u8>,
+    }
 
-        let palette = Palette::load(vfs, "gfx/palette.lmp");
-        let wad = Wad::load(vfs.open("gfx.wad").unwrap()).unwrap();
+    impl From<Vec<u8>> for FullbrightData {
+        fn from(value: Vec<u8>) -> Self {
+            Self { fullbright: value }
+        }
+    }
 
-        let conchars = wad.open_conchars().unwrap();
+    pub struct Palette {
+        pub rgb: [[u8; 3]; 256],
+    }
 
-        // TODO: validate conchars dimensions
+    impl Palette {
+        pub fn new(data: &[u8]) -> Palette {
+            if data.len() != 768 {
+                panic!("Bad len for rgb data");
+            }
 
-        let indices = conchars
-            .indices()
-            .iter()
-            .map(|i| if *i == 0 { 0xFF } else { *i })
-            .collect::<Vec<_>>();
+            let mut rgb = [[0; 3]; 256];
+            for color in 0..256 {
+                for component in 0..3 {
+                    rgb[color][component] = data[color * 3 + component];
+                }
+            }
 
-        let layout = assets.add(TextureAtlasLayout::from_grid(
-            UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
-            GLYPH_COLS as _,
-            GLYPH_ROWS as _,
-            None,
-            None,
-        ));
+            Palette { rgb }
+        }
 
-        let image = {
-            let (diffuse_data, _) = palette.translate(&indices);
-            let diffuse_data = TextureData::Diffuse(diffuse_data);
+        pub fn load<S>(vfs: &Vfs, path: S) -> Palette
+        where
+            S: AsRef<str>,
+        {
+            let mut data = BufReader::new(vfs.open(path).unwrap());
 
-            assets
-                .add(Image::new(
-                    Extent3d {
-                        width: conchars.width(),
-                        height: conchars.height(),
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    diffuse_data.data().to_owned(),
-                    diffuse_data.format(),
-                    RenderAssetUsages::RENDER_WORLD,
-                ))
-                .into()
-        };
+            let mut rgb = [[0u8; 3]; 256];
 
-        let conchars = Conchars {
-            image,
-            layout,
-            glyph_size: (
-                Val::Px(GLYPH_WIDTH as _) * SCALE,
-                Val::Px(GLYPH_HEIGHT as _) * SCALE,
-            ),
-        };
+            data.read_exact(rgb.as_flattened_mut()).unwrap();
 
-        Self {
-            palette,
-            wad,
-            conchars,
+            Palette { rgb }
+        }
+
+        // TODO: this will not render console characters correctly, as they use index 0 (black) to
+        // indicate transparency.
+        /// Translates a set of indices into a list of RGBA values and a list of fullbright values.
+        pub fn translate(&self, indices: &[u8]) -> (DiffuseData, FullbrightData) {
+            let mut rgba = Vec::with_capacity(indices.len() * 4);
+            let mut fullbright = Vec::with_capacity(indices.len());
+
+            for index in indices {
+                match *index {
+                    0xFF => {
+                        for _ in 0..4 {
+                            rgba.push(0);
+                            fullbright.push(0);
+                        }
+                    }
+
+                    i => {
+                        for component in 0..3 {
+                            rgba.push(self.rgb[*index as usize][component]);
+                        }
+                        rgba.push(0xFF);
+                        fullbright.push(if i > 223 { 0xFF } else { 0 });
+                    }
+                }
+            }
+
+            (DiffuseData { rgba }, FullbrightData { fullbright })
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Conchars {
+        pub image: ImageNode,
+        pub layout: Handle<TextureAtlasLayout>,
+        pub glyph_size: (Val, Val),
+    }
+
+    #[derive(Resource)]
+    pub struct Gfx {
+        pub palette: Palette,
+        pub conchars: Conchars,
+        pub wad: Wad,
+    }
+
+    impl FromWorld for Gfx {
+        fn from_world(world: &mut World) -> Self {
+            // TODO: Deduplicate with glyph.rs
+            const GLYPH_WIDTH: usize = 8;
+            const GLYPH_HEIGHT: usize = 8;
+            const GLYPH_COLS: usize = 16;
+            const GLYPH_ROWS: usize = 16;
+            const SCALE: f32 = 2.;
+
+            let vfs = world.resource::<Vfs>();
+            let assets = world.resource::<AssetServer>();
+
+            let palette = Palette::load(vfs, "gfx/palette.lmp");
+            let wad = Wad::load(vfs.open("gfx.wad").unwrap()).unwrap();
+
+            let conchars = wad.open_conchars().unwrap();
+
+            // TODO: validate conchars dimensions
+
+            let indices = conchars
+                .indices()
+                .iter()
+                .map(|i| if *i == 0 { 0xFF } else { *i })
+                .collect::<Vec<_>>();
+
+            let layout = assets.add(TextureAtlasLayout::from_grid(
+                UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
+                GLYPH_COLS as _,
+                GLYPH_ROWS as _,
+                None,
+                None,
+            ));
+
+            let image = {
+                let (diffuse_data, _) = palette.translate(&indices);
+
+                assets
+                    .add(Image::new(
+                        Extent3d {
+                            width: conchars.width(),
+                            height: conchars.height(),
+                            depth_or_array_layers: 1,
+                        },
+                        TextureDimension::D2,
+                        diffuse_data.rgba,
+                        // TODO: This feels like it shouldn't be `srgb`
+                        wgpu::TextureFormat::Rgba8UnormSrgb,
+                        RenderAssetUsages::RENDER_WORLD,
+                    ))
+                    .into()
+            };
+
+            let conchars = Conchars {
+                image,
+                layout,
+                glyph_size: (
+                    Val::Px(GLYPH_WIDTH as _) * SCALE,
+                    Val::Px(GLYPH_HEIGHT as _) * SCALE,
+                ),
+            };
+
+            Self {
+                palette,
+                wad,
+                conchars,
+            }
         }
     }
 }
@@ -2286,17 +2391,20 @@ mod systems {
 
     use chrono::TimeDelta;
 
-    use crate::{
-        client::ConnectionStage,
-        common::net::{ClientCmd, ClientMessage, MessageKind},
-    };
+    use crate::common::net::{ClientCmd, ClientMessage, MessageKind};
 
     use self::console_text::AtlasText;
 
     use super::*;
 
     pub mod startup {
-        use crate::common::wad::QPic;
+        use bevy::asset::RenderAssetUsages;
+        use wgpu::{Extent3d, TextureDimension};
+
+        use crate::common::{
+            console::gfx::{Conchars, Gfx},
+            wad::QPic,
+        };
 
         use super::*;
 
@@ -2368,7 +2476,6 @@ mod systems {
             // TODO: validate conchars dimensions
 
             let (diffuse_data, _) = gfx.palette.translate(conback.indices());
-            let diffuse_data = TextureData::Diffuse(diffuse_data);
 
             let image = assets.add(Image::new(
                 Extent3d {
@@ -2377,8 +2484,8 @@ mod systems {
                     depth_or_array_layers: 1,
                 },
                 TextureDimension::D2,
-                diffuse_data.data().to_owned(),
-                diffuse_data.format(),
+                diffuse_data.rgba,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             ));
 
@@ -2473,26 +2580,16 @@ mod systems {
         }
     }
 
-    pub fn update_console_size(
-        conn: Option<Res<ConnectionStage>>,
-        mut console_ui: Query<&mut Node, With<ConsoleUi>>,
-    ) {
-        for mut style in &mut console_ui {
-            style.height = if matches!(conn.as_deref(), Some(ConnectionStage::Connected(_))) {
-                Val::Percent(30.)
-            } else {
-                Val::Percent(100.)
-            };
-        }
-    }
-
     pub fn send_unhandled_commands_to_server(
         mut unhandled: EventReader<UnhandledCmd>,
         mut to_server: EventWriter<ClientMessage>,
     ) {
         to_server.write_batch(unhandled.read().map(|UnhandledCmd(e)| {
             let mut bytes = vec![];
-            let _ = ClientCmd::StringCmd { cmd: e.to_string() }.serialize(&mut bytes);
+            let _ = ClientCmd::StringCmd {
+                cmd: e.to_string().into(),
+            }
+            .serialize(&mut bytes);
 
             ClientMessage {
                 client_id: 0,
@@ -2507,7 +2604,7 @@ mod systems {
         mut render_out: ResMut<RenderConsoleOutput>,
         console_in: Res<ConsoleInput>,
         mut render_in: ResMut<RenderConsoleInput>,
-        time: Res<Time<Virtual>>,
+        time: Res<Time<Real>>,
         registry: Res<Registry>,
     ) {
         if let Some(center) = console_out.drain_center_print() {
@@ -2587,7 +2684,7 @@ mod systems {
 
     pub fn write_alert(
         settings: Res<ConsoleAlertSettings>,
-        time: Res<Time<Virtual>>,
+        time: Res<Time<Real>>,
         console_out: Res<RenderConsoleOutput>,
         mut alert: Query<(&mut AtlasText, &mut AlertOutput)>,
     ) {
@@ -2622,9 +2719,6 @@ mod systems {
     }
 
     pub fn execute_console(world: &mut World) {
-        let time = world.resource::<Time<Real>>();
-        let timestamp = TimeDelta::from_std(time.elapsed()).unwrap();
-
         let mut commands = world
             .resource_mut::<Events<RunCmd>>()
             .drain()
@@ -2758,13 +2852,13 @@ mod systems {
                 };
 
                 if !output.is_empty() {
+                    let time = world.resource::<Time<Real>>().clone();
+
                     if let Some(mut console_out) = world.get_resource_mut::<ConsoleOutput>() {
                         match output_ty {
-                            OutputType::Console => {
-                                console_out.println(output.as_bytes(), timestamp)
-                            }
+                            OutputType::Console => console_out.println(output.as_bytes(), &time),
                             OutputType::Alert => {
-                                console_out.println_alert(output.as_bytes(), timestamp)
+                                console_out.println_alert(output.as_bytes(), &time)
                             }
                         }
                     } else {
