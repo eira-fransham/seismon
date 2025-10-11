@@ -2,6 +2,11 @@
 
 ### An extensible, modern Quake engine
 
+> #### NOTE
+>
+> This branch is in a reasonably functional state, but work is ongoing to heavily refactor on the `big-refactor`
+> branch.
+
 #### Click here for a preview video:
 
 [![Preview video](https://img.youtube.com/vi/Hy5QStHHv8A/0.jpg)](https://www.youtube.com/watch?v=Hy5QStHHv8A)
