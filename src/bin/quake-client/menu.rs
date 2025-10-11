@@ -45,9 +45,7 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
         .build(MenuView {
             draw_plaque: true,
             title_path: "gfx/ttl_main.lmp".into(),
-            body: MenuBodyView::Predefined {
-                path: "gfx/mainmenu.lmp".into(),
-            },
+            body: MenuBodyView::Predefined { path: "gfx/mainmenu.lmp".into() },
         }))
 }
 
@@ -61,9 +59,7 @@ fn build_menu_sp(builder: MenuBuilder) -> Result<Menu, Error> {
         .build(MenuView {
             draw_plaque: true,
             title_path: "gfx/ttl_sgl.lmp".into(),
-            body: MenuBodyView::Predefined {
-                path: "gfx/sp_menu.lmp".into(),
-            },
+            body: MenuBodyView::Predefined { path: "gfx/sp_menu.lmp".into() },
         }))
 }
 
@@ -75,9 +71,7 @@ fn build_menu_mp(builder: MenuBuilder) -> Result<Menu, Error> {
         .build(MenuView {
             draw_plaque: true,
             title_path: "gfx/p_multi.lmp".into(),
-            body: MenuBodyView::Predefined {
-                path: "gfx/mp_menu.lmp".into(),
-            },
+            body: MenuBodyView::Predefined { path: "gfx/mp_menu.lmp".into() },
         }))
 }
 
@@ -88,9 +82,7 @@ fn build_menu_mp_join(builder: MenuBuilder) -> Result<Menu, Error> {
         .build(MenuView {
             draw_plaque: true,
             title_path: "gfx/p_multi.lmp".into(),
-            body: MenuBodyView::Predefined {
-                path: "gfx/mp_menu.lmp".into(),
-            },
+            body: MenuBodyView::Predefined { path: "gfx/mp_menu.lmp".into() },
         }))
 }
 
@@ -119,12 +111,9 @@ fn build_menu_mp_join_tcp(builder: MenuBuilder) -> Result<Menu, Error> {
 fn build_menu_options(builder: MenuBuilder) -> Result<Menu, Error> {
     Ok(builder
         // .add_submenu("Customize controls", unimplemented!())
-        .add_action(
-            "Go to console",
-            |mut commands: EventWriter<RunCmd<'static>>| {
-                commands.write("toggleconsole".into());
-            },
-        )
+        .add_action("Go to console", |mut commands: EventWriter<RunCmd<'static>>| {
+            commands.write("toggleconsole".into());
+        })
         // TODO
         .add_action("Reset to defaults", |mut cvars: ResMut<Registry>| {
             for cvar in [

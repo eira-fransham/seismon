@@ -22,9 +22,10 @@ use super::{
 
 pub fn register_commands(app: &mut App) {
     app.action("forward")
-        // TODO: Maybe have a way to specify that an input is pressed by default? We can emit a `+mlook` command
-        //       but it'd be nice to be able to automatically reset the triggers to their defaults, respecting
-        //       the fact that mlook acts differently.
+        // TODO: Maybe have a way to specify that an input is pressed by default? We can emit a
+        // `+mlook` command       but it'd be nice to be able to automatically reset the
+        // triggers to their defaults, respecting       the fact that mlook acts
+        // differently.
         .action("mlook")
         .action("moveleft")
         .action("back")
@@ -69,26 +70,24 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "togglemenu", about = "Open or close the menu")]
     struct ToggleMenu;
 
-    app.command(
-        |In(ToggleMenu), conn: Option<Res<Connection>>, mut focus: ResMut<InputFocus>| {
-            if conn.is_some() {
-                match &*focus {
-                    InputFocus::Game => *focus = InputFocus::Menu,
-                    InputFocus::Console => *focus = InputFocus::Menu,
-                    InputFocus::Menu => *focus = InputFocus::Game,
-                }
-            } else {
-                match &*focus {
-                    InputFocus::Console => *focus = InputFocus::Menu,
-                    InputFocus::Menu => *focus = InputFocus::Console,
-                    InputFocus::Game => {
-                        unreachable!("Game focus is invalid when we are disconnected")
-                    }
+    app.command(|In(ToggleMenu), conn: Option<Res<Connection>>, mut focus: ResMut<InputFocus>| {
+        if conn.is_some() {
+            match &*focus {
+                InputFocus::Game => *focus = InputFocus::Menu,
+                InputFocus::Console => *focus = InputFocus::Menu,
+                InputFocus::Menu => *focus = InputFocus::Game,
+            }
+        } else {
+            match &*focus {
+                InputFocus::Console => *focus = InputFocus::Menu,
+                InputFocus::Menu => *focus = InputFocus::Console,
+                InputFocus::Game => {
+                    unreachable!("Game focus is invalid when we are disconnected")
                 }
             }
-            default()
-        },
-    );
+        }
+        default()
+    });
 
     #[derive(Parser)]
     #[command(name = "connect", about = "Connect to a remote server")]
@@ -97,19 +96,17 @@ pub fn register_commands(app: &mut App) {
     }
 
     // set up connection console commands
-    app.command(
-        |In(Connect { remote }), mut commands: Commands, mut focus: ResMut<InputFocus>| {
-            match connect(&remote) {
-                Ok((new_conn, new_state)) => {
-                    *focus = InputFocus::Game;
-                    commands.insert_resource(new_conn);
-                    commands.insert_resource(Connection::new_server(new_state));
-                    default()
-                }
-                Err(e) => e.to_string().into(),
+    app.command(|In(Connect { remote }), mut commands: Commands, mut focus: ResMut<InputFocus>| {
+        match connect(&remote) {
+            Ok((new_conn, new_state)) => {
+                *focus = InputFocus::Game;
+                commands.insert_resource(new_conn);
+                commands.insert_resource(Connection::new_server(new_state));
+                default()
             }
-        },
-    );
+            Err(e) => e.to_string().into(),
+        }
+    });
 
     #[derive(Parser)]
     #[command(name = "reconnect", about = "Reconnect to the current server")]
@@ -270,10 +267,7 @@ pub fn register_commands(app: &mut App) {
 
     // TODO: Make these subcommands of `music`, with aliases
     #[derive(Parser)]
-    #[command(
-        name = "music_pause",
-        about = "Pause playback of the current music track"
-    )]
+    #[command(name = "music_pause", about = "Pause playback of the current music track")]
     struct MusicPause;
 
     app.command(|In(MusicPause), mut events: EventWriter<MixerEvent>| {
@@ -283,10 +277,7 @@ pub fn register_commands(app: &mut App) {
 
     // TODO: Make these subcommands of `music`, with aliases
     #[derive(Parser)]
-    #[command(
-        name = "music_resume",
-        about = "Resume playback of the current music track"
-    )]
+    #[command(name = "music_resume", about = "Resume playback of the current music track")]
     struct MusicResume;
 
     app.command(|In(MusicResume), mut events: EventWriter<MixerEvent>| {
@@ -309,49 +300,37 @@ pub fn register_commands(app: &mut App) {
         commands: Option<String>,
     }
 
-    app.command(
-        |In(Alias {
-             alias_name,
-             commands,
-         }),
-         mut registry: ResMut<Registry>| {
-            match (alias_name, commands) {
-                (None, None) => {
-                    let aliases = registry.aliases();
+    app.command(|In(Alias { alias_name, commands }), mut registry: ResMut<Registry>| {
+        match (alias_name, commands) {
+            (None, None) => {
+                let aliases = registry.aliases();
 
-                    // TODO: There's probably a better way to do this
-                    let mut count = 0;
-                    let alias_text = aliases.flat_map(
-                        |AliasInfo {
-                             name,
-                             target,
-                             help: _,
-                         }| {
-                            count += 1;
-                            ["    ", name, ": ", target, "\n"]
-                        },
-                    );
-                    let mut out = String::new();
-                    for text in alias_text {
-                        out.push_str(text);
-                    }
-                    out.push_str(&count.to_string());
-                    out.push_str("alias command(s)");
-
-                    out.into()
+                // TODO: There's probably a better way to do this
+                let mut count = 0;
+                let alias_text = aliases.flat_map(|AliasInfo { name, target, help: _ }| {
+                    count += 1;
+                    ["    ", name, ": ", target, "\n"]
+                });
+                let mut out = String::new();
+                for text in alias_text {
+                    out.push_str(text);
                 }
+                out.push_str(&count.to_string());
+                out.push_str("alias command(s)");
 
-                (Some(from), Some(to)) => {
-                    registry.alias(from, to);
-
-                    default()
-                }
-
-                // TODO: Alias info for just one alias
-                _ => String::new().into(),
+                out.into()
             }
-        },
-    );
+
+            (Some(from), Some(to)) => {
+                registry.alias(from, to);
+
+                default()
+            }
+
+            // TODO: Alias info for just one alias
+            _ => String::new().into(),
+        }
+    });
 
     #[derive(Parser)]
     #[command(name = "find", about = "Find a command by name")]
@@ -400,25 +379,14 @@ pub fn register_commands(app: &mut App) {
         let script = match RunCmd::parse_many(&script) {
             Ok(commands) => commands,
             Err(e) => {
-                return ExecResult {
-                    output: format!("Couldn't exec: {e}").into(),
-                    ..default()
-                };
+                return ExecResult { output: format!("Couldn't exec: {e}").into(), ..default() };
             }
         };
 
-        let extra_commands = Box::new(
-            script
-                .into_iter()
-                .map(RunCmd::into_owned)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        );
+        let extra_commands =
+            Box::new(script.into_iter().map(RunCmd::into_owned).collect::<Vec<_>>().into_iter());
 
-        ExecResult {
-            extra_commands,
-            ..default()
-        }
+        ExecResult { extra_commands, ..default() }
     });
 
     // #[derive(Parser)]
@@ -479,14 +447,12 @@ pub fn register_commands(app: &mut App) {
         new_name: String,
     }
 
-    app.command(
-        move |In(Name { new_name }), mut registry: ResMut<Registry>| -> ExecResult {
-            match registry.set_cvar_raw("_cl_name", new_name.into()) {
-                Ok(_) => default(),
-                Err(e) => format!("Error: {e}").into(),
-            }
-        },
-    );
+    app.command(move |In(Name { new_name }), mut registry: ResMut<Registry>| -> ExecResult {
+        match registry.set_cvar_raw("_cl_name", new_name.into()) {
+            Ok(_) => default(),
+            Err(e) => format!("Error: {e}").into(),
+        }
+    });
 
     #[derive(Parser)]
     #[command(name = "map", about = "Load and start a new map")]
@@ -506,11 +472,9 @@ pub fn register_commands(app: &mut App) {
         server_events.clear();
 
         let mut bytes = vec![];
-        ClientCmd::StringCmd {
-            cmd: format!("map {map_name}").into(),
-        }
-        .serialize(&mut bytes)
-        .unwrap();
+        ClientCmd::StringCmd { cmd: format!("map {map_name}").into() }
+            .serialize(&mut bytes)
+            .unwrap();
 
         client_events.send(ClientMessage {
             client_id: 0,

@@ -91,10 +91,7 @@ pub fn basic_arg(input: &str) -> nom::IResult<&str, &str> {
 
     match match_len {
         // TODO: more descriptive error?
-        0 => Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Many1,
-        ))),
+        0 => Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Many1))),
         len => {
             let (matched, rest) = input.split_at(len);
             Ok((rest, matched))
@@ -121,18 +118,12 @@ pub fn command_terminator(input: &str) -> nom::IResult<&str, &str> {
 }
 
 pub fn trigger(input: &str) -> nom::IResult<&str, Trigger> {
-    alt((
-        tag("+").map(|_| Trigger::Positive),
-        tag("-").map(|_| Trigger::Negative),
-    ))(input)
+    alt((tag("+").map(|_| Trigger::Positive), tag("-").map(|_| Trigger::Negative)))(input)
 }
 
 pub fn command_name(input: &str) -> nom::IResult<&str, CmdName<'_>> {
     tuple((opt(trigger), arg))
-        .map(|(trigger, name)| CmdName {
-            name: name.into(),
-            trigger,
-        })
+        .map(|(trigger, name)| CmdName { name: name.into(), trigger })
         .parse(input)
 }
 
@@ -156,12 +147,11 @@ pub fn arg_list(input: &str) -> nom::IResult<&str, Vec<String>> {
 /// - Zero or more leading non-newline whitespace characters
 /// - One or more arguments, separated by non-newline whitespace characters
 pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
-    tuple((command_name, arg_list))
-        .map(|(cmd, rest)| RunCmd(cmd, rest.into()))
-        .parse(input)
+    tuple((command_name, arg_list)).map(|(cmd, rest)| RunCmd(cmd, rest.into())).parse(input)
 }
 
-/// Match a binding - command set possibly preceded by `*` in order to make the binding valid for any focus state.
+/// Match a binding - command set possibly preceded by `*` in order to make the binding valid for
+/// any focus state.
 ///
 /// A command is considered to be composed of:
 /// - Zero or more leading non-newline whitespace characters
@@ -169,11 +159,7 @@ pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
 pub fn binding(input: &str) -> nom::IResult<&str, Binding<'_>> {
     tuple((
         opt(tag("*")).map(|val| {
-            if val.is_some() {
-                BindingValidState::Any
-            } else {
-                BindingValidState::Game
-            }
+            if val.is_some() { BindingValidState::Any } else { BindingValidState::Game }
         }),
         commands,
     ))
@@ -185,10 +171,7 @@ pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
     delimited(
         tuple((many0(command_terminator), space0)),
         tuple((
-            many0(terminated(
-                terminated_command,
-                tuple((many0(command_terminator), space0)),
-            )),
+            many0(terminated(terminated_command, tuple((many0(command_terminator), space0)))),
             opt(command),
         ))
         .map(|(mut commands, last)| {
@@ -251,13 +234,7 @@ mod test {
     #[test]
     fn test_command_basic() {
         let result = command("arg_0 arg_1;\n");
-        assert_eq!(
-            result,
-            Ok((
-                "\n",
-                RunCmd("arg_0".into(), vec!["arg_1".to_owned()].into())
-            ))
-        );
+        assert_eq!(result, Ok(("\n", RunCmd("arg_0".into(), vec!["arg_1".to_owned()].into()))));
     }
 
     #[test]
@@ -265,13 +242,7 @@ mod test {
         let result = command("bind \"space\" \"+jump\";\n");
         assert_eq!(
             result,
-            Ok((
-                "\n",
-                RunCmd(
-                    "bind".into(),
-                    vec!["space".to_owned(), "jump".to_owned()].into()
-                )
-            ))
+            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "jump".to_owned()].into())))
         );
     }
 
@@ -280,13 +251,7 @@ mod test {
         let result = command("bind \"space\" \"+jump\" // bind space to jump\n\n");
         assert_eq!(
             result,
-            Ok((
-                "\n",
-                RunCmd(
-                    "bind".into(),
-                    vec!["space".to_owned(), "jump".to_owned()].into()
-                )
-            ))
+            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "jump".to_owned()].into())))
         );
     }
 

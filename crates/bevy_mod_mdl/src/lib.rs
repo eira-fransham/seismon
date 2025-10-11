@@ -318,20 +318,12 @@ impl MdlResult {
 
 impl From<MdlResult> for Result<AliasModel, MdlFileError> {
     fn from(value: MdlResult) -> Self {
-        value.value.ok_or(
-            value
-                .errors
-                .into_iter()
-                .next_back()
-                .unwrap_or(MdlFileError::Unknown),
-        )
+        value.value.ok_or(value.errors.into_iter().next_back().unwrap_or(MdlFileError::Unknown))
     }
 }
 
 pub fn load<R>(data: R) -> MdlResult
-where
-    R: Read + Seek,
-{
+where R: Read + Seek {
     let mut reader = BufReader::new(data);
     let mut errors = Vec::<MdlFileError>::new();
 
@@ -344,10 +336,7 @@ where
     macro_rules! fatal {
         ($errval:expr) => {{
             errors.push($errval.into());
-            return MdlResult {
-                value: None,
-                errors,
-            };
+            return MdlResult { value: None, errors };
         }};
     }
 
@@ -451,9 +440,7 @@ where
                         (&mut reader)
                             .take((texture_width * texture_height) as u64)
                             .read_to_end(&mut indices)?;
-                        Texture::Static(StaticTexture {
-                            indices: indices.into_boxed_slice(),
-                        })
+                        Texture::Static(StaticTexture { indices: indices.into_boxed_slice() })
                     }
 
                     // Animated
@@ -481,9 +468,7 @@ where
                             });
                         }
 
-                        Texture::Animated(AnimatedTexture {
-                            frames: frames.into_boxed_slice(),
-                        })
+                        Texture::Animated(AnimatedTexture { frames: frames.into_boxed_slice() })
                     }
 
                     k => {
@@ -541,10 +526,7 @@ where
 
                 let indices = [x?, y?, z?].map(|v| v as u32);
 
-                Ok(IndexedPolygon {
-                    faces_front,
-                    indices,
-                })
+                Ok(IndexedPolygon { faces_front, indices })
             })
             .collect::<Result<_, MdlFileError>>()
     );
@@ -671,13 +653,7 @@ where
 }
 
 fn read_vertex<R>(reader: &mut R, scale: Vec3, translate: Vec3) -> Result<Vec3, io::Error>
-where
-    R: ReadBytesExt,
-{
-    Ok(Vec3::new(
-        reader.read_u8()? as f32,
-        reader.read_u8()? as f32,
-        reader.read_u8()? as f32,
-    )
-    .mul_add(scale, translate))
+where R: ReadBytesExt {
+    Ok(Vec3::new(reader.read_u8()? as f32, reader.read_u8()? as f32, reader.read_u8()? as f32)
+        .mul_add(scale, translate))
 }

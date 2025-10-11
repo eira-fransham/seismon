@@ -50,9 +50,7 @@ impl WadError {
 
 impl From<WadErrorKind> for WadError {
     fn from(kind: WadErrorKind) -> Self {
-        WadError {
-            inner: Context::new(kind),
-        }
+        WadError { inner: Context::new(kind) }
     }
 }
 
@@ -112,29 +110,18 @@ pub struct QPic {
 
 impl QPic {
     pub fn load<R>(data: R) -> Result<QPic, WadError>
-    where
-        R: Read + Seek,
-    {
+    where R: Read + Seek {
         let mut reader = BufReader::new(data);
 
         let width = reader.read_u32::<LittleEndian>()?;
         let height = reader.read_u32::<LittleEndian>()?;
 
         let mut indices = Vec::new();
-        (&mut reader)
-            .take((width * height) as u64)
-            .read_to_end(&mut indices)?;
+        (&mut reader).take((width * height) as u64).read_to_end(&mut indices)?;
 
-        indices.extend(iter::repeat_n(
-            0xFF,
-            (width * height) as usize - indices.len(),
-        ));
+        indices.extend(iter::repeat_n(0xFF, (width * height) as usize - indices.len()));
 
-        Ok(QPic {
-            width,
-            height,
-            indices: indices.into_boxed_slice(),
-        })
+        Ok(QPic { width, height, indices: indices.into_boxed_slice() })
     }
 
     pub fn width(&self) -> u32 {
@@ -162,9 +149,7 @@ pub struct Wad {
 
 impl Wad {
     pub fn load<R>(data: R) -> Result<Wad, Error>
-    where
-        R: Read + Seek,
-    {
+    where R: Read + Seek {
         let mut reader = BufReader::new(data);
 
         let magic = reader.read_u32::<LittleEndian>()?;
@@ -201,9 +186,7 @@ impl Wad {
         for lump_info in lump_infos {
             let mut data = Vec::with_capacity(lump_info.size as usize);
             reader.seek(SeekFrom::Start(lump_info.offset as u64))?;
-            (&mut reader)
-                .take(lump_info.size as u64)
-                .read_to_end(&mut data)?;
+            (&mut reader).take(lump_info.size as u64).read_to_end(&mut data)?;
             files.insert(lump_info.name.into_string(), data.into_boxed_slice());
         }
 
@@ -217,11 +200,7 @@ impl Wad {
                 let height = 128;
                 let indices = Vec::from(&data[..(width * height) as usize]);
 
-                Ok(QPic {
-                    width,
-                    height,
-                    indices: indices.into_boxed_slice(),
-                })
+                Ok(QPic { width, height, indices: indices.into_boxed_slice() })
             }
 
             None => bail!("conchars not found in WAD"),
@@ -229,9 +208,7 @@ impl Wad {
     }
 
     pub fn open_qpic<S>(&self, name: S) -> Result<QPic, WadError>
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         if name.as_ref() == "CONCHARS" {
             Err(WadErrorKind::ConcharsUseDedicatedFunction)?
         }

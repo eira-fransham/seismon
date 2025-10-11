@@ -187,11 +187,8 @@ impl View {
         kick_vars: KickVars,
         roll_vars: RollVars,
     ) {
-        let move_angles = Angles {
-            pitch: 0.0,
-            roll: roll(self.input_angles, velocity, roll_vars),
-            yaw: 0.0,
-        };
+        let move_angles =
+            Angles { pitch: 0.0, roll: roll(self.input_angles, velocity, roll_vars), yaw: 0.0 };
 
         let kick_factor = duration_to_f32(self.damage_time - time).max(0.0) / kick_vars.kick_time;
         let damage_angles = self.damage_angles * kick_factor;

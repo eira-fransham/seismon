@@ -194,13 +194,8 @@ pub enum ProgsError {
 
 impl ProgsError {
     pub fn with_msg<S>(msg: S) -> Self
-    where
-        S: Into<String>,
-    {
-        ProgsError::Other {
-            message: msg.into(),
-            backtrace: Backtrace::capture(),
-        }
+    where S: Into<String> {
+        ProgsError::Other { message: msg.into(), backtrace: Backtrace::capture() }
     }
 }
 
@@ -340,10 +335,7 @@ impl GlobalDef {
     }
 
     pub fn display<'a>(&'a self, string_table: &'a StringTable) -> impl fmt::Display + use<'a> {
-        GlobalDefFormatter {
-            def: self,
-            string_table,
-        }
+        GlobalDefFormatter { def: self, string_table }
     }
 }
 
@@ -377,10 +369,7 @@ impl FieldDef {
     }
 
     pub fn display<'a>(&self, string_table: &'a StringTable) -> impl fmt::Display + use<'a> {
-        FieldDefFormatter {
-            def: *self,
-            string_table,
-        }
+        FieldDefFormatter { def: *self, string_table }
     }
 }
 
@@ -407,16 +396,11 @@ pub struct LoadProgs {
 ///
 /// This returns objects representing the necessary context to execute QuakeC bytecode.
 pub fn load<R>(mut src: R) -> Result<LoadProgs>
-where
-    R: Read + Seek,
-{
+where R: Read + Seek {
     assert!(src.read_i32::<LittleEndian>()? == VERSION);
     assert!(src.read_i32::<LittleEndian>()? == CRC);
 
-    let mut lumps = [Lump {
-        offset: 0,
-        count: 0,
-    }; LUMP_COUNT];
+    let mut lumps = [Lump { offset: 0, count: 0 }; LUMP_COUNT];
 
     for (i, lump) in lumps.iter_mut().enumerate() {
         *lump = Lump {
@@ -435,16 +419,12 @@ where
     let string_lump = &lumps[LumpId::Strings as usize];
     src.seek(SeekFrom::Start(string_lump.offset as u64))?;
     let mut strings = Vec::new();
-    (&mut src)
-        .take(string_lump.count as u64)
-        .read_to_end(&mut strings)?;
+    (&mut src).take(string_lump.count as u64).read_to_end(&mut strings)?;
     let string_table = StringTable::new(strings);
 
     assert_eq!(
         src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (string_lump.offset + string_lump.count) as u64,
-        ))?
+        src.seek(SeekFrom::Start((string_lump.offset + string_lump.count) as u64,))?
     );
 
     // Read function definitions and statements and construct Functions
@@ -455,9 +435,7 @@ where
     for i in 0..function_lump.count {
         assert_eq!(
             src.stream_position()?,
-            src.seek(SeekFrom::Start(
-                (function_lump.offset + i * FUNCTION_SIZE) as u64,
-            ))?
+            src.seek(SeekFrom::Start((function_lump.offset + i * FUNCTION_SIZE) as u64,))?
         );
 
         let kind = match src.read_i32::<LittleEndian>()? {
@@ -563,31 +541,21 @@ where
         let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
 
         if type_ & SAVE_GLOBAL != 0 {
-            return Err(ProgsError::with_msg(
-                "Save flag not allowed in field definitions",
-            ));
+            return Err(ProgsError::with_msg("Save flag not allowed in field definitions"));
         }
-        field_defs.push(FieldDef {
-            type_: Type::from_u16(type_).unwrap(),
-            offset,
-            name_id,
-        });
+        field_defs.push(FieldDef { type_: Type::from_u16(type_).unwrap(), offset, name_id });
     }
 
     assert_eq!(
         src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (fielddef_lump.offset + fielddef_lump.count * DEF_SIZE) as u64,
-        ))?
+        src.seek(SeekFrom::Start((fielddef_lump.offset + fielddef_lump.count * DEF_SIZE) as u64,))?
     );
 
     let globals_lump = &lumps[LumpId::Globals as usize];
     src.seek(SeekFrom::Start(globals_lump.offset as u64))?;
 
     if globals_lump.count < GLOBAL_STATIC_COUNT {
-        return Err(ProgsError::with_msg(
-            "Global count lower than static global count",
-        ));
+        return Err(ProgsError::with_msg("Global count lower than static global count"));
     }
 
     let mut addrs = Vec::with_capacity(globals_lump.count);
@@ -601,9 +569,7 @@ where
 
     assert_eq!(
         src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (globals_lump.offset + globals_lump.count * 4) as u64,
-        ))?
+        src.seek(SeekFrom::Start((globals_lump.offset + globals_lump.count * 4) as u64,))?
     );
 
     let cx = ExecutionContext::create(functions);
@@ -612,12 +578,7 @@ where
 
     let entity_def = EntityTypeDef::new(ent_addr_count, field_defs.into_boxed_slice())?;
 
-    Ok(LoadProgs {
-        cx,
-        globals,
-        entity_def,
-        string_table,
-    })
+    Ok(LoadProgs { cx, globals, entity_def, string_table })
 }
 
 #[derive(Debug)]
@@ -678,7 +639,8 @@ impl ExecutionContext {
         self.current_function
     }
 
-    /// Should only be used to reset the current function if progs are called (e.g. in `builtin_walk_move`).
+    /// Should only be used to reset the current function if progs are called (e.g. in
+    /// `builtin_walk_move`).
     pub fn set_current_function(&mut self, func: FunctionId) {
         self.current_function = func;
     }
@@ -712,35 +674,24 @@ impl ExecutionContext {
         f: FunctionId,
     ) -> Result<()> {
         let def = self.functions.get_def(f)?;
-        debug!(
-            "Calling QuakeC function {}",
-            string_table.get(def.name_id).unwrap()
-        );
+        debug!("Calling QuakeC function {}", string_table.get(def.name_id).unwrap());
 
         // save stack frame
-        self.call_stack.push(StackFrame {
-            instr_id: self.pc,
-            func_id: self.current_function,
-        });
+        self.call_stack.push(StackFrame { instr_id: self.pc, func_id: self.current_function });
 
         // check call stack overflow
         if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
-            return Err(ProgsError::CallStackOverflow {
-                backtrace: Backtrace::capture(),
-            });
+            return Err(ProgsError::CallStackOverflow { backtrace: Backtrace::capture() });
         }
 
         // preemptively check local stack overflow
         if self.local_stack.len() + def.locals > MAX_LOCAL_STACK_DEPTH {
-            return Err(ProgsError::LocalStackOverflow {
-                backtrace: Backtrace::capture(),
-            });
+            return Err(ProgsError::LocalStackOverflow { backtrace: Backtrace::capture() });
         }
 
         // save locals to stack
         for i in 0..def.locals {
-            self.local_stack
-                .push(globals.get_bytes((def.arg_start + i) as i16)?);
+            self.local_stack.push(globals.get_bytes((def.arg_start + i) as i16)?);
         }
 
         let mut dest = def.arg_start;
@@ -770,10 +721,7 @@ impl ExecutionContext {
         globals: &mut Globals,
     ) -> Result<()> {
         let def = self.functions.get_def(self.current_function)?;
-        debug!(
-            "Returning from QuakeC function {}",
-            string_table.get(def.name_id).unwrap()
-        );
+        debug!("Returning from QuakeC function {}", string_table.get(def.name_id).unwrap());
 
         for i in (0..def.locals).rev() {
             globals.put_bytes(
@@ -784,10 +732,8 @@ impl ExecutionContext {
             )?;
         }
 
-        let frame = self
-            .call_stack
-            .pop()
-            .ok_or_else(|| ProgsError::with_msg("call stack underflow"))?;
+        let frame =
+            self.call_stack.pop().ok_or_else(|| ProgsError::with_msg("call stack underflow"))?;
 
         self.current_function = frame.func_id;
         self.pc = frame.instr_id;

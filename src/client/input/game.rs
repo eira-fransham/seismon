@@ -76,18 +76,10 @@ impl PartialEq for UppercaseStr<'_> {
 }
 
 static KEYMAP: LazyLock<HashMap<UppercaseStr<'static>, AnyInput>> = LazyLock::new(|| {
-    KEYBOARD_NAMES
-        .iter()
-        .chain(MOUSE_NAMES)
-        .map(|(n, i)| (UppercaseStr(n), i.clone()))
-        .collect()
+    KEYBOARD_NAMES.iter().chain(MOUSE_NAMES).map(|(n, i)| (UppercaseStr(n), i.clone())).collect()
 });
 static INVERSE_KEYMAP: LazyLock<HashMap<AnyInput, UppercaseStr<'static>>> = LazyLock::new(|| {
-    KEYBOARD_NAMES
-        .iter()
-        .chain(MOUSE_NAMES)
-        .map(|(n, i)| (i.clone(), UppercaseStr(n)))
-        .collect()
+    KEYBOARD_NAMES.iter().chain(MOUSE_NAMES).map(|(n, i)| (i.clone(), UppercaseStr(n))).collect()
 });
 
 macro_rules! buttons {
@@ -340,11 +332,7 @@ impl TryInto<AnyInput> for &'_ str {
 
 impl Display for AnyInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            INVERSE_KEYMAP.get(self).unwrap_or(&UppercaseStr("UNKNOWN"))
-        )
+        write!(f, "{}", INVERSE_KEYMAP.get(self).unwrap_or(&UppercaseStr("UNKNOWN")))
     }
 }
 
@@ -456,10 +444,7 @@ impl Default for GameInput {
 
 impl GameInput {
     pub fn new() -> GameInput {
-        let mut out = Self {
-            bindings: default(),
-            mouse_delta: default(),
-        };
+        let mut out = Self { bindings: default(), mouse_delta: default() };
 
         out.bind_defaults();
 
@@ -501,15 +486,10 @@ impl GameInput {
     where
         I: TryInto<AnyInput>,
         T: AsRef<str>,
-        I::Error: Display,
-    {
-        let target: Binding = target
-            .as_ref()
-            .parse()
-            .map_err(|e| format_err!("Failed to parse target: {}", e))?;
-        let input = input
-            .try_into()
-            .map_err(|e| format_err!("Failed to parse input: {}", e))?;
+        I::Error: Display, {
+        let target: Binding =
+            target.as_ref().parse().map_err(|e| format_err!("Failed to parse target: {}", e))?;
+        let input = input.try_into().map_err(|e| format_err!("Failed to parse input: {}", e))?;
 
         Ok(self.bindings.insert(input, target))
     }
@@ -518,12 +498,9 @@ impl GameInput {
     pub fn binding<I>(&self, input: I) -> Result<Option<&Binding<'static>>, Error>
     where
         I: TryInto<AnyInput>,
-        I::Error: Display,
-    {
-        Ok(self.bindings.get(
-            &input
-                .try_into()
-                .map_err(|e| format_err!("Failed to parse input: {}", e))?,
-        ))
+        I::Error: Display, {
+        Ok(self
+            .bindings
+            .get(&input.try_into().map_err(|e| format_err!("Failed to parse input: {}", e))?))
     }
 }

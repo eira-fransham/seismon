@@ -65,9 +65,7 @@ pub struct QStr<'a> {
 
 impl<'a> QStr<'a> {
     pub fn into_owned(self) -> QString {
-        QStr {
-            raw: self.raw.into_owned().into(),
-        }
+        QStr { raw: self.raw.into_owned().into() }
     }
 }
 
@@ -75,9 +73,7 @@ pub type QString = QStr<'static>;
 
 impl Default for QStr<'_> {
     fn default() -> Self {
-        Self {
-            raw: Cow::borrowed(&[]),
-        }
+        Self { raw: Cow::borrowed(&[]) }
     }
 }
 
@@ -95,17 +91,13 @@ impl From<String> for QString {
 
 impl<'a> From<&'a [u8]> for QStr<'a> {
     fn from(value: &'a [u8]) -> Self {
-        Self {
-            raw: Cow::borrowed(value.as_bytes()),
-        }
+        Self { raw: Cow::borrowed(value.as_bytes()) }
     }
 }
 
 impl From<Vec<u8>> for QString {
     fn from(value: Vec<u8>) -> Self {
-        Self {
-            raw: Cow::owned(value),
-        }
+        Self { raw: Cow::owned(value) }
     }
 }
 
@@ -152,21 +144,12 @@ impl<'a> QStr<'a> {
     }
 
     pub fn reborrow(&self) -> QStr<'_> {
-        QStr {
-            raw: Cow::borrowed(&*self.raw),
-        }
+        QStr { raw: Cow::borrowed(&*self.raw) }
     }
 
     pub fn chars(&self) -> impl Iterator<Item = (char, StringColor)> + '_ {
         self.raw.iter().copied().map(|b| {
-            (
-                (b % 128) as char,
-                if b >= 128 {
-                    StringColor::Red
-                } else {
-                    StringColor::Default
-                },
-            )
+            ((b % 128) as char, if b >= 128 { StringColor::Red } else { StringColor::Default })
         })
     }
 
@@ -209,9 +192,7 @@ impl<'a> QStr<'a> {
 
 /// Read a `[f32; 3]` in little-endian byte order.
 pub fn read_f32_3<R>(reader: &mut R) -> Result<[f32; 3], std::io::Error>
-where
-    R: ReadBytesExt,
-{
+where R: ReadBytesExt {
     let mut ar = [0.0f32; 3];
     reader.read_f32_into::<LittleEndian>(&mut ar)?;
     Ok(ar)
@@ -225,9 +206,7 @@ where
 /// - If the end of the input is reached before a zero byte is found.
 pub fn read_cstring<R>(src: &mut R) -> io::Result<QString>
 // QStringOwned
-where
-    R: BufRead,
-{
+where R: BufRead {
     // TODO: `BufRead` would be better here
     let mut bytes: Vec<u8> = Vec::new();
     loop {
@@ -239,7 +218,5 @@ where
         }
     }
 
-    Ok(QStr {
-        raw: Cow::owned(bytes),
-    })
+    Ok(QStr { raw: Cow::owned(bytes) })
 }

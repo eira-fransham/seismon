@@ -132,18 +132,10 @@ impl DemoServer {
             }
             let msg_end = message_data.len();
 
-            messages.push(DemoMessage {
-                view_angles,
-                msg_range: msg_start..msg_end,
-            });
+            messages.push(DemoMessage { view_angles, msg_range: msg_start..msg_end });
         }
 
-        Ok(DemoServer {
-            track_override,
-            message_id: 0,
-            messages,
-            message_data,
-        })
+        Ok(DemoServer { track_override, message_id: 0, messages, message_data })
     }
 
     /// Retrieve the next server message from the currently playing demo.

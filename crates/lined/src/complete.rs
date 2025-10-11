@@ -23,12 +23,8 @@ impl BasicCompleter {
     pub fn new<I>(prefixes: I) -> BasicCompleter
     where
         I: IntoIterator,
-        I::Item: Into<String>,
-    {
-        let mut prefixes = prefixes
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<String>>();
+        I::Item: Into<String>, {
+        let mut prefixes = prefixes.into_iter().map(Into::into).collect::<Vec<String>>();
         prefixes.sort();
         prefixes.dedup();
 
@@ -38,10 +34,7 @@ impl BasicCompleter {
 
 impl Completer for BasicCompleter {
     fn completions<'a>(&'a mut self, start: &'a str) -> impl Iterator<Item = Cow<'a, str>> + 'a {
-        self.prefixes
-            .iter()
-            .filter(move |s| s.starts_with(start))
-            .map(Into::into)
+        self.prefixes.iter().filter(move |s| s.starts_with(start)).map(Into::into)
     }
 }
 
@@ -52,25 +45,19 @@ pub struct FilenameCompleter {
 }
 
 impl FilenameCompleter {
-    /// Create a new [`FilenameCompleter`] in a given working directory (or `None` to use the current working
-    /// directory from the environment).
+    /// Create a new [`FilenameCompleter`] in a given working directory (or `None` to use the
+    /// current working directory from the environment).
     pub fn new<T: Into<PathBuf>>(working_dir: Option<T>) -> Self {
-        FilenameCompleter {
-            working_dir: working_dir.map(|p| p.into()),
-            case_sensitive: true,
-        }
+        FilenameCompleter { working_dir: working_dir.map(|p| p.into()), case_sensitive: true }
     }
 
-    /// Create a new [`FilenameCompleter`] that optionally uses case-sensitive filename matching based on the
-    /// `case_sensitive` argument.
+    /// Create a new [`FilenameCompleter`] that optionally uses case-sensitive filename matching
+    /// based on the `case_sensitive` argument.
     pub fn with_case_sensitivity<T: Into<PathBuf>>(
         working_dir: Option<T>,
         case_sensitive: bool,
     ) -> Self {
-        FilenameCompleter {
-            working_dir: working_dir.map(|p| p.into()),
-            case_sensitive,
-        }
+        FilenameCompleter { working_dir: working_dir.map(|p| p.into()), case_sensitive }
     }
 }
 
@@ -114,17 +101,9 @@ impl Completer for FilenameCompleter {
             {
                 p = parent;
                 start_name = if self.case_sensitive {
-                    full_path
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned()
+                    full_path.file_name().unwrap().to_string_lossy().into_owned()
                 } else {
-                    full_path
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_lowercase()
+                    full_path.file_name().unwrap().to_string_lossy().to_lowercase()
                 };
                 completing_dir = false;
             }

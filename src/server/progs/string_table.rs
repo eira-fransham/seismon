@@ -14,10 +14,7 @@ pub struct StringTable {
 
 impl StringTable {
     pub fn new(data: Vec<u8>) -> StringTable {
-        StringTable {
-            data,
-            lengths: Default::default(),
-        }
+        StringTable { data, lengths: Default::default() }
     }
 
     pub fn id_from_i32(&self, value: i32) -> Result<StringId, ProgsError> {
@@ -35,9 +32,7 @@ impl StringTable {
     }
 
     pub fn find<S>(&self, target: S) -> Option<StringId>
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         let target = target.as_ref().as_bytes();
         for (ofs, _) in target.iter().enumerate() {
             let sub = &self.data[ofs..];
@@ -71,12 +66,7 @@ impl StringTable {
             return Some((&self.data[start..end]).into());
         }
 
-        match self.data[start..]
-            .iter()
-            .take(1024 * 1024)
-            .enumerate()
-            .find(|&(_i, c)| *c == 0)
-        {
+        match self.data[start..].iter().take(1024 * 1024).enumerate().find(|&(_i, c)| *c == 0) {
             Some((len, _)) => {
                 self.lengths.insert(id, len);
                 let end = start + len;
@@ -87,9 +77,7 @@ impl StringTable {
     }
 
     fn insert<S>(&mut self, s: S) -> StringId
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         let s = s.as_ref();
 
         assert!(!s.contains('\0'));
@@ -101,9 +89,7 @@ impl StringTable {
     }
 
     pub fn find_or_insert<S>(&mut self, target: S) -> StringId
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         match self.find(target.as_ref()) {
             Some(id) => id,
             None => self.insert(target),
@@ -113,8 +99,6 @@ impl StringTable {
     pub fn iter(&self) -> impl Iterator<Item = &str> + '_ {
         // TODO: Make this work properly with the refcell - since the inner data
         //       is cheaply clonable this should be relatively easy.
-        self.data
-            .split(|b| *b == 0)
-            .filter_map(|bytes| str::from_utf8(bytes).ok())
+        self.data.split(|b| *b == 0).filter_map(|bytes| str::from_utf8(bytes).ok())
     }
 }

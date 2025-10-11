@@ -47,13 +47,8 @@ pub struct Toggle {
 
 impl Toggle {
     pub fn new<C>(init: bool, cvar: C) -> Toggle
-    where
-        C: Into<CName>,
-    {
-        Toggle {
-            state: init,
-            cvar: cvar.into(),
-        }
+    where C: Into<CName> {
+        Toggle { state: init, cvar: cvar.into() }
     }
 
     pub fn set_false(&mut self) -> impl FnOnce(Commands) + '_ {
@@ -112,11 +107,7 @@ impl Enum {
         cvar: C,
         items: E,
     ) -> Enum {
-        Enum {
-            selected: init,
-            items: items.into_iter().collect(),
-            cvar: cvar.into(),
-        }
+        Enum { selected: init, items: items.into_iter().collect(), cvar: cvar.into() }
     }
 
     pub fn selected_name(&self) -> &str {
@@ -168,12 +159,8 @@ impl EnumItem {
     pub fn new<N, V>(name: N, value: V) -> Result<EnumItem, Error>
     where
         N: Into<CName>,
-        V: AsRef<str>,
-    {
-        Ok(EnumItem {
-            name: name.into(),
-            value: Value::from_str(value.as_ref())?,
-        })
+        V: AsRef<str>, {
+        Ok(EnumItem { name: name.into(), value: Value::from_str(value.as_ref())? })
     }
 }
 
@@ -264,18 +251,12 @@ impl TextField {
     pub fn new<D, S>(default: Option<D>, max_len: Option<usize>, cvar: S) -> TextField
     where
         D: Into<String>,
-        S: Into<CName>,
-    {
+        S: Into<CName>, {
         let chars = default.map(|s| s.into()).unwrap_or_default();
         let cvar = cvar.into();
         let cursor = chars.len();
 
-        TextField {
-            chars,
-            max_len,
-            cvar,
-            cursor,
-        }
+        TextField { chars, max_len, cvar, cursor }
     }
 
     pub fn is_empty(&self) -> bool {

@@ -327,13 +327,7 @@ impl Lights {
     pub fn update(&mut self, time: Duration) {
         let lights = mem::take(&mut self.lights)
             .into_iter()
-            .filter_map(|mut light| {
-                if light.retain(time) {
-                    Some(light)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|mut light| if light.retain(time) { Some(light) } else { None })
             .collect();
         self.lights = lights;
     }

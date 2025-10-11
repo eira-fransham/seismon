@@ -33,21 +33,9 @@ pub fn register_cvars(app: &mut App) {
         Cvar::new("200").archive(),
         "the base speed you move when pressing +back",
     );
-    app.cvar(
-        "cl_bob",
-        "0.02",
-        "Controls how much your weapon and view bobs moves when you walk",
-    );
-    app.cvar(
-        "cl_bobcycle",
-        "0.6",
-        "the frequency at which the viewmodel bobs",
-    );
-    app.cvar(
-        "cl_bobup",
-        "0.5",
-        "adjusts how much your viewmodel & weapon bobs up when running",
-    );
+    app.cvar("cl_bob", "0.02", "Controls how much your weapon and view bobs moves when you walk");
+    app.cvar("cl_bobcycle", "0.6", "the frequency at which the viewmodel bobs");
+    app.cvar("cl_bobup", "0.5", "adjusts how much your viewmodel & weapon bobs up when running");
     app.cvar(
         "_cl_color",
         Cvar::new("0").archive(),
@@ -60,21 +48,13 @@ pub fn register_cvars(app: &mut App) {
         Cvar::new("400").archive(),
         "the base speed you move when pressing +forward",
     );
-    app.cvar(
-        "cl_movespeedkey",
-        "2.0",
-        "the speed multiplier when pressing the run key",
-    );
+    app.cvar("cl_movespeedkey", "2.0", "the speed multiplier when pressing the run key");
     app.cvar(
         "_cl_name",
         Cvar::new("player").archive(),
         "the player's name - use the name command instead",
     );
-    app.cvar(
-        "cl_nolerp",
-        "0",
-        "disables/enables location/angle interpolation",
-    );
+    app.cvar("cl_nolerp", "0", "disables/enables location/angle interpolation");
     app.cvar(
         "cl_pitchspeed",
         "150",
@@ -85,22 +65,10 @@ pub fn register_cvars(app: &mut App) {
         "2.0",
         "the angle that the camera tilts to when the player moves to a side",
     );
-    app.cvar(
-        "cl_rollspeed",
-        "200",
-        "the speed threshold at which the camera starts to tilt",
-    );
+    app.cvar("cl_rollspeed", "200", "the speed threshold at which the camera starts to tilt");
     app.cvar("cl_drawhud", "1", "whether to draw the HUD");
-    app.cvar(
-        "cl_shownet",
-        "0",
-        "toggle the display of current net status",
-    );
-    app.cvar(
-        "cl_sidespeed",
-        "350",
-        "the base speed you move when pressing +left and +right",
-    );
+    app.cvar("cl_shownet", "0", "toggle the display of current net status");
+    app.cvar("cl_sidespeed", "350", "the base speed you move when pressing +left and +right");
     app.cvar(
         "viewsize",
         "100",
@@ -109,28 +77,16 @@ pub fn register_cvars(app: &mut App) {
             "hide the hud"
         ),
     );
-    app.cvar(
-        "cl_upspeed",
-        "200",
-        "the base speed you move when pressing +moveup and +movedown",
-    );
+    app.cvar("cl_upspeed", "200", "the base speed you move when pressing +moveup and +movedown");
     // TODO: How is this different from `cl_anglespeedkey`?
-    app.cvar(
-        "cl_yawspeed",
-        "140",
-        "sets the speed that the direction keys change the view angle",
-    );
+    app.cvar("cl_yawspeed", "140", "sets the speed that the direction keys change the view angle");
     app.cvar(
         "cl_hud",
         "3",
         "0: no hud, 1: transparent hud, 2: standard hud, 3: standard hud with ammo",
     )
     .alias("hudstyle", "cl_hud");
-    app.cvar(
-        "fov",
-        "90",
-        "sets the camera's field of view angle (in degrees)",
-    );
+    app.cvar("fov", "90", "sets the camera's field of view angle (in degrees)");
     // TODO: What is the difference between this and `cl_skipCrosshair`?
     app.cvar("crosshair", "1", "whether to draw the crosshair");
     app.cvar(
@@ -143,16 +99,8 @@ pub fn register_cvars(app: &mut App) {
         Cvar::new("0.022").archive(),
         "sets the mouse horizontal sensitivity multiplier",
     );
-    app.cvar(
-        "sensitivity",
-        Cvar::new("3").archive(),
-        "sets the mouse sensitivity",
-    );
-    app.cvar(
-        "v_idlescale",
-        "0",
-        "Toggles whether the the view remains idle",
-    );
+    app.cvar("sensitivity", Cvar::new("3").archive(), "sets the mouse sensitivity");
+    app.cvar("v_idlescale", "0", "Toggles whether the the view remains idle");
     app.cvar("v_ipitch_cycle", "1", "");
     app.cvar("v_ipitch_level", "0.3", "");
     app.cvar("v_iroll_cycle", "0.5", "");
@@ -174,10 +122,6 @@ pub fn register_cvars(app: &mut App) {
         "0.5",
         "sets the duration that the pitch and roll are adjusted when player takes damage",
     );
-    app.cvar(
-        "scr_centertime",
-        "2",
-        "sets the duration that center text remains on the screen",
-    );
+    app.cvar("scr_centertime", "2", "sets the duration that center text remains on the screen");
     app.cvar("sv_gravity", "800", "sets the server's gravity");
 }

@@ -36,9 +36,7 @@ pub trait Program: Sized {
 }
 
 pub struct Host<P>
-where
-    P: Program,
-{
+where P: Program {
     program: P,
 
     init_time: DateTime<Utc>,
@@ -56,17 +54,12 @@ pub mod cvars {
     use crate::common::console::{Cvar, RegisterCmdExt as _};
 
     pub fn register_cvars(app: &mut App) {
-        app.cvar(
-            "host_maxfps",
-            Cvar::new("72"),
-            "sets the maximum desired frames per second",
-        );
+        app.cvar("host_maxfps", Cvar::new("72"), "sets the maximum desired frames per second");
     }
 }
 
 impl<P> Host<P>
-where
-    P: Program,
+where P: Program
 {
     pub fn handle_event<T>(
         &mut self,
@@ -75,10 +68,7 @@ where
         control_flow: &mut ControlFlow,
     ) -> Control {
         match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => Control::Exit,
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => Control::Exit,
 
             Event::AboutToWait => {
                 // self.frame();

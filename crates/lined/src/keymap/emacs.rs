@@ -82,9 +82,7 @@ impl Emacs {
         let history_index = match self.last_arg_fetch_index {
             Some(0) => return Ok(()),
             Some(x) => x - 1,
-            None => ed
-                .current_history_location()
-                .unwrap_or(ed.context().history().len() - 1),
+            None => ed.current_history_location().unwrap_or(ed.context().history().len() - 1),
         };
 
         // If did a last arg fetch just before this, we need to delete it so it can be replaced by

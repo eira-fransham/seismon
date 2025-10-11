@@ -49,13 +49,8 @@ impl<A0, S0> Model<A0, S0> {
     pub fn cast<A1, S1>(self) -> Model<A1, S1>
     where
         A0: Into<A1>,
-        S0: Into<S1>,
-    {
-        Model {
-            name: self.name,
-            flags: self.flags,
-            kind: self.kind.cast(),
-        }
+        S0: Into<S1>, {
+        Model { name: self.name, flags: self.flags, kind: self.kind.cast() }
     }
 }
 
@@ -73,8 +68,7 @@ impl<A0, S0> ModelKind<A0, S0> {
     pub fn cast<A1, S1>(self) -> ModelKind<A1, S1>
     where
         A0: Into<A1>,
-        S0: Into<S1>,
-    {
+        S0: Into<S1>, {
         match self {
             ModelKind::None => ModelKind::None,
             ModelKind::Brush(model) => ModelKind::Brush(model),
@@ -94,34 +88,20 @@ impl Default for &'_ ModelKind {
 
 impl Model {
     pub fn none<Str>(path: Str) -> Model
-    where
-        Str: Into<String>,
-    {
-        Model {
-            name: path.into(),
-            kind: ModelKind::None,
-            flags: ModelFlags::empty(),
-        }
+    where Str: Into<String> {
+        Model { name: path.into(), kind: ModelKind::None, flags: ModelFlags::empty() }
     }
 
     pub fn load<Str>(vfs: &Vfs, name: Str) -> Result<Model, ModelError>
-    where
-        Str: AsRef<str>,
-    {
+    where Str: AsRef<str> {
         let name = name.as_ref().trim();
         // TODO: original engine uses the magic numbers of each format instead of the extension.
         if name.ends_with(".bsp") {
             panic!("BSP files may contain multiple models, use bsp::load for this");
         } else if name.ends_with(".mdl") {
-            Ok(Self::from_alias_model(
-                name,
-                bevy_mod_mdl::load(vfs.open(name)?).into_result()?,
-            ))
+            Ok(Self::from_alias_model(name, bevy_mod_mdl::load(vfs.open(name)?).into_result()?))
         } else if name.ends_with(".spr") {
-            Ok(Model::from_sprite_model(
-                name,
-                sprite::load(vfs.open(name)?),
-            ))
+            Ok(Model::from_sprite_model(name, sprite::load(vfs.open(name)?)))
         } else {
             panic!("Unrecognized model type: {name}");
         }
@@ -129,9 +109,7 @@ impl Model {
 
     /// Construct a new generic model from a brush model.
     pub fn from_brush_model<Str>(name: Str, brush_model: BspModel) -> Model
-    where
-        Str: AsRef<str>,
-    {
+    where Str: AsRef<str> {
         Model {
             name: name.as_ref().into(),
             kind: ModelKind::Brush(brush_model),
@@ -141,23 +119,15 @@ impl Model {
 
     /// Construct a new generic model from an alias model.
     pub fn from_alias_model<Str>(name: Str, alias_model: AliasModel) -> Model
-    where
-        Str: AsRef<str>,
-    {
+    where Str: AsRef<str> {
         let flags = alias_model.flags();
 
-        Model {
-            name: name.as_ref().into(),
-            kind: ModelKind::Alias(alias_model),
-            flags,
-        }
+        Model { name: name.as_ref().into(), kind: ModelKind::Alias(alias_model), flags }
     }
 
     /// Construct a new generic model from a sprite model.
     pub fn from_sprite_model<Str>(name: Str, sprite_model: SpriteModel) -> Model
-    where
-        Str: AsRef<str>,
-    {
+    where Str: AsRef<str> {
         Model {
             name: name.as_ref().into(),
             kind: ModelKind::Sprite(sprite_model),

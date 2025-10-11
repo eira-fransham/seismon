@@ -11,11 +11,7 @@ use super::*;
 pub fn register_commands<A: RegisterCmdExt>(app: &mut A) {
     // TODO: Implement `changelevel` (move to new level without resetting persistant state
     app.command(cmd_map.map(|res| -> ExecResult {
-        if let Err(e) = res {
-            format!("{e}").into()
-        } else {
-            default()
-        }
+        if let Err(e) = res { format!("{e}").into() } else { default() }
     }))
     .command(cmd_tickrate);
 }
@@ -54,7 +50,8 @@ fn cmd_map(
     let path = PathBuf::from("maps").join(map_name);
 
     let bsp_name = format!("{}", path.display());
-    // TODO: Use `bevy_trenchbroom` for this too (may require ugly hacks or a small fork of `bevy_trenchbroom`)
+    // TODO: Use `bevy_trenchbroom` for this too (may require ugly hacks or a small fork of
+    // `bevy_trenchbroom`)
     let bsp = vfs.open(&bsp_name)?;
     let (models, entmap) = crate::common::bsp::load(bsp)?;
 
@@ -64,15 +61,7 @@ fn cmd_map(
     let progs = crate::server::progs::load(progs)?;
 
     // TODO: Make `max_clients` a cvar
-    let new_session = Session::new(
-        bsp_name,
-        8,
-        registry.reborrow(),
-        &vfs,
-        progs,
-        models,
-        entmap,
-    );
+    let new_session = Session::new(bsp_name, 8, registry.reborrow(), &vfs, progs, models, entmap);
 
     if let Some(mut session) = session {
         *session = new_session;

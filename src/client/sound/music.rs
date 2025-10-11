@@ -74,7 +74,8 @@ impl MusicPlayer {
         let pathbuf;
         // TODO: there's probably a better way to do this extension check
         let file: Cow<str> = if path.extension().is_none() {
-            // TODO: Have some way to do globbing in `bevy_mod_pakfile` so we can try a few different filenames.
+            // TODO: Have some way to do globbing in `bevy_mod_pakfile` so we can try a few
+            // different filenames.
             pathbuf = path.with_extension("mp3");
             pathbuf.to_string_lossy().into()
         } else {
@@ -114,10 +115,8 @@ impl MusicPlayer {
     ///
     /// If no music track is currently playing, this has no effect.
     pub fn stop(&self, commands: &mut Commands) {
-        if let Some(mut entity) = self
-            .playing
-            .as_ref()
-            .and_then(|(_, e)| commands.get_entity(*e).ok())
+        if let Some(mut entity) =
+            self.playing.as_ref().and_then(|(_, e)| commands.get_entity(*e).ok())
         {
             entity.despawn();
         }
@@ -128,11 +127,7 @@ impl MusicPlayer {
     /// If no music track is currently playing, or if the current track is
     /// already paused, this has no effect.
     pub fn pause(&self, query: &mut Query<&mut SamplerNode>) {
-        if let Some(mut sink) = self
-            .playing
-            .as_ref()
-            .and_then(|(_, e)| query.get_mut(*e).ok())
-        {
+        if let Some(mut sink) = self.playing.as_ref().and_then(|(_, e)| query.get_mut(*e).ok()) {
             sink.pause();
         }
     }
@@ -142,11 +137,7 @@ impl MusicPlayer {
     /// If no music track is currently playing, or if the current track is not
     /// paused, this has no effect.
     pub fn resume(&self, query: &mut Query<&mut SamplerNode>) {
-        if let Some(mut sink) = self
-            .playing
-            .as_ref()
-            .and_then(|(_, e)| query.get_mut(*e).ok())
-        {
+        if let Some(mut sink) = self.playing.as_ref().and_then(|(_, e)| query.get_mut(*e).ok()) {
             sink.resume(None);
         }
     }

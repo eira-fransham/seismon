@@ -40,12 +40,7 @@ impl Statement {
             None => return Err(ProgsError::with_msg(format!("Bad opcode 0x{op:x}"))),
         };
 
-        Ok(Statement {
-            opcode,
-            arg1,
-            arg2,
-            arg3,
-        })
+        Ok(Statement { opcode, arg1, arg2, arg3 })
     }
 }
 
@@ -196,10 +191,7 @@ impl Functions {
 
     pub fn get_def(&self, id: FunctionId) -> Result<&FunctionDef, ProgsError> {
         if id.0 >= self.defs.len() {
-            Err(ProgsError::with_msg(format!(
-                "No function with ID {}",
-                id.0
-            )))
+            Err(ProgsError::with_msg(format!("No function with ID {}", id.0)))
         } else {
             Ok(&self.defs[id.0])
         }
@@ -222,9 +214,6 @@ impl Functions {
             }
         }
 
-        Err(ProgsError::with_msg(format!(
-            "No function named {}",
-            name.as_ref()
-        )))
+        Err(ProgsError::with_msg(format!("No function named {}", name.as_ref())))
     }
 }

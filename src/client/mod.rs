@@ -108,19 +108,13 @@ fn build_default(builder: MenuBuilder) -> Result<Menu, failure::Error> {
     Ok(builder.build(MenuView {
         draw_plaque: true,
         title_path: "gfx/ttl_main.lmp".into(),
-        body: MenuBodyView::Predefined {
-            path: "gfx/mainmenu.lmp".into(),
-        },
+        body: MenuBodyView::Predefined { path: "gfx/mainmenu.lmp".into() },
     }))
 }
 
 impl SeismonClientPlugin {
     pub fn new() -> Self {
-        Self {
-            base_dir: None,
-            game: None,
-            main_menu: Box::new(build_default),
-        }
+        Self { base_dir: None, game: None, main_menu: Box::new(build_default) }
     }
 }
 
@@ -131,8 +125,7 @@ pub struct SeismonGameSettings {
 }
 
 impl<F> Plugin for SeismonClientPlugin<F>
-where
-    F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static,
+where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static
 {
     fn build(&self, app: &mut bevy::prelude::App) {
         if let Ok(menu) = (self.main_menu)(MenuBuilder::new(app.world_mut())) {
@@ -141,10 +134,7 @@ where
 
         let app = app
             .insert_resource(SeismonGameSettings {
-                base_dir: self
-                    .base_dir
-                    .clone()
-                    .unwrap_or_else(common::default_base_dir),
+                base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
             })
             .init_resource::<Vfs>()
@@ -362,11 +352,7 @@ impl ServerUpdate<'_> {
 
 impl Default for ServerUpdate<'_> {
     fn default() -> Self {
-        Self {
-            message: (&[][..]).into(),
-            angles: None,
-            track_override: None,
-        }
+        Self { message: (&[][..]).into(), angles: None, track_override: None }
     }
 }
 
@@ -385,10 +371,7 @@ impl ConnectionTarget {
                     }
                 }
 
-                Ok(Some(ServerUpdate {
-                    message: out.into(),
-                    ..default()
-                }))
+                Ok(Some(ServerUpdate { message: out.into(), ..default() }))
             }
             Self::Demo(demo_srv) => {
                 let track_override = demo_srv.track_override();
@@ -456,13 +439,7 @@ impl Connection {
 
 impl Connection {
     pub fn is_connected(&self) -> bool {
-        !matches!(
-            self.target,
-            ConnectionTarget::Server {
-                stage: ConnectionStage::SignOn(_),
-                ..
-            }
-        )
+        !matches!(self.target, ConnectionTarget::Server { stage: ConnectionStage::SignOn(_), .. })
     }
 
     fn handle_signon(
@@ -473,11 +450,8 @@ impl Connection {
     ) -> Result<(), ClientError> {
         use SignOnStage as S;
 
-        let ConnectionTarget::Server {
-            compose,
-            stage: stage @ ConnectionStage::SignOn(_),
-            ..
-        } = &mut self.target
+        let ConnectionTarget::Server { compose, stage: stage @ ConnectionStage::SignOn(_), .. } =
+            &mut self.target
         else {
             return Ok(());
         };
@@ -485,17 +459,12 @@ impl Connection {
         match new_stage {
             S::Not => (), // TODO this is an error (invalid value)
             S::Prespawn => {
-                ClientCmd::StringCmd {
-                    cmd: "prespawn".into(),
-                }
-                .serialize(compose)?;
+                ClientCmd::StringCmd { cmd: "prespawn".into() }.serialize(compose)?;
             }
             S::ClientInfo => {
                 // TODO: fill in client info here
-                ClientCmd::StringCmd {
-                    cmd: format!("name \"{}\"\n", &client_vars.name).into(),
-                }
-                .serialize(compose)?;
+                ClientCmd::StringCmd { cmd: format!("name \"{}\"\n", &client_vars.name).into() }
+                    .serialize(compose)?;
                 ClientCmd::StringCmd {
                     cmd: format!(
                         "color {} {}",
@@ -512,10 +481,7 @@ impl Connection {
                 .serialize(compose)?;
             }
             S::Begin => {
-                ClientCmd::StringCmd {
-                    cmd: "begin".into(),
-                }
-                .serialize(compose)?;
+                ClientCmd::StringCmd { cmd: "begin".into() }.serialize(compose)?;
             }
             S::Done => {
                 debug!("SignOn complete");
@@ -559,10 +525,7 @@ impl Default for DemoQueue {
 impl DemoQueue {
     pub fn new(inner: Vec<String>) -> Self {
         let range = (0..inner.len()).cycle().peekable();
-        Self {
-            values: inner,
-            indices: range,
-        }
+        Self { values: inner, indices: range }
     }
 
     pub fn next_demo(&mut self) -> Option<&str> {
@@ -579,9 +542,7 @@ impl DemoQueue {
 }
 
 fn connect<A>(server_addrs: A) -> Result<(QSocket, ConnectionStage), ClientError>
-where
-    A: ToSocketAddrs,
-{
+where A: ToSocketAddrs {
     let mut con_sock = ConnectSocket::bind("0.0.0.0:0")?;
     let server_addr = match server_addrs.to_socket_addrs() {
         Ok(ref mut a) => a.next().ok_or(ClientError::InvalidServerAddress),
@@ -591,11 +552,7 @@ where
     let mut response = None;
 
     for attempt in 0..MAX_CONNECT_ATTEMPTS {
-        println!(
-            "Connecting...(attempt {} of {})",
-            attempt + 1,
-            MAX_CONNECT_ATTEMPTS
-        );
+        println!("Connecting...(attempt {} of {})", attempt + 1, MAX_CONNECT_ATTEMPTS);
         con_sock.send_request(
             Request::connect(net::GAME_NAME, CONNECT_PROTOCOL_VERSION),
             server_addr,
@@ -638,9 +595,9 @@ where
         }
 
         // our request was rejected.
-        Response::Reject(reject) => Err(ClientError::ConnectionRejected(
-            reject.message.into_string(),
-        ))?,
+        Response::Reject(reject) => {
+            Err(ClientError::ConnectionRejected(reject.message.into_string()))?
+        }
 
         // the server sent back a response that doesn't make sense here (i.e. something other
         // than an Accept or Reject).
@@ -765,11 +722,7 @@ mod systems {
 
         let Connection {
             client_state: state,
-            target:
-                ConnectionTarget::Server {
-                    stage: ConnectionStage::Connected,
-                    ..
-                },
+            target: ConnectionTarget::Server { stage: ConnectionStage::Connected, .. },
             ..
         } = &mut *conn
         else {
@@ -822,25 +775,21 @@ mod systems {
     ) -> Result<(), NetError> {
         let blocking_mode = match &state.target {
             // if we're in the game, don't block waiting for messages
-            ConnectionTarget::Server {
-                stage: ConnectionStage::Connected,
-                ..
-            } => BlockingMode::NonBlocking,
+            ConnectionTarget::Server { stage: ConnectionStage::Connected, .. } => {
+                BlockingMode::NonBlocking
+            }
 
             // otherwise, give the server some time to respond
             // TODO: might make sense to make this a future or something
-            ConnectionTarget::Server {
-                stage: ConnectionStage::SignOn(_),
-                ..
-            } => BlockingMode::Timeout(Duration::try_seconds(5).unwrap()),
+            ConnectionTarget::Server { stage: ConnectionStage::SignOn(_), .. } => {
+                BlockingMode::Timeout(Duration::try_seconds(5).unwrap())
+            }
 
             _ => return Ok(()),
         };
 
-        server_events.write(ServerMessage {
-            client_id: 0,
-            packet: qsock.recv_msg(blocking_mode)?.into(),
-        });
+        server_events
+            .write(ServerMessage { client_id: 0, packet: qsock.recv_msg(blocking_mode)?.into() });
 
         for event in client_events.read() {
             match event.kind {
@@ -898,18 +847,11 @@ mod systems {
             }
 
             let Some(server_update) = conn.target.recv(server_events)? else {
-                return if conn.target.is_demo() {
-                    Ok(S::NextDemo)
-                } else {
-                    Ok(S::Maintain)
-                };
+                return if conn.target.is_demo() { Ok(S::NextDemo) } else { Ok(S::Maintain) };
             };
 
-            let ServerUpdate {
-                message,
-                angles: demo_view_angles,
-                track_override,
-            } = server_update.into_owned();
+            let ServerUpdate { message, angles: demo_view_angles, track_override } =
+                server_update.into_owned();
 
             // no data available at this time
             if message.is_empty() {
@@ -955,10 +897,8 @@ mod systems {
                         console_output.println_alert(message.raw, &time);
                         console_output.println_alert(CONSOLE_DIVIDER, &time);
 
-                        let _server_info = ServerInfo {
-                            _max_clients: max_clients,
-                            _game_type: game_type,
-                        };
+                        let _server_info =
+                            ServerInfo { _max_clients: max_clients, _game_type: game_type };
                     }
 
                     ServerCmd::Bad => {
@@ -989,13 +929,9 @@ mod systems {
                         warn!("TODO: cutscene")
                     }
 
-                    ServerCmd::Damage {
-                        armor,
-                        blood,
-                        source,
-                    } => conn
-                        .client_state
-                        .handle_damage(armor, blood, source, kick_vars),
+                    ServerCmd::Damage { armor, blood, source } => {
+                        conn.client_state.handle_damage(armor, blood, source, kick_vars)
+                    }
 
                     ServerCmd::Disconnect => {
                         return Ok(match &conn.target {
@@ -1008,13 +944,12 @@ mod systems {
                         // first update signals the last sign-on stage
                         conn.handle_signon(SignOnStage::Done, commands.reborrow(), &client_vars)?;
 
-                        conn.client_state
-                            .update_entity(commands.reborrow(), &ent_update)?;
+                        conn.client_state.update_entity(commands.reborrow(), &ent_update)?;
 
                         // patch view angles in demos
                         // if let Some(angles) = demo_view_angles
-                        //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as usize)
-                        // {
+                        //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as
+                        // usize) {
                         //     conn.client_state.update_view_angles(angles);
                         // }
                     }
@@ -1107,9 +1042,7 @@ mod systems {
                             ))
                             .id();
 
-                        conn.client_state
-                            .server_entity_to_client_entity
-                            .insert(ent_id, entity);
+                        conn.client_state.server_entity_to_client_entity.insert(ent_id, entity);
                     }
 
                     ServerCmd::SpawnStatic {
@@ -1129,12 +1062,7 @@ mod systems {
                         ));
                     }
 
-                    ServerCmd::SpawnStaticSound {
-                        origin,
-                        sound_id,
-                        volume,
-                        attenuation,
-                    } => {
+                    ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
                         if let Some(sound) = conn.client_state.sounds.get(sound_id as usize) {
                             mixer_events.write(MixerEvent::StartStaticSound(StartStaticSound {
                                 src: sound.clone(),
@@ -1160,10 +1088,7 @@ mod systems {
                         conn.last_msg_time = Time::from_seconds(time as f64).as_generic();
                     }
 
-                    ServerCmd::UpdateColors {
-                        player_id,
-                        new_colors,
-                    } => {
+                    ServerCmd::UpdateColors { player_id, new_colors } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1185,10 +1110,7 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::UpdateFrags {
-                        player_id,
-                        new_frags,
-                    } => {
+                    ServerCmd::UpdateFrags { player_id, new_frags } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1209,10 +1131,7 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::UpdateName {
-                        player_id,
-                        new_name,
-                    } => {
+                    ServerCmd::UpdateName { player_id, new_name } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1280,10 +1199,8 @@ mod systems {
             if let ConnectionTarget::Server { compose, .. } = &mut conn.target {
                 // respond to the server
                 if !compose.is_empty() {
-                    to_server.write(ClientMessage {
-                        packet: compose.drain(..).collect(),
-                        ..default()
-                    });
+                    to_server
+                        .write(ClientMessage { packet: compose.drain(..).collect(), ..default() });
                 }
             }
 
@@ -1330,7 +1247,8 @@ mod systems {
                 NextDemo => loop {
                     match demo_queue.next_demo() {
                         Some(demo) => {
-                            // TODO: Extract this to a separate function so we don't duplicate the logic to find the demos in different places
+                            // TODO: Extract this to a separate function so we don't duplicate the
+                            // logic to find the demos in different places
                             let mut demo_file = match vfs
                                 .open(format!("{demo}.dem"))
                                 .or_else(|_| vfs.open(format!("demos/{demo}.dem")))

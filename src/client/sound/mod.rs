@@ -148,12 +148,7 @@ impl Plugin for SeismonSoundPlugin {
         let mut commands = app.world_mut().commands();
 
         commands
-            .spawn((
-                VolumeNode {
-                    volume: Volume::Decibels(-40.),
-                },
-                ReverbBus,
-            ))
+            .spawn((VolumeNode { volume: Volume::Decibels(-40.) }, ReverbBus))
             .chain_node(FreeverbNode::default())
             .connect(MasterOut);
 
@@ -178,11 +173,7 @@ impl Plugin for SeismonSoundPlugin {
             .add_event::<MixerEvent>()
             .add_systems(
                 Main,
-                (
-                    systems::update_entities,
-                    systems::update_mixer,
-                    systems::update_listener,
-                ),
+                (systems::update_entities, systems::update_mixer, systems::update_listener),
             );
     }
 }
@@ -266,15 +257,8 @@ mod systems {
     ) {
         for event in events.read() {
             match *event {
-                MixerEvent::StartSound(StartSound {
-                    ent_id,
-                    ent_channel,
-                    ..
-                })
-                | MixerEvent::StopSound(StopSound {
-                    ent_id,
-                    ent_channel,
-                }) => {
+                MixerEvent::StartSound(StartSound { ent_id, ent_channel, .. })
+                | MixerEvent::StopSound(StopSound { ent_id, ent_channel }) => {
                     for (e, chan, e_chan) in channels.iter() {
                         if chan.channel == ent_channel
                             && e_chan.map(|e| e.id) == ent_id
@@ -289,16 +273,11 @@ mod systems {
 
             match event {
                 MixerEvent::StartSound(start) => {
-                    let attenuation = if start.attenuation.is_finite() {
-                        start.attenuation
-                    } else {
-                        1.
-                    };
+                    let attenuation =
+                        if start.attenuation.is_finite() { start.attenuation } else { 1. };
                     let mut new_sound = commands.spawn((
                         Sound,
-                        Channel {
-                            channel: start.ent_channel,
-                        },
+                        Channel { channel: start.ent_channel },
                         SamplePlayer::new(start.src.clone()),
                         Transform::from_translation(start.origin.into()),
                         sample_effects![
@@ -333,7 +312,8 @@ mod systems {
                         sample_effects![
                             (
                                 SpatialBasicNode {
-                                    // TODO: Fudge factor - ambient sounds are REALLY loud for some reason
+                                    // TODO: Fudge factor - ambient sounds are REALLY loud for some
+                                    // reason
                                     volume: Volume::Linear(
                                         static_sound.volume
                                             * (1. - static_sound.attenuation).max(0.5)

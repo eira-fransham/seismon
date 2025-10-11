@@ -160,23 +160,14 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
     move |mut commands, mut input: ResMut<ConsoleInput>, mut console_cmds| {
         let camera_bundle = (
             Camera3d::default(),
-            Camera {
-                hdr: true,
-                ..default()
-            },
+            Camera { hdr: true, ..default() },
             TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
             Exposure::INDOOR,
             // In addition to the in-camera exposure, we add a post exposure grading
             // in order to adjust the brightness on the UI elements.
-            ColorGrading {
-                global: ColorGradingGlobal {
-                    exposure: 2.,
-                    ..default()
-                },
-                ..default()
-            },
+            ColorGrading { global: ColorGradingGlobal { exposure: 2., ..default() }, ..default() },
             Msaa::Off,
             Bloom::default(),
             DepthPrepass,
@@ -246,14 +237,11 @@ fn main() -> ExitCode {
         .set(ImagePlugin::default_nearest());
 
     #[cfg(feature = "capture")]
-    let default_plugins = default_plugins.set(RenderPlugin {
-        synchronous_pipeline_compilation: true,
-        ..default()
-    });
+    let default_plugins =
+        default_plugins.set(RenderPlugin { synchronous_pipeline_compilation: true, ..default() });
 
-    let default_plugins = default_plugins
-        .disable::<AudioPlugin>()
-        .add(bevy_seedling::SeedlingPlugin::default());
+    let default_plugins =
+        default_plugins.disable::<AudioPlugin>().add(bevy_seedling::SeedlingPlugin::default());
 
     app
         .add_plugins(default_plugins)
@@ -318,35 +306,31 @@ fn main() -> ExitCode {
         #[command(name = "stopcapture", about = "Stops the current capture.")]
         struct StopCapture {}
 
-        app.command(
-            |In(StartCapture { file }), mut capture: Query<&mut Capture>| {
-                let mut capture = capture.single_mut().unwrap();
-                let mut filename = Path::new(&file);
-                let filename = if filename.extension().is_none() {
-                    filename.with_extension("mp4")
-                } else {
-                    filename.to_owned()
-                };
+        app.command(|In(StartCapture { file }), mut capture: Query<&mut Capture>| {
+            let mut capture = capture.single_mut().unwrap();
+            let mut filename = Path::new(&file);
+            let filename = if filename.extension().is_none() {
+                filename.with_extension("mp4")
+            } else {
+                filename.to_owned()
+            };
 
-                if !capture.is_capturing() {
-                    match filename.extension().and_then(OsStr::to_str) {
-                        Some("mp4") => capture.start(
-                            Mp4Openh264Encoder::new(File::create(filename).unwrap(), 1366, 768)
-                                .unwrap(),
-                        ),
-                        Some("gif") => {
-                            capture.start(GifEncoder::new(File::create(filename).unwrap()))
-                        }
-                        Some(other) => {
-                            return format!("Unsupported file extension {other}",).into();
-                        }
-                        None => unreachable!(),
+            if !capture.is_capturing() {
+                match filename.extension().and_then(OsStr::to_str) {
+                    Some("mp4") => capture.start(
+                        Mp4Openh264Encoder::new(File::create(filename).unwrap(), 1366, 768)
+                            .unwrap(),
+                    ),
+                    Some("gif") => capture.start(GifEncoder::new(File::create(filename).unwrap())),
+                    Some(other) => {
+                        return format!("Unsupported file extension {other}",).into();
                     }
+                    None => unreachable!(),
                 }
+            }
 
-                default()
-            },
-        )
+            default()
+        })
         .command(|In(StopCapture {}), mut capture: Query<&mut Capture>| {
             let mut capture = capture.single_mut().unwrap();
             if capture.is_capturing() {

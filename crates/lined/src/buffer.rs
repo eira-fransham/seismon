@@ -36,14 +36,12 @@ pub enum Action<'a> {
 impl Action<'_> {
     fn into_owned(self) -> Action<'static> {
         match self {
-            Action::Insert { start, text } => Action::Insert {
-                start,
-                text: text.into_owned().into(),
-            },
-            Action::Remove { start, text } => Action::Remove {
-                start,
-                text: text.into_owned().into(),
-            },
+            Action::Insert { start, text } => {
+                Action::Insert { start, text: text.into_owned().into() }
+            }
+            Action::Remove { start, text } => {
+                Action::Remove { start, text: text.into_owned().into() }
+            }
 
             Action::StartUndoGroup => Action::StartUndoGroup,
             Action::EndUndoGroup => Action::EndUndoGroup,
@@ -52,14 +50,12 @@ impl Action<'_> {
 
     fn invert(&self) -> Action<'_> {
         match self {
-            Action::Insert { start, text } => Action::Remove {
-                start: *start,
-                text: text.as_ref().into(),
-            },
-            Action::Remove { start, text } => Action::Insert {
-                start: *start,
-                text: text.as_ref().into(),
-            },
+            Action::Insert { start, text } => {
+                Action::Remove { start: *start, text: text.as_ref().into() }
+            }
+            Action::Remove { start, text } => {
+                Action::Insert { start: *start, text: text.as_ref().into() }
+            }
 
             Action::StartUndoGroup => Action::EndUndoGroup,
             Action::EndUndoGroup => Action::StartUndoGroup,
@@ -84,8 +80,9 @@ impl Action<'_> {
 
 /// A buffer for text in the line editor.
 ///
-/// It keeps track of each action performed on it for use with undo/redo. Unless otherwise mentioned,
-/// all methods that manipulate the inner characters can be undone or redone using `undo`/`redo`.
+/// It keeps track of each action performed on it for use with undo/redo. Unless otherwise
+/// mentioned, all methods that manipulate the inner characters can be undone or redone using
+/// `undo`/`redo`.
 #[derive(Clone, Debug)]
 pub struct Buffer {
     data: Vec<char>,
@@ -134,10 +131,7 @@ impl fmt::Display for Buffer {
 
 impl FromIterator<char> for Buffer {
     fn from_iter<T: IntoIterator<Item = char>>(t: T) -> Self {
-        Buffer {
-            data: t.into_iter().collect(),
-            actions: Default::default(),
-        }
+        Buffer { data: t.into_iter().collect(), actions: Default::default() }
     }
 }
 
@@ -155,10 +149,7 @@ struct Actions<T> {
 
 impl<T> Default for Actions<T> {
     fn default() -> Self {
-        Self {
-            position: 0,
-            inner: vec![],
-        }
+        Self { position: 0, inner: vec![] }
     }
 }
 
@@ -203,10 +194,7 @@ impl<T> Actions<T> {
         }
 
         let original_pos = self.position;
-        ActionsUndoIter {
-            position: &mut self.position,
-            iter: self.inner[..original_pos].iter(),
-        }
+        ActionsUndoIter { position: &mut self.position, iter: self.inner[..original_pos].iter() }
     }
 
     fn redo_iter(&mut self) -> impl Iterator<Item = &T> {
@@ -243,10 +231,7 @@ impl<T> Actions<T> {
 impl Buffer {
     /// Create a new empty [`Buffer`].
     pub fn new() -> Self {
-        Buffer {
-            data: Vec::new(),
-            actions: Default::default(),
-        }
+        Buffer { data: Vec::new(), actions: Default::default() }
     }
 
     #[cfg(test)]
@@ -342,10 +327,7 @@ impl Buffer {
 
     /// The final WORD - split by spaces.
     pub fn last_arg(&self) -> Option<&[char]> {
-        self.data
-            .split(|&c| c == ' ')
-            .filter(|s| !s.is_empty())
-            .next_back()
+        self.data.split(|&c| c == ' ').filter(|s| !s.is_empty()).next_back()
     }
 
     /// The number of characters currently in the buffer.
@@ -360,11 +342,7 @@ impl Buffer {
 
     /// The character immediately before `cursor`.
     pub fn char_before(&self, cursor: usize) -> Option<char> {
-        if cursor == 0 {
-            None
-        } else {
-            self.data.get(cursor - 1).cloned()
-        }
+        if cursor == 0 { None } else { self.data.get(cursor - 1).cloned() }
     }
 
     /// The character directly at `cursor`.
@@ -376,20 +354,14 @@ impl Buffer {
     pub fn remove(&mut self, start: usize, end: usize) -> usize {
         let s = self.data.drain(start..end).collect::<Vec<_>>();
         let num_removed = s.len();
-        self.push_action(Action::Remove {
-            start,
-            text: s.into(),
-        });
+        self.push_action(Action::Remove { start, text: s.into() });
         num_removed
     }
 
     /// Insert a set of characters at the given index.
     pub fn insert<'a, T: Into<Cow<'a, [char]>>>(&mut self, start: usize, text: T) {
         let text = text.into().into_owned();
-        let act = Action::Insert {
-            start,
-            text: text.into(),
-        };
+        let act = Action::Insert { start, text: text.into() };
         act.execute(&mut self.data);
         self.push_action(act);
     }
@@ -410,9 +382,7 @@ impl Buffer {
 
     /// Iterate over a range of characters in the buffer.
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = char>
-    where
-        R: SliceIndex<[char], Output = [char]>,
-    {
+    where R: SliceIndex<[char], Output = [char]> {
         self.data[range].iter().cloned()
     }
 
@@ -423,20 +393,16 @@ impl Buffer {
 
     /// Get the unicode width of all lines in the given range.
     pub fn range_width<R>(&self, range: R) -> Vec<usize>
-    where
-        R: SliceIndex<[char], Output = [char]>,
-    {
+    where R: SliceIndex<[char], Output = [char]> {
         // TODO: We don't really need to collect here.
         self.range(range)
             .chunk_by(|c| *c == '\n')
             .into_iter()
-            .filter_map(|(is_control, chars)| {
-                if is_control {
-                    None
-                } else {
-                    Some(chars.filter_map(|c| c.width()).sum())
-                }
-            })
+            .filter_map(
+                |(is_control, chars)| {
+                    if is_control { None } else { Some(chars.filter_map(|c| c.width()).sum()) }
+                },
+            )
             .collect()
     }
 
@@ -458,9 +424,7 @@ impl Buffer {
 
     /// Print the buffer to `out`.
     pub fn print<W>(&self, out: &mut W) -> io::Result<()>
-    where
-        W: Write,
-    {
+    where W: Write {
         let mut writer = BufWriter::new(out);
 
         let mut bytes = [0; mem::size_of::<char>()];
@@ -484,9 +448,7 @@ impl Buffer {
     /// the other stopped.
     /// Used to implement autosuggestions.
     pub fn print_rest<W>(&self, out: &mut W, after: usize) -> io::Result<usize>
-    where
-        W: Write,
-    {
+    where W: Write {
         let string: String = self.data.iter().skip(after).cloned().collect();
         out.write_all(string.as_bytes())?;
 
@@ -499,12 +461,8 @@ impl Buffer {
         let other_len = other.data.len();
         let self_len = self.data.len();
         if !other.data.is_empty() && self_len != other_len {
-            let match_let = self
-                .data
-                .iter()
-                .zip(&other.data)
-                .take_while(|&(s, o)| *s == *o)
-                .count();
+            let match_let =
+                self.data.iter().zip(&other.data).take_while(|&(s, o)| *s == *o).count();
             match_let == other_len
         } else {
             false
@@ -518,9 +476,7 @@ impl Buffer {
         if search_term.is_empty() {
             return false;
         }
-        self.data
-            .windows(search_term.len())
-            .any(|window| window == search_term)
+        self.data.windows(search_term.len()).any(|window| window == search_term)
     }
 
     /// Return true if the buffer is empty.

@@ -162,9 +162,7 @@ impl Menu {
         let m = self.active_submenu_mut()?;
 
         if let MenuState::Active { index } = m.state {
-            m.state = MenuState::Active {
-                index: (index + 1) % m.items.len(),
-            };
+            m.state = MenuState::Active { index: (index + 1) % m.items.len() };
         } else {
             bail!("Selected menu is inactive (invariant violation)");
         }
@@ -178,10 +176,7 @@ impl Menu {
 
         if let MenuState::Active { index } = m.state {
             m.state = MenuState::Active {
-                index: index
-                    .checked_sub(1)
-                    .map(|i| i % m.items.len())
-                    .unwrap_or(m.items.len() - 1),
+                index: index.checked_sub(1).map(|i| i % m.items.len()).unwrap_or(m.items.len() - 1),
             };
         } else {
             bail!("Selected menu is inactive (invariant violation)");
@@ -324,10 +319,7 @@ pub struct MenuBuilder<'a> {
 
 impl<'a> MenuBuilder<'a> {
     pub fn new(world: &'a mut World) -> Self {
-        MenuBuilder {
-            world,
-            items: Default::default(),
-        }
+        MenuBuilder { world, items: Default::default() }
     }
 
     pub fn world(&mut self) -> &mut World {
@@ -342,11 +334,7 @@ impl<'a> MenuBuilder<'a> {
             }
         }
 
-        Menu {
-            items: self.items,
-            state: MenuState::Active { index: 0 },
-            view,
-        }
+        Menu { items: self.items, state: MenuState::Active { index: 0 }, view }
     }
 
     pub fn add_submenu<S>(
@@ -358,31 +346,24 @@ impl<'a> MenuBuilder<'a> {
         S: Into<CName>,
     {
         let submenu = submenu(MenuBuilder::new(&mut *self.world))?;
-        self.items
-            .push_back(NamedMenuItem::new(name, Item::Submenu(submenu)));
+        self.items.push_back(NamedMenuItem::new(name, Item::Submenu(submenu)));
         Ok(self)
     }
 
     pub fn add_action<N, S, M>(mut self, name: N, action: S) -> Self
     where
         N: Into<CName>,
-        S: IntoSystem<(), (), M> + 'static,
-    {
+        S: IntoSystem<(), (), M> + 'static, {
         let action_id = self.world.register_system(action);
-        self.items
-            .push_back(NamedMenuItem::new(name, Item::Action(action_id)));
+        self.items.push_back(NamedMenuItem::new(name, Item::Action(action_id)));
         self
     }
 
     pub fn add_toggle<N, S>(mut self, name: N, init: bool, cvar: S) -> Self
     where
         N: Into<CName>,
-        S: Into<CName>,
-    {
-        self.items.push_back(NamedMenuItem::new(
-            name,
-            Item::Toggle(Toggle::new(init, cvar)),
-        ));
+        S: Into<CName>, {
+        self.items.push_back(NamedMenuItem::new(name, Item::Toggle(Toggle::new(init, cvar))));
         self
     }
 
@@ -390,8 +371,7 @@ impl<'a> MenuBuilder<'a> {
     where
         S: Into<CName>,
         C: Into<CName>,
-        E: FnOnce(EnumBuilder) -> Vec<EnumItem>,
-    {
+        E: FnOnce(EnumBuilder) -> Vec<EnumItem>, {
         self.items.push_back(NamedMenuItem::new(
             name,
             Item::Enum(Enum::new(init, cvar, items(EnumBuilder::new()))),
@@ -452,8 +432,7 @@ impl EnumBuilder {
     pub fn with<N, S>(mut self, name: N, val: S) -> Result<Self, Error>
     where
         N: Into<CName>,
-        S: AsRef<str>,
-    {
+        S: AsRef<str>, {
         self.items.push(EnumItem::new(name, val)?);
 
         Ok(self)
@@ -472,9 +451,7 @@ pub struct NamedMenuItem {
 
 impl NamedMenuItem {
     fn new<S>(name: S, item: Item) -> NamedMenuItem
-    where
-        S: Into<CName>,
-    {
+    where S: Into<CName> {
         let name = name.into();
         NamedMenuItem { name, item }
     }

@@ -48,9 +48,8 @@ pub fn entities(
         .map(|pair| {
             pair.filter_map(|p| match p.as_rule() {
                 Rule::key_value => {
-                    let mut kv = p
-                        .into_inner()
-                        .filter(|pair| matches!(pair.as_rule(), Rule::string));
+                    let mut kv =
+                        p.into_inner().filter(|pair| matches!(pair.as_rule(), Rule::string));
 
                     let k = kv
                         .next()

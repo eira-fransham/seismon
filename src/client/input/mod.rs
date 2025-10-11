@@ -38,9 +38,8 @@ impl Plugin for SeismonInputPlugin {
                 (
                     systems::game_input
                         .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Game)),
-                    systems::console_input.run_if(resource_exists_and_equals::<InputFocus>(
-                        InputFocus::Console,
-                    )),
+                    systems::console_input
+                        .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Console)),
                     systems::menu_input
                         .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Menu)),
                     systems::reset_mouse_delta.run_if(resource_exists_and_changed::<InputFocus>),
@@ -110,8 +109,8 @@ pub mod systems {
         input: Res<GameInput>,
     ) {
         for key in reader.reader.read(&keyboard_events) {
-            // TODO: Make this work better if we have arguments - currently we clone the arguments every time
-            // TODO: Error handling
+            // TODO: Make this work better if we have arguments - currently we clone the arguments
+            // every time TODO: Error handling
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {
                 run_cmds.write_batch(binding.commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, key.state) {
@@ -162,19 +161,15 @@ pub mod systems {
         // TODO: Use a thread_local vector instead of reallocating
         let mut keys = Vec::new();
         for key in reader.reader.read(&keyboard_events) {
-            let KeyboardInput {
-                logical_key, state, ..
-            } = key;
+            let KeyboardInput { logical_key, state, .. } = key;
 
             if AnyInput::from(logical_key.clone()) == AnyInput::ESCAPE {
                 run_cmds.write("toggleconsole".into());
                 return;
             }
 
-            if let Ok(Some(Binding {
-                commands,
-                valid: BindingValidState::Any,
-            })) = input.binding(logical_key.clone())
+            if let Ok(Some(Binding { commands, valid: BindingValidState::Any })) =
+                input.binding(logical_key.clone())
             {
                 run_cmds.write_batch(commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, state) {
@@ -194,19 +189,13 @@ pub mod systems {
 
         for exec in console_in.update(
             keys.iter()
-                .filter_map(
-                    |KeyboardInput {
-                         logical_key: key,
-                         state,
-                         ..
-                     }| {
-                        if *state == ButtonState::Pressed {
-                            Some(to_terminal_key(key, &button_state))
-                        } else {
-                            None
-                        }
-                    },
-                )
+                .filter_map(|KeyboardInput { logical_key: key, state, .. }| {
+                    if *state == ButtonState::Pressed {
+                        Some(to_terminal_key(key, &button_state))
+                    } else {
+                        None
+                    }
+                })
                 .flatten(),
             registry.all_names(),
         ) {
@@ -239,14 +228,10 @@ pub mod systems {
     ) {
         // TODO: Use a thread_local vector instead of reallocating
         for key in reader.reader.read(&keyboard_events) {
-            let KeyboardInput {
-                logical_key, state, ..
-            } = key;
+            let KeyboardInput { logical_key, state, .. } = key;
 
-            if let Ok(Some(Binding {
-                commands,
-                valid: BindingValidState::Any,
-            })) = input.binding(logical_key.clone())
+            if let Ok(Some(Binding { commands, valid: BindingValidState::Any })) =
+                input.binding(logical_key.clone())
             {
                 run_cmds.write_batch(commands.iter().filter_map(|cmd| {
                     match (cmd.0.trigger, state) {
@@ -263,12 +248,7 @@ pub mod systems {
                 continue;
             }
 
-            let KeyboardInput {
-                logical_key: key,
-                state: ButtonState::Pressed,
-                ..
-            } = key
-            else {
+            let KeyboardInput { logical_key: key, state: ButtonState::Pressed, .. } = key else {
                 continue;
             };
 

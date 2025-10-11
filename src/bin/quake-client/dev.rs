@@ -17,10 +17,7 @@ fn cmd_freecam(
     let debug_enabled = cameras.iter().all(|(_, d)| d.is_none());
 
     for (camera, _) in cameras {
-        commands
-            .entity(camera)
-            .remove::<DebugCamera>()
-            .insert_if(DebugCamera, || debug_enabled);
+        commands.entity(camera).remove::<DebugCamera>().insert_if(DebugCamera, || debug_enabled);
     }
 
     default()
@@ -36,10 +33,7 @@ impl Plugin for DevtoolsPlugins {
                 },
                 bevy_inspector_egui::quick::WorldInspectorPlugin::default(),
             ))
-            .add_systems(
-                Update,
-                (Self::move_debug_camera, Self::draw_debug_transforms),
-            );
+            .add_systems(Update, (Self::move_debug_camera, Self::draw_debug_transforms));
     }
 }
 

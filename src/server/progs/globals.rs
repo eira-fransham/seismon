@@ -80,9 +80,7 @@ pub enum GlobalsError {
 
 impl GlobalsError {
     pub fn with_msg<S>(msg: S) -> Self
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         GlobalsError::Other(msg.as_ref().to_owned())
     }
 }
@@ -276,10 +274,7 @@ pub struct Globals {
 impl Globals {
     /// Constructs a new `Globals` object.
     pub fn new<D: Into<Arc<[GlobalDef]>>>(defs: D, addrs: Box<[[u8; 4]]>) -> Globals {
-        Globals {
-            defs: defs.into(),
-            addrs,
-        }
+        Globals { defs: defs.into(), addrs }
     }
 
     /// Performs a type check at `addr` with type `type_`.
@@ -288,10 +283,7 @@ impl Globals {
     /// overlapping definitions with their x-components (e.g. a vector `origin` and its x-component
     /// `origin_X` will have the same address).
     pub fn type_check(&self, addr: usize, type_: Type) -> Result<(), GlobalsError> {
-        match self
-            .defs
-            .binary_search_by(|def| (def.offset as usize).cmp(&addr))
-        {
+        match self.defs.binary_search_by(|def| (def.offset as usize).cmp(&addr)) {
             Ok(i) => {
                 let d = &self.defs[i];
                 if type_ == d.type_
@@ -435,17 +427,14 @@ impl Globals {
     pub fn string_id(&self, addr: i16) -> Result<StringId, GlobalsError> {
         self.type_check(addr as usize, Type::QString)?;
 
-        Ok(StringId(
-            self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
-        ))
+        Ok(StringId(self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize))
     }
 
     /// Stores a `StringId` at the given virtual address.
     pub fn put_string_id(&mut self, val: StringId, addr: i16) -> Result<(), GlobalsError> {
         self.type_check(addr as usize, Type::QString)?;
 
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.try_into().unwrap())?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.try_into().unwrap())?;
         Ok(())
     }
 
@@ -469,9 +458,7 @@ impl Globals {
         self.type_check(addr as usize, Type::QField)?;
 
         match self.get_int(addr)? {
-            f if f < 0 => Err(GlobalsError::with_msg(format!(
-                "Negative field address ({f})"
-            ))),
+            f if f < 0 => Err(GlobalsError::with_msg(format!("Negative field address ({f})"))),
             f => Ok(FieldAddr(f as usize)),
         }
     }
@@ -479,24 +466,20 @@ impl Globals {
     /// Stores a `FieldAddr` at the given virtual address.
     pub fn put_field_addr(&mut self, val: FieldAddr, addr: i16) -> Result<(), GlobalsError> {
         self.type_check(addr as usize, Type::QField)?;
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.0 as i32)?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.0 as i32)?;
         Ok(())
     }
 
     /// Loads a `FunctionId` from the given virtual address.
     pub fn get_function_id(&self, addr: i16) -> Result<FunctionId, GlobalsError> {
         self.type_check(addr as usize, Type::QFunction)?;
-        Ok(FunctionId(
-            self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize
-        ))
+        Ok(FunctionId(self.get_addr(addr)?.read_i32::<LittleEndian>()? as usize))
     }
 
     /// Stores a `FunctionId` at the given virtual address.
     pub fn put_function_id(&mut self, val: FunctionId, addr: i16) -> Result<(), GlobalsError> {
         self.type_check(addr as usize, Type::QFunction)?;
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.try_into().unwrap())?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.try_into().unwrap())?;
         Ok(())
     }
 
@@ -689,12 +672,10 @@ impl Globals {
         let s1 = self.string_id(s1_ofs)?;
         let s2 = self.string_id(s2_ofs)?;
 
-        let s1 = string_table
-            .get(s1)
-            .ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
-        let s2 = string_table
-            .get(s2)
-            .ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
+        let s1 =
+            string_table.get(s1).ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
+        let s2 =
+            string_table.get(s2).ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
 
         log_op!(self; eq_ofs = EqS(s1, s2));
 
@@ -794,12 +775,10 @@ impl Globals {
         let s1 = self.string_id(s1_ofs)?;
         let s2 = self.string_id(s2_ofs)?;
 
-        let s1 = string_table
-            .get(s1)
-            .ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
-        let s2 = string_table
-            .get(s2)
-            .ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
+        let s1 =
+            string_table.get(s1).ok_or_else(|| GlobalsError::Other(format!("No string {s1}")))?;
+        let s2 =
+            string_table.get(s2).ok_or_else(|| GlobalsError::Other(format!("No string {s2}")))?;
 
         log_op!(self; ne_ofs = NeS(s1, s2));
 
@@ -952,8 +931,8 @@ impl Globals {
         if (0..GLOBAL_STATIC_START as i16).contains(&dest_ofs) {
             let [a, b, c] = [0, 1, 2].map(|i| self.get_int(src_ofs + i).unwrap());
             log_op!(self; dest_ofs = StoreV(format_args!("[{a}, {b}, {c}]")));
-            // Untyped copy is required because STORE_V is used to copy function arguments into the global
-            // argument slots.
+            // Untyped copy is required because STORE_V is used to copy function arguments into the
+            // global argument slots.
             //
             // See https://github.com/id-Software/Quake-Tools/blob/master/qcc/pr_comp.c#L362
             for c in 0..3 {

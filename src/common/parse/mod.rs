@@ -67,25 +67,14 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
 }
 
 pub fn vec3<S>(src: S) -> Vec3
-where
-    S: AsRef<str>,
-{
+where S: AsRef<str> {
     let src = src.as_ref();
 
     let mut components = src.split(" ");
 
-    let x: f32 = components
-        .next()
-        .and_then(|c| c.parse().ok())
-        .unwrap_or_default();
-    let y: f32 = components
-        .next()
-        .and_then(|c| c.parse().ok())
-        .unwrap_or_default();
-    let z: f32 = components
-        .next()
-        .and_then(|c| c.parse().ok())
-        .unwrap_or_default();
+    let x: f32 = components.next().and_then(|c| c.parse().ok()).unwrap_or_default();
+    let y: f32 = components.next().and_then(|c| c.parse().ok()).unwrap_or_default();
+    let z: f32 = components.next().and_then(|c| c.parse().ok()).unwrap_or_default();
 
     Vec3::new(x, y, z)
 }

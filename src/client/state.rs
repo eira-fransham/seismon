@@ -56,8 +56,8 @@ pub struct PlayerInfo {
     // translations: [u8; VID_GRADES],
 }
 
-/// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from server
-/// entity ID to local [`Entity`].
+/// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
+/// server entity ID to local [`Entity`].
 #[derive(Default)]
 pub struct ClientState {
     // model precache
@@ -88,9 +88,8 @@ impl ClientState {
         let mut model_precache = model_precache.into_iter();
 
         // TODO: Better error
-        let worldspawn_path = model_precache
-            .next()
-            .ok_or_else(|| ClientError::InvalidConnectResponse)?;
+        let worldspawn_path =
+            model_precache.next().ok_or_else(|| ClientError::InvalidConnectResponse)?;
 
         // TODO: validate submodel names
         let models = model_precache.into_iter().map(|model_name| {
@@ -222,8 +221,7 @@ impl ClientState {
             self.entities.len(),
             baseline
         );
-        self.entities
-            .push_back(ClientEntity::from_baseline(id, baseline));
+        self.entities.push_back(ClientEntity::from_baseline(id, baseline));
 
         Ok(())
     }
@@ -279,7 +277,8 @@ impl ClientState {
                     update.yaw.unwrap_or(0.),
                     update.roll.unwrap_or(0.),
                 ),
-                // If this is the baseline, we probably don't want to accidentally set a model to the worldspawn.
+                // If this is the baseline, we probably don't want to accidentally set a model to
+                // the worldspawn.
                 model_id: update.model_id.unwrap() as usize,
                 frame_id: update.frame_id.unwrap_or_default() as usize,
                 colormap: update.colormap.unwrap_or_default(),

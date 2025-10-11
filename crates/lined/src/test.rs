@@ -98,14 +98,8 @@ fn test_buffer_actions() {
         "",
         "h",
         &[
-            Action::Insert {
-                start: 0,
-                text: "hi".chars().collect(),
-            },
-            Action::Remove {
-                start: 1,
-                text: ".".chars().collect(),
-            },
+            Action::Insert { start: 0, text: "hi".chars().collect() },
+            Action::Remove { start: 1, text: ".".chars().collect() },
         ],
     );
 }

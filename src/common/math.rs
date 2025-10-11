@@ -205,11 +205,7 @@ impl Default for Angles {
 
 impl Angles {
     pub fn zero() -> Angles {
-        Angles {
-            pitch: 0.,
-            roll: 0.,
-            yaw: 0.,
-        }
+        Angles { pitch: 0., roll: 0., yaw: 0. }
     }
 
     pub fn mat3_quake(&self) -> Mat3 {
@@ -265,11 +261,7 @@ impl std::ops::Mul<f32> for Angles {
     type Output = Self;
 
     fn mul(self, other: f32) -> Self {
-        Self {
-            pitch: self.pitch * other,
-            roll: self.roll * other,
-            yaw: self.yaw * other,
-        }
+        Self { pitch: self.pitch * other, roll: self.roll * other, yaw: self.yaw * other }
     }
 }
 
@@ -305,11 +297,7 @@ impl Neg for HyperplaneSide {
 impl HyperplaneSide {
     // TODO: check this against the original game logic.
     pub fn from_dist(dist: f32) -> HyperplaneSide {
-        if dist >= 0.0 {
-            HyperplaneSide::Positive
-        } else {
-            HyperplaneSide::Negative
-        }
+        if dist >= 0.0 { HyperplaneSide::Positive } else { HyperplaneSide::Negative }
     }
 }
 
@@ -409,9 +397,7 @@ impl<T> CollisionResult<T> {
     }
 
     pub fn map<F, O>(self, func: F) -> CollisionResult<O>
-    where
-        F: FnOnce(T) -> O,
-    {
+    where F: FnOnce(T) -> O {
         CollisionResult {
             floor: self.floor,
             wall_or_step: self.wall_or_step,
@@ -424,8 +410,8 @@ impl<T> CollisionResult<T> {
 impl Hyperplane {
     /// Creates a new hyperplane aligned along the given normal, `dist` units away from the origin.
     ///
-    /// If the given normal is equivalent to one of the axis normals, the hyperplane will be optimized
-    /// to only consider that axis when performing point comparisons.
+    /// If the given normal is equivalent to one of the axis normals, the hyperplane will be
+    /// optimized to only consider that axis when performing point comparisons.
     pub fn new(normal: Vec3, dist: f32) -> Hyperplane {
         match normal {
             n if n == Vec3::X => Self::axis_x(dist),
@@ -439,30 +425,21 @@ impl Hyperplane {
     ///
     /// This hyperplane will only consider the x-axis when performing point comparisons.
     pub fn axis_x(dist: f32) -> Hyperplane {
-        Hyperplane {
-            alignment: Alignment::Axis(Axis::X),
-            dist,
-        }
+        Hyperplane { alignment: Alignment::Axis(Axis::X), dist }
     }
 
     /// Creates a new hyperplane aligned along the y-axis, `dist` units away from the origin.
     ///
     /// This hyperplane will only consider the y-axis when performing point comparisons.
     pub fn axis_y(dist: f32) -> Hyperplane {
-        Hyperplane {
-            alignment: Alignment::Axis(Axis::Y),
-            dist,
-        }
+        Hyperplane { alignment: Alignment::Axis(Axis::Y), dist }
     }
 
     /// Creates a new hyperplane aligned along the z-axis, `dist` units away from the origin.
     ///
     /// This hyperplane will only consider the z-axis when performing point comparisons.
     pub fn axis_z(dist: f32) -> Hyperplane {
-        Hyperplane {
-            alignment: Alignment::Axis(Axis::Z),
-            dist,
-        }
+        Hyperplane { alignment: Alignment::Axis(Axis::Z), dist }
     }
 
     /// Creates a new hyperplane aligned along the given normal, `dist` units away from the origin.
@@ -470,10 +447,7 @@ impl Hyperplane {
     /// This function will force the hyperplane alignment to be represented as a normal even if it
     /// is aligned along an axis.
     pub fn from_normal(normal: Vec3, dist: f32) -> Hyperplane {
-        Hyperplane {
-            alignment: Alignment::Normal(normal.normalize()),
-            dist,
-        }
+        Hyperplane { alignment: Alignment::Normal(normal.normalize()), dist }
     }
 
     pub fn is_floor(&self) -> bool {
@@ -567,9 +541,8 @@ impl Hyperplane {
 
         let backoff = velocity.dot(self.normal()) * overbounce;
         let out = velocity - self.normal() * backoff;
-        let out = <[f32; 3]>::from(out)
-            .map(|v| if v.abs() < STOP_THRESHOLD { 0. } else { v })
-            .into();
+        let out =
+            <[f32; 3]>::from(out).map(|v| if v.abs() < STOP_THRESHOLD { 0. } else { v }).into();
 
         CollisionResult {
             floor: self.normal().z > 0.,
@@ -593,10 +566,8 @@ impl Hyperplane {
         // Try to find a plane which produces a post-collision velocity that will
         // not cause a subsequent collision with any of the other planes.
         let new_velocity = planes.clone().enumerate().find_map(|(a, plane_a)| {
-            let CollisionResult {
-                metadata: new_velocity,
-                ..
-            } = plane_a.clip_velocity(velocity, overbounce);
+            let CollisionResult { metadata: new_velocity, .. } =
+                plane_a.clip_velocity(velocity, overbounce);
             if planes
                 .clone()
                 .enumerate()
@@ -610,10 +581,7 @@ impl Hyperplane {
         });
 
         new_velocity
-            .map(|vel| CollisionResult {
-                metadata: vel,
-                ..Default::default()
-            })
+            .map(|vel| CollisionResult { metadata: vel, ..Default::default() })
             .or_else(|| {
                 let mut peekable_planes = planes.by_ref().peekable();
                 // Go along the crease
@@ -624,16 +592,9 @@ impl Hyperplane {
                 let new_velocity = dir.clamp_length_min(dir.dot(velocity));
 
                 if peekable_planes.peek().is_some() {
-                    Some(Self::clip_velocity_to_many(
-                        planes,
-                        new_velocity,
-                        overbounce,
-                    ))
+                    Some(Self::clip_velocity_to_many(planes, new_velocity, overbounce))
                 } else {
-                    Some(CollisionResult {
-                        metadata: new_velocity,
-                        ..Default::default()
-                    })
+                    Some(CollisionResult { metadata: new_velocity, ..Default::default() })
                 }
             })
             .unwrap_or(CollisionResult {
@@ -653,7 +614,8 @@ pub fn fov_x_to_fov_y(fov_x: f32, aspect: f32) -> Option<f32> {
     match fov_x {
         f if f < 0. => None,
         f if f > 360.0 => None,
-        // TODO: This appears to be wrong but fixing it to be `f.to_radians()` doesn't seem to produce correct results(?)
+        // TODO: This appears to be wrong but fixing it to be `f.to_radians()` doesn't seem to
+        // produce correct results(?)
         f => Some(f32::atan((f / 2.0).tan() / aspect) * 2.0),
     }
 }
@@ -722,9 +684,7 @@ pub fn remove_collinear(vs: Vec<Vec3>) -> Vec<Vec3> {
 }
 
 pub fn bounds<'a, I>(points: I) -> (Vec3, Vec3)
-where
-    I: IntoIterator<Item = &'a Vec3>,
-{
+where I: IntoIterator<Item = &'a Vec3> {
     let mut min = Vec3::splat(32767.0);
     let mut max = Vec3::splat(-32768.0);
     for p in points.into_iter() {

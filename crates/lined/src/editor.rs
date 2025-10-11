@@ -34,17 +34,13 @@ pub struct ViStatus {
 }
 
 impl ViStatus {
-    /// Create a new [`ViStatus`] for a given mode, normal mode indicator, and insert mode indicator.
+    /// Create a new [`ViStatus`] for a given mode, normal mode indicator, and insert mode
+    /// indicator.
     pub fn new<N, I>(mode: ViPromptMode, normal: N, insert: I) -> Self
     where
         N: Into<String>,
-        I: Into<String>,
-    {
-        Self {
-            mode,
-            normal: normal.into(),
-            insert: insert.into(),
-        }
+        I: Into<String>, {
+        Self { mode, normal: normal.into(), insert: insert.into() }
     }
 
     /// Get the indicator as a string, based on the current mode.
@@ -107,10 +103,7 @@ pub struct Prompt {
 impl Prompt {
     /// Constructs a static prompt.
     pub fn from<P: Into<Cow<'static, str>>>(prompt: P) -> Self {
-        Prompt {
-            prompt: prompt.into(),
-            vi_status: None,
-        }
+        Prompt { prompt: prompt.into(), vi_status: None }
     }
 
     /// Get the prompt prefix.
@@ -146,7 +139,8 @@ pub enum CursorPosition {
     OnWordRightEdge(usize),
 
     /// The cursor is not in contact with any word. Each `Option<usize>` specifies the index of the
-    /// closest word to the left and right, respectively, or `None` if there is no word on that side.
+    /// closest word to the left and right, respectively, or `None` if there is no word on that
+    /// side.
     InSpace(Option<usize>, Option<usize>),
 }
 
@@ -213,8 +207,8 @@ pub struct Editor<C, H: ?Sized = NoHighlighting> {
     /// Show autosuggestions based on history
     show_autosuggestions: bool,
 
-    /// if set, the cursor will not be allow to move one past the end of the line, this is necessary
-    /// for Vi's normal mode.
+    /// if set, the cursor will not be allow to move one past the end of the line, this is
+    /// necessary for Vi's normal mode.
     pub no_eol: bool,
 
     reverse_search: bool,
@@ -236,8 +230,7 @@ pub struct Editor<C, H: ?Sized = NoHighlighting> {
 }
 
 impl<C, H> AsMut<Editor<C, dyn Highlighter>> for Editor<C, H>
-where
-    H: Highlighter,
+where H: Highlighter
 {
     fn as_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
         self.as_dyn_mut()
@@ -277,12 +270,10 @@ macro_rules! cur_buf {
 }
 
 impl<C: EditorContext> Editor<C> {
-    /// Create a new [`Editor`] given a certain prompt (see [`Prompt`]) and context (see [`EditorContext`]).
+    /// Create a new [`Editor`] given a certain prompt (see [`Prompt`]) and context (see
+    /// [`EditorContext`]).
     pub fn new(prompt: Prompt, mut context: C) -> io::Result<Self> {
-        let Prompt {
-            mut prompt,
-            vi_status,
-        } = prompt;
+        let Prompt { mut prompt, vi_status } = prompt;
 
         {
             let out = context.terminal_mut();
@@ -332,8 +323,7 @@ impl<C: EditorContext> Editor<C> {
 }
 
 impl<C, H> Editor<C, H>
-where
-    H: Highlighter,
+where H: Highlighter
 {
     pub(crate) fn as_dyn_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
         self as _
@@ -349,8 +339,7 @@ where
     pub fn with_init_buffer<B>(self, buffer: B) -> Self
     where
         B: Into<Buffer>,
-        H: Sized,
-    {
+        H: Sized, {
         Editor {
             prompt: self.prompt,
             cursor: self.cursor,
@@ -380,8 +369,7 @@ where
     pub fn with_highlighter<NewH>(self, highlighter: NewH) -> Editor<C, NewH>
     where
         H: Sized,
-        NewH: Highlighter,
-    {
+        NewH: Highlighter, {
         Editor {
             prompt: self.prompt,
             cursor: self.cursor,
@@ -482,8 +470,7 @@ where
     }
 
     fn search_history_loc(&self) -> Option<usize> {
-        self.history_subset_loc
-            .and_then(|i| self.history_subset_index.get(i).cloned())
+        self.history_subset_loc.and_then(|i| self.history_subset_index.get(i).cloned())
     }
 
     fn freshen_history(&mut self) {
@@ -498,11 +485,8 @@ where
         let search_history_loc = self.search_history_loc();
         self.history_subset_index = self.context.history().search_index(&self.new_buf);
         if !self.history_subset_index.is_empty() {
-            self.history_subset_loc = if forward {
-                Some(0)
-            } else {
-                Some(self.history_subset_index.len() - 1)
-            };
+            self.history_subset_loc =
+                if forward { Some(0) } else { Some(self.history_subset_index.len() - 1) };
             if let Some(target_loc) = search_history_loc {
                 for (i, history_loc) in self.history_subset_index.iter().enumerate() {
                     if target_loc <= *history_loc {
@@ -537,11 +521,7 @@ where
         } else if !self.history_subset_index.is_empty() {
             self.history_subset_loc = if let Some(p) = self.history_subset_loc {
                 if forward {
-                    if p < self.history_subset_index.len() - 1 {
-                        Some(p + 1)
-                    } else {
-                        Some(0)
-                    }
+                    if p < self.history_subset_index.len() - 1 { Some(p + 1) } else { Some(0) }
                 } else if p > 0 {
                     Some(p - 1)
                 } else {
@@ -626,23 +606,13 @@ where
             }
 
             if Some(index) == highlighted {
-                write!(
-                    output_buf,
-                    "{}{}",
-                    color::Black.fg_str(),
-                    color::White.bg_str()
-                )
-                .map_err(io::Error::other)?;
+                write!(output_buf, "{}{}", color::Black.fg_str(), color::White.bg_str())
+                    .map_err(io::Error::other)?;
             }
             write!(output_buf, "{com:<col_width$}").map_err(io::Error::other)?;
             if Some(index) == highlighted {
-                write!(
-                    output_buf,
-                    "{}{}",
-                    color::Reset.bg_str(),
-                    color::Reset.fg_str()
-                )
-                .map_err(io::Error::other)?;
+                write!(output_buf, "{}{}", color::Reset.bg_str(), color::Reset.fg_str())
+                    .map_err(io::Error::other)?;
             }
 
             i += 1;
@@ -658,9 +628,7 @@ where
 
     /// Trigger autocompletion.
     pub fn complete<T: Completer>(&mut self, handler: &mut T) -> io::Result<()>
-    where
-        Self: AsMut<Editor<C, dyn Highlighter>>,
-    {
+    where Self: AsMut<Editor<C, dyn Highlighter>> {
         handler.on_event(Event::new(self, EventKind::BeforeComplete));
 
         if let Some((completions, i_in)) = self.show_completions_hint.take() {
@@ -691,10 +659,8 @@ where
                 None => "".into(),
             };
 
-            let completions = handler
-                .completions(&word)
-                .map(|c| c.into_owned())
-                .collect::<Vec<_>>();
+            let completions =
+                handler.completions(&word).map(|c| c.into_owned()).collect::<Vec<_>>();
             (word, completions)
         };
 
@@ -708,10 +674,7 @@ where
             self.insert_str_after_cursor(completions[0].as_ref())
         } else {
             let common_prefix = util::find_longest_common_prefix(
-                &completions
-                    .iter()
-                    .map(|x| x.chars().collect())
-                    .collect::<Vec<Vec<char>>>()[..],
+                &completions.iter().map(|x| x.chars().collect()).collect::<Vec<Vec<char>>>()[..],
             );
 
             if let Some(p) = common_prefix {
@@ -938,10 +901,7 @@ where
     pub fn delete_until(&mut self, position: usize) -> io::Result<()> {
         {
             let buf = cur_buf_mut!(self);
-            buf.remove(
-                cmp::min(self.cursor, position),
-                cmp::max(self.cursor, position),
-            );
+            buf.remove(cmp::min(self.cursor, position), cmp::max(self.cursor, position));
             self.cursor = cmp::min(self.cursor, position);
         }
         self.display()
@@ -951,10 +911,7 @@ where
     pub fn delete_until_inclusive(&mut self, position: usize) -> io::Result<()> {
         {
             let buf = cur_buf_mut!(self);
-            buf.remove(
-                cmp::min(self.cursor, position),
-                cmp::max(self.cursor + 1, position + 1),
-            );
+            buf.remove(cmp::min(self.cursor, position), cmp::max(self.cursor + 1, position + 1));
             self.cursor = cmp::min(self.cursor, position);
         }
         self.display()
@@ -1010,14 +967,11 @@ where
         self.display()
     }
 
-    /// `true` if the cursor is at the end of a line in the input, `false` if it is in the middle of a line.
+    /// `true` if the cursor is at the end of a line in the input, `false` if it is in the middle of
+    /// a line.
     pub fn cursor_is_at_end_of_line(&self) -> bool {
         let num_chars = cur_buf!(self).num_chars();
-        if self.no_eol {
-            self.cursor == num_chars - 1
-        } else {
-            self.cursor == num_chars
-        }
+        if self.no_eol { self.cursor == num_chars - 1 } else { self.cursor == num_chars }
     }
 
     /// Returns a reference to the current buffer being edited.
@@ -1062,13 +1016,11 @@ where
         let autosuggestion = if self.is_search() {
             self.search_history_loc().map(|i| &context_history[i])
         } else if self.show_autosuggestions {
-            self.cur_history_loc
-                .map(|i| &context_history[i])
-                .or_else(|| {
-                    context_history
-                        .newest_match(Some(context_history.len()), &self.new_buf)
-                        .map(|i| &context_history[i])
-                })
+            self.cur_history_loc.map(|i| &context_history[i]).or_else(|| {
+                context_history
+                    .newest_match(Some(context_history.len()), &self.new_buf)
+                    .map(|i| &context_history[i])
+            })
         } else {
             None
         };
@@ -1087,10 +1039,7 @@ where
             let (hplace, color) = if self.history_subset_index.is_empty() {
                 (0, color::Red.fg_str())
             } else {
-                (
-                    self.history_subset_loc.unwrap_or(0) + 1,
-                    color::Green.fg_str(),
-                )
+                (self.history_subset_loc.unwrap_or(0) + 1, color::Green.fg_str())
             };
             let prefix = self.prompt.prefix();
             (
@@ -1318,8 +1267,7 @@ where
 }
 
 impl<C, H> From<Editor<C, H>> for String
-where
-    C: EditorContext,
+where C: EditorContext
 {
     fn from(ed: Editor<C, H>) -> String {
         match ed.cur_history_loc {

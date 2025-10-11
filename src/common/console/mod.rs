@@ -64,10 +64,7 @@ pub struct SeismonConsoleCorePlugin;
 impl Plugin for SeismonConsoleCorePlugin {
     fn build(&self, app: &mut App) {
         #[derive(Parser)]
-        #[command(
-            name = "stuffcmds",
-            about = "Run the commands from the CLI input arguments"
-        )]
+        #[command(name = "stuffcmds", about = "Run the commands from the CLI input arguments")]
         struct StuffCmds;
 
         #[derive(Parser)]
@@ -90,71 +87,56 @@ impl Plugin for SeismonConsoleCorePlugin {
 
         app.init_resource::<Registry>()
             .add_event::<RunCmd<'static>>()
-            .command(
-                |In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
-                    ExecResult {
-                        extra_commands: Box::new(mem::take(&mut input.stuffcmds).into_iter()),
-                        ..default()
-                    }
-                },
-            )
-            .command(
-                |In(Help { arg_name }), registry: Res<Registry>| -> ExecResult {
-                    let args = arg_name
-                        .map(|arg| itertools::Either::Left(iter::once(arg)))
-                        .unwrap_or_else(|| {
-                            itertools::Either::Right(registry.all_names().map(ToString::to_string))
-                        });
+            .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
+                ExecResult {
+                    extra_commands: Box::new(mem::take(&mut input.stuffcmds).into_iter()),
+                    ..default()
+                }
+            })
+            .command(|In(Help { arg_name }), registry: Res<Registry>| -> ExecResult {
+                let args =
+                    arg_name.map(|arg| itertools::Either::Left(iter::once(arg))).unwrap_or_else(
+                        || itertools::Either::Right(registry.all_names().map(ToString::to_string)),
+                    );
 
-                    let mut out = String::new();
+                let mut out = String::new();
 
-                    for arg in args {
-                        let Some(CommandImpl { help, .. }) = registry.get(&arg) else {
-                            out.push_str("Unknown command: ");
-                            out.push_str(&arg);
-                            out.push('\n');
-                            continue;
-                        };
-
+                for arg in args {
+                    let Some(CommandImpl { help, .. }) = registry.get(&arg) else {
+                        out.push_str("Unknown command: ");
                         out.push_str(&arg);
-                        out.push_str(": ");
-                        out.push_str(help);
                         out.push('\n');
+                        continue;
+                    };
+
+                    out.push_str(&arg);
+                    out.push_str(": ");
+                    out.push_str(help);
+                    out.push('\n');
+                }
+
+                out.into()
+            })
+            .command(|In(Reset { cvars }), mut registry: ResMut<Registry>| -> ExecResult {
+                let mut out = String::new();
+
+                for arg in cvars {
+                    if let Err(e) = registry.reset_cvar(arg) {
+                        writeln!(&mut out, "{e}").unwrap();
                     }
+                }
 
-                    out.into()
-                },
-            )
-            .command(
-                |In(Reset { cvars }), mut registry: ResMut<Registry>| -> ExecResult {
-                    let mut out = String::new();
+                out.into()
+            })
+            .command(|In(ResetAll), mut registry: ResMut<Registry>| -> ExecResult {
+                let all_cvars = registry.cvar_names().map(ToString::to_string).collect::<Vec<_>>();
+                for arg in all_cvars {
+                    registry.reset_cvar(arg).unwrap();
+                }
 
-                    for arg in cvars {
-                        if let Err(e) = registry.reset_cvar(arg) {
-                            writeln!(&mut out, "{e}").unwrap();
-                        }
-                    }
-
-                    out.into()
-                },
-            )
-            .command(
-                |In(ResetAll), mut registry: ResMut<Registry>| -> ExecResult {
-                    let all_cvars = registry
-                        .cvar_names()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
-                    for arg in all_cvars {
-                        registry.reset_cvar(arg).unwrap();
-                    }
-
-                    default()
-                },
-            )
-            .add_systems(
-                PostUpdate,
-                (systems::execute_console, systems::update_cvars),
-            );
+                default()
+            })
+            .add_systems(PostUpdate, (systems::execute_console, systems::update_cvars));
     }
 }
 
@@ -186,19 +168,13 @@ impl Plugin for SeismonConsolePlugin {
             .init_resource::<Gfx>()
             .add_systems(
                 Startup,
-                (
-                    systems::startup::init_alert_output,
-                    systems::startup::init_console,
-                ),
+                (systems::startup::init_alert_output, systems::startup::init_console),
             )
             .add_observer(
                 |trigger: bevy::ecs::observer::Trigger<Connected>,
                  mut console_ui: Query<&mut Node, With<ConsoleUi>>| {
-                    let height = if trigger.event().0 {
-                        Val::Percent(30.)
-                    } else {
-                        Val::Percent(100.)
-                    };
+                    let height =
+                        if trigger.event().0 { Val::Percent(30.) } else { Val::Percent(100.) };
 
                     for mut style in &mut console_ui {
                         style.height = height;
@@ -244,12 +220,8 @@ pub enum ConsoleError {
 impl serde::de::Error for ConsoleError {
     // Required method
     fn custom<T>(msg: T) -> Self
-    where
-        T: std::fmt::Display,
-    {
-        Self::CmdError {
-            error: msg.to_string().into(),
-        }
+    where T: std::fmt::Display {
+        Self::CmdError { error: msg.to_string().into() }
     }
 
     #[cold]
@@ -337,10 +309,7 @@ impl CmdName<'_> {
     pub fn into_owned(self) -> CmdName<'static> {
         let CmdName { trigger, name } = self;
 
-        CmdName {
-            name: name.into_owned().into(),
-            trigger,
-        }
+        CmdName { name: name.into_owned().into(), trigger }
     }
 }
 
@@ -363,19 +332,13 @@ impl FromStr for CmdName<'static> {
 
 impl From<&'static str> for CmdName<'static> {
     fn from(s: &'static str) -> Self {
-        Self {
-            trigger: None,
-            name: s.into(),
-        }
+        Self { trigger: None, name: s.into() }
     }
 }
 
 impl From<String> for CmdName<'static> {
     fn from(s: String) -> Self {
-        Self {
-            trigger: None,
-            name: s.into(),
-        }
+        Self { trigger: None, name: s.into() }
     }
 }
 
@@ -418,15 +381,7 @@ impl<'a> RunCmd<'a> {
     }
 
     pub fn invert(self) -> Option<Self> {
-        self.0.trigger.map(|t| {
-            RunCmd(
-                CmdName {
-                    trigger: Some(!t),
-                    name: self.0.name,
-                },
-                self.1,
-            )
-        })
+        self.0.trigger.map(|t| RunCmd(CmdName { trigger: Some(!t), name: self.0.name }, self.1))
     }
 }
 
@@ -435,7 +390,8 @@ impl std::fmt::Display for RunCmd<'_> {
         write!(f, "{}", &self.0)?;
 
         for arg in self.1.iter() {
-            // TODO: This doesn't work if the value is a string that requires quotes - use `lexpr::Value`?
+            // TODO: This doesn't work if the value is a string that requires quotes - use
+            // `lexpr::Value`?
             write!(f, " {arg:?}")?;
         }
 
@@ -470,8 +426,7 @@ pub trait RegisterCmdExt {
         S: IntoSystem<In<A>, ExecResult, M> + 'static;
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where
-        N: Into<CName>;
+    where N: Into<CName>;
 
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
@@ -496,17 +451,14 @@ impl RegisterCmdExt for App {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
-    {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
         self.world_mut().command::<A, S, M>(run);
 
         self
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where
-        N: Into<CName>,
-    {
+    where N: Into<CName> {
         self.world_mut().action(name);
         self
     }
@@ -514,8 +466,7 @@ impl RegisterCmdExt for App {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>,
-    {
+        C: Into<CName>, {
         self.world_mut().alias(name, command);
         self
     }
@@ -525,8 +476,7 @@ impl RegisterCmdExt for App {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
+        I: Into<CName>, {
         self.world_mut().cvar_on_set(name, value, on_set, usage);
 
         self
@@ -536,8 +486,7 @@ impl RegisterCmdExt for App {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
+        I: Into<CName>, {
         self.world_mut().cvar(name, value, usage);
 
         self
@@ -548,17 +497,14 @@ impl RegisterCmdExt for SubApp {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
-    {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
         self.world_mut().command::<A, S, M>(run);
 
         self
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where
-        N: Into<CName>,
-    {
+    where N: Into<CName> {
         self.world_mut().action(name);
         self
     }
@@ -566,8 +512,7 @@ impl RegisterCmdExt for SubApp {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>,
-    {
+        C: Into<CName>, {
         self.world_mut().alias(name, command);
         self
     }
@@ -577,8 +522,7 @@ impl RegisterCmdExt for SubApp {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
+        I: Into<CName>, {
         self.world_mut().cvar_on_set(name, value, on_set, usage);
 
         self
@@ -588,8 +532,7 @@ impl RegisterCmdExt for SubApp {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
+        I: Into<CName>, {
         self.world_mut().cvar(name, value, usage);
 
         self
@@ -610,13 +553,8 @@ where
     fn new<I, A, O, M>(system: I, handle_error: F) -> Self
     where
         A: 'static,
-        I: IntoSystem<In<A>, O, M, System = S>,
-    {
-        Self {
-            inner: I::into_system(system),
-            handle_error,
-            _error: PhantomData,
-        }
+        I: IntoSystem<In<A>, O, M, System = S>, {
+        Self { inner: I::into_system(system), handle_error, _error: PhantomData }
     }
 }
 
@@ -710,9 +648,7 @@ where
 fn parse_args<A>(
     mut command: clap::Command,
 ) -> impl FnMut(In<Box<[String]>>) -> Result<A, clap::Error>
-where
-    A: FromArgMatches,
-{
+where A: FromArgMatches {
     move |In(args)| {
         let matches = command.try_get_matches_from_mut(args.iter());
         matches.and_then(|mut m| A::from_arg_matches_mut(&mut m))
@@ -723,8 +659,7 @@ impl RegisterCmdExt for World {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
-    {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
         let mut command = A::command().no_binary_name(true);
         let command_name = Cow::from(command.get_name().to_owned());
         let usage = command.render_usage();
@@ -742,23 +677,17 @@ impl RegisterCmdExt for World {
                 }
             },
         )));
-        self.resource_mut::<Registry>()
-            .command(command_name, sys, format!("{about}"));
+        self.resource_mut::<Registry>().command(command_name, sys, format!("{about}"));
 
         self
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where
-        N: Into<CName>,
-    {
+    where N: Into<CName> {
         self.resource_mut::<Registry>().insert(
             name,
             CommandImpl {
-                kind: CmdKind::Action {
-                    system: None,
-                    state: Trigger::Negative,
-                },
+                kind: CmdKind::Action { system: None, state: Trigger::Negative },
                 help: Default::default(),
             },
         );
@@ -769,8 +698,7 @@ impl RegisterCmdExt for World {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>,
-    {
+        C: Into<CName>, {
         self.resource_mut::<Registry>().alias(name, command);
 
         self
@@ -780,10 +708,8 @@ impl RegisterCmdExt for World {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
-        self.resource_mut::<Registry>()
-            .cvar(name, value, None, usage);
+        I: Into<CName>, {
+        self.resource_mut::<Registry>().cvar(name, value, None, usage);
 
         self
     }
@@ -793,11 +719,9 @@ impl RegisterCmdExt for World {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>,
-    {
+        I: Into<CName>, {
         let sys = self.register_system(on_set);
-        self.resource_mut::<Registry>()
-            .cvar(name, value, Some(sys), usage);
+        self.resource_mut::<Registry>().cvar(name, value, Some(sys), usage);
 
         self
     }
@@ -821,10 +745,7 @@ pub struct ResetCvar(pub CName, pub Value);
 
 impl Command for SetCvar {
     fn apply(self, world: &mut World) {
-        if let Err(e) = world
-            .resource_mut::<Registry>()
-            .set_cvar_raw(self.0, self.1)
-        {
+        if let Err(e) = world.resource_mut::<Registry>().set_cvar_raw(self.0, self.1) {
             warn!(target: "console", "{e}");
         }
     }
@@ -848,28 +769,19 @@ impl Default for ExecResult {
 
 impl From<String> for ExecResult {
     fn from(value: String) -> Self {
-        Self {
-            output: value.into(),
-            ..default()
-        }
+        Self { output: value.into(), ..default() }
     }
 }
 
 impl From<&'static str> for ExecResult {
     fn from(value: &'static str) -> Self {
-        Self {
-            output: value.into(),
-            ..default()
-        }
+        Self { output: value.into(), ..default() }
     }
 }
 
 impl From<CName> for ExecResult {
     fn from(value: CName) -> Self {
-        Self {
-            output: value,
-            ..default()
-        }
+        Self { output: value, ..default() }
     }
 }
 
@@ -897,8 +809,7 @@ impl Registry {
     pub fn alias<S, C>(&mut self, name: S, command: C)
     where
         S: Into<CName>,
-        C: Into<CName>,
-    {
+        C: Into<CName>, {
         self.insert(
             name.into(),
             CommandImpl {
@@ -914,11 +825,7 @@ impl Registry {
             let cmd = self.get(name).expect("Name in `names` but not in map");
 
             match &cmd.kind {
-                CmdKind::Alias(target) => Some(AliasInfo {
-                    name,
-                    target,
-                    help: &cmd.help,
-                }),
+                CmdKind::Alias(target) => Some(AliasInfo { name, target, help: &cmd.help }),
                 _ => None,
             }
         })
@@ -928,18 +835,14 @@ impl Registry {
     where
         S: Into<CName>,
         C: Into<Cvar>,
-        H: Into<CName>,
-    {
+        H: Into<CName>, {
         let cvar = cvar.into();
         if let Some(sys) = on_set {
             self.changed_cvars.insert(EqHack(sys), cvar.default.clone());
         }
         self.insert(
             name.into(),
-            CommandImpl {
-                kind: CmdKind::Cvar { cvar, on_set },
-                help: help.into(),
-            },
+            CommandImpl { kind: CmdKind::Cvar { cvar, on_set }, help: help.into() },
         );
     }
 
@@ -962,15 +865,8 @@ impl Registry {
     fn command<N, H>(&mut self, name: N, cmd: SystemId<In<Box<[String]>>, ExecResult>, help: H)
     where
         N: Into<CName>,
-        H: Into<CName>,
-    {
-        self.insert(
-            name.into(),
-            CommandImpl {
-                kind: CmdKind::Builtin(cmd),
-                help: help.into(),
-            },
-        );
+        H: Into<CName>, {
+        self.insert(name.into(), CommandImpl { kind: CmdKind::Builtin(cmd), help: help.into() });
     }
 
     /// Removes the command with the given name.
@@ -978,9 +874,7 @@ impl Registry {
     /// Returns an error if there was no command with that name.
     // TODO: If we remove a builtin we should also remove the corresponding system from the world
     pub fn remove<S>(&mut self, name: S) -> Result<(), ConsoleError>
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         let name = name.as_ref();
         // TODO: Use `HashMap::extract_if` when stabilised
         match self.commands.get_mut(name) {
@@ -991,9 +885,7 @@ impl Registry {
 
                 Ok(())
             }
-            None => Err(ConsoleError::NoSuchCommand {
-                cmd: name.to_owned().into(),
-            }),
+            None => Err(ConsoleError::NoSuchCommand { cmd: name.to_owned().into() }),
         }
     }
 
@@ -1001,21 +893,14 @@ impl Registry {
     ///
     /// Returns an error if there was no command with that name.
     pub fn remove_alias<S>(&mut self, name: S) -> Result<(), ConsoleError>
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         let name = name.as_ref();
         // TODO: Use `HashMap::extract_if` when stabilised
         match self.commands.get_mut(name) {
             Some((cmd, overlays)) => {
-                let CommandImpl {
-                    kind: CmdKind::Alias(_),
-                    ..
-                } = overlays.last().unwrap_or(cmd)
+                let CommandImpl { kind: CmdKind::Alias(_), .. } = overlays.last().unwrap_or(cmd)
                 else {
-                    return Err(ConsoleError::NoSuchAlias {
-                        name: name.to_owned().into(),
-                    });
+                    return Err(ConsoleError::NoSuchAlias { name: name.to_owned().into() });
                 };
                 if overlays.pop().is_none() {
                     self.commands.remove(name);
@@ -1023,9 +908,7 @@ impl Registry {
 
                 Ok(())
             }
-            None => Err(ConsoleError::NoSuchAlias {
-                name: name.to_owned().into(),
-            }),
+            None => Err(ConsoleError::NoSuchAlias { name: name.to_owned().into() }),
         }
     }
 
@@ -1033,30 +916,20 @@ impl Registry {
     ///
     /// Returns an error if no command with the specified name exists.
     pub fn get<S>(&self, name: S) -> Option<&CommandImpl>
-    where
-        S: AsRef<str>,
-    {
-        self.commands
-            .get(name.as_ref())
-            .map(|(first, rest)| rest.last().unwrap_or(first))
+    where S: AsRef<str> {
+        self.commands.get(name.as_ref()).map(|(first, rest)| rest.last().unwrap_or(first))
     }
 
     /// Get a command.
     ///
     /// Returns an error if no command with the specified name exists.
     pub fn get_mut<S>(&mut self, name: S) -> Option<&mut CommandImpl>
-    where
-        S: AsRef<str>,
-    {
-        self.commands
-            .get_mut(name.as_ref())
-            .map(|(first, rest)| rest.last_mut().unwrap_or(first))
+    where S: AsRef<str> {
+        self.commands.get_mut(name.as_ref()).map(|(first, rest)| rest.last_mut().unwrap_or(first))
     }
 
     pub fn contains<S>(&self, name: S) -> bool
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         self.commands.contains_key(name.as_ref())
     }
 
@@ -1085,21 +958,13 @@ impl Registry {
     }
 
     pub fn reset_cvar<N>(&mut self, name: N) -> Result<Value, ConsoleError>
-    where
-        N: AsRef<str>,
-    {
-        let (cvar, on_set) =
-            self.get_cvar_mut(name.as_ref())
-                .ok_or_else(|| ConsoleError::NoSuchCvar {
-                    name: name.as_ref().to_owned().into(),
-                })?;
+    where N: AsRef<str> {
+        let (cvar, on_set) = self
+            .get_cvar_mut(name.as_ref())
+            .ok_or_else(|| ConsoleError::NoSuchCvar { name: name.as_ref().to_owned().into() })?;
 
         let to_insert = if let Some(sys) = on_set {
-            if cvar.value.is_some() {
-                Some((EqHack(sys), cvar.default.clone()))
-            } else {
-                None
-            }
+            if cvar.value.is_some() { Some((EqHack(sys), cvar.default.clone())) } else { None }
         } else {
             None
         };
@@ -1114,14 +979,10 @@ impl Registry {
     }
 
     pub fn set_cvar_raw<N>(&mut self, name: N, value: Value) -> Result<Value, ConsoleError>
-    where
-        N: AsRef<str>,
-    {
-        let (cvar, on_set) =
-            self.get_cvar_mut(name.as_ref())
-                .ok_or_else(|| ConsoleError::NoSuchCvar {
-                    name: name.as_ref().to_owned().into(),
-                })?;
+    where N: AsRef<str> {
+        let (cvar, on_set) = self
+            .get_cvar_mut(name.as_ref())
+            .ok_or_else(|| ConsoleError::NoSuchCvar { name: name.as_ref().to_owned().into() })?;
 
         let to_insert = if let Some(sys) = on_set {
             if cvar.value.as_ref().unwrap_or(&cvar.default) != &value {
@@ -1146,12 +1007,9 @@ impl Registry {
     pub fn set_cvar<N, V>(&mut self, name: N, value: V) -> Result<Value, ConsoleError>
     where
         N: AsRef<str>,
-        V: AsRef<str>,
-    {
-        let value =
-            Value::from_str(value.as_ref()).map_err(|_| ConsoleError::CvarParseInvalid {
-                backtrace: Backtrace::capture(),
-            })?;
+        V: AsRef<str>, {
+        let value = Value::from_str(value.as_ref())
+            .map_err(|_| ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() })?;
         self.set_cvar_raw(name, value)
     }
 
@@ -1163,9 +1021,7 @@ impl Registry {
         let name = name.as_ref();
         let cvar = self
             .get_cvar(name)
-            .ok_or_else(|| ConsoleError::NoSuchCvar {
-                name: name.to_owned().into(),
-            })?;
+            .ok_or_else(|| ConsoleError::NoSuchCvar { name: name.to_owned().into() })?;
         serde_lexpr::from_value::<V>(cvar.value()).map_err(|_| ConsoleError::CvarParseFailed {
             name: name.to_owned().into(),
             value: cvar.value().clone(),
@@ -1186,18 +1042,14 @@ impl Registry {
         impl<'a, T>
             LexprArrayDeserializer<
                 T,
-                (
-                    StrDeserializer<'a, ConsoleError>,
-                    serde_lexpr::value::de::Deserializer<'a>,
-                ),
+                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
             >
-        where
-            T: Iterator<
+        where T: Iterator<
                 Item = (
                     StrDeserializer<'a, ConsoleError>,
                     serde_lexpr::value::de::Deserializer<'a>,
                 ),
-            >,
+            >
         {
             fn new(mut values: T) -> Self {
                 let cur = values.next();
@@ -1209,25 +1061,19 @@ impl Registry {
         impl<'a, T> MapAccess<'a>
             for LexprArrayDeserializer<
                 T,
-                (
-                    StrDeserializer<'a, ConsoleError>,
-                    serde_lexpr::value::de::Deserializer<'a>,
-                ),
+                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
             >
-        where
-            T: Iterator<
+        where T: Iterator<
                 Item = (
                     StrDeserializer<'a, ConsoleError>,
                     serde_lexpr::value::de::Deserializer<'a>,
                 ),
-            >,
+            >
         {
             type Error = ConsoleError;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
-            where
-                K: serde::de::DeserializeSeed<'a>,
-            {
+            where K: serde::de::DeserializeSeed<'a> {
                 match &mut self.cur {
                     Some((k, _)) => Ok(Some(seed.deserialize(*k)?)),
                     None => Ok(None),
@@ -1235,18 +1081,12 @@ impl Registry {
             }
 
             fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::DeserializeSeed<'a>,
-            {
+            where V: serde::de::DeserializeSeed<'a> {
                 match mem::replace(&mut self.cur, self.values.next()) {
                     Some((_, mut v)) => Ok(seed.deserialize(&mut v).map_err(|_| {
-                        ConsoleError::CvarParseInvalid {
-                            backtrace: Backtrace::capture(),
-                        }
+                        ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() }
                     })?),
-                    None => Err(ConsoleError::CvarParseInvalid {
-                        backtrace: Backtrace::capture(),
-                    }),
+                    None => Err(ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() }),
                 }
             }
         }
@@ -1276,193 +1116,98 @@ impl Registry {
             }
 
             fn deserialize_any<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("any"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("any"), &"struct"))
             }
 
             fn deserialize_bool<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("bool"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("bool"), &"struct"))
             }
 
             fn deserialize_i8<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("i8"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("i8"), &"struct"))
             }
 
             fn deserialize_i16<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("i16"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("i16"), &"struct"))
             }
 
             fn deserialize_i32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("i32"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("i32"), &"struct"))
             }
 
             fn deserialize_i64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("i64"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("i64"), &"struct"))
             }
 
             fn deserialize_u8<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("u8"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("u8"), &"struct"))
             }
 
             fn deserialize_u16<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("u16"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("u16"), &"struct"))
             }
 
             fn deserialize_u32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("u32"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("u32"), &"struct"))
             }
 
             fn deserialize_u64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("u64"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("u64"), &"struct"))
             }
 
             fn deserialize_f32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("f32"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("f32"), &"struct"))
             }
 
             fn deserialize_f64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("f64"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("f64"), &"struct"))
             }
 
             fn deserialize_char<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("char"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("char"), &"struct"))
             }
 
             fn deserialize_str<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("str"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("str"), &"struct"))
             }
 
             fn deserialize_string<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("string"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("string"), &"struct"))
             }
 
             fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("bytes"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("bytes"), &"struct"))
             }
 
             fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("byte_buf"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("byte_buf"), &"struct"))
             }
 
             fn deserialize_option<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("option"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("option"), &"struct"))
             }
 
             fn deserialize_unit<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("unit"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("unit"), &"struct"))
             }
 
             fn deserialize_unit_struct<V>(
@@ -1473,10 +1218,7 @@ impl Registry {
             where
                 V: serde::de::Visitor<'a>,
             {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("unit_struct"),
-                    &"struct",
-                ))
+                Err(ConsoleError::invalid_type(Unexpected::Other("unit_struct"), &"struct"))
             }
 
             fn deserialize_newtype_struct<V>(
@@ -1487,30 +1229,17 @@ impl Registry {
             where
                 V: serde::de::Visitor<'a>,
             {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("newtype_struct"),
-                    &"struct",
-                ))
+                Err(ConsoleError::invalid_type(Unexpected::Other("newtype_struct"), &"struct"))
             }
 
             fn deserialize_seq<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("seq"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("seq"), &"struct"))
             }
 
             fn deserialize_tuple<V>(self, _: usize, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("tuple"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("tuple"), &"struct"))
             }
 
             fn deserialize_tuple_struct<V>(
@@ -1522,20 +1251,12 @@ impl Registry {
             where
                 V: serde::de::Visitor<'a>,
             {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("tuple_struct"),
-                    &"struct",
-                ))
+                Err(ConsoleError::invalid_type(Unexpected::Other("tuple_struct"), &"struct"))
             }
 
             fn deserialize_map<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("map"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("map"), &"struct"))
             }
 
             fn deserialize_enum<V>(
@@ -1547,30 +1268,17 @@ impl Registry {
             where
                 V: serde::de::Visitor<'a>,
             {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("enum"),
-                    &"struct",
-                ))
+                Err(ConsoleError::invalid_type(Unexpected::Other("enum"), &"struct"))
             }
 
             fn deserialize_identifier<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("identifier"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("identifier"), &"struct"))
             }
 
             fn deserialize_ignored_any<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where
-                V: serde::de::Visitor<'a>,
-            {
-                Err(ConsoleError::invalid_type(
-                    Unexpected::Other("ignored_any"),
-                    &"struct",
-                ))
+            where V: serde::de::Visitor<'a> {
+                Err(ConsoleError::invalid_type(Unexpected::Other("ignored_any"), &"struct"))
             }
         }
 
@@ -1580,31 +1288,28 @@ impl Registry {
 
     pub fn cmd_names(&self) -> impl Iterator<Item = &str> + Clone + '_ {
         self.all_names().filter_map(move |name| {
-            self.get(name)
-                .and_then(|CommandImpl { kind, .. }| match kind {
-                    CmdKind::Builtin(_) => Some(name),
-                    _ => None,
-                })
+            self.get(name).and_then(|CommandImpl { kind, .. }| match kind {
+                CmdKind::Builtin(_) => Some(name),
+                _ => None,
+            })
         })
     }
 
     pub fn alias_names(&self) -> impl Iterator<Item = &str> + Clone + '_ {
         self.all_names().filter_map(move |name| {
-            self.get(name)
-                .and_then(|CommandImpl { kind, .. }| match kind {
-                    CmdKind::Alias(_) => Some(name),
-                    _ => None,
-                })
+            self.get(name).and_then(|CommandImpl { kind, .. }| match kind {
+                CmdKind::Alias(_) => Some(name),
+                _ => None,
+            })
         })
     }
 
     pub fn cvar_names(&self) -> impl Iterator<Item = &str> + Clone + '_ {
         self.all_names().filter_map(move |name| {
-            self.get(name)
-                .and_then(|CommandImpl { kind, .. }| match kind {
-                    CmdKind::Cvar { .. } => Some(name),
-                    _ => None,
-                })
+            self.get(name).and_then(|CommandImpl { kind, .. }| match kind {
+                CmdKind::Cvar { .. } => Some(name),
+                _ => None,
+            })
         })
     }
 
@@ -1635,12 +1340,7 @@ pub struct Cvar {
 
 impl Default for Cvar {
     fn default() -> Self {
-        Self {
-            value: default(),
-            archive: default(),
-            notify: default(),
-            default: Value::Nil,
-        }
+        Self { value: default(), archive: default(), notify: default(), default: Value::Nil }
     }
 }
 
@@ -1800,8 +1500,9 @@ pub fn to_terminal_key<'a>(
     }
 }
 
-// TODO: This can be a tree for much better completions but we don't have enough commands to make it necessary right now
-//       The `lined` interface allocates a lot anyway, so micro-optimisation isn't necessary here.
+// TODO: This can be a tree for much better completions but we don't have enough commands to make it
+// necessary right now       The `lined` interface allocates a lot anyway, so micro-optimisation
+// isn't necessary here.
 struct IterCompleter<'a, I> {
     iter: I,
     _marker: PhantomData<&'a ()>,
@@ -1819,11 +1520,7 @@ where
     ) -> impl Iterator<Item = std::borrow::Cow<'a, str>> + 'a {
         self.iter.clone().filter_map(move |candidate: &'iter Item| {
             let candidate = candidate.into();
-            if candidate.starts_with(start) {
-                Some(candidate)
-            } else {
-                None
-            }
+            if candidate.starts_with(start) { Some(candidate) } else { None }
         })
     }
 }
@@ -1857,10 +1554,7 @@ impl ConsoleInput {
 
         let editor = match Editor::new(
             Prompt::from(Self::PROMPT.to_owned()),
-            ConsoleInputContext {
-                history,
-                ..default()
-            },
+            ConsoleInputContext { history, ..default() },
         ) {
             Ok(mut editor) => {
                 keymap.init(&mut editor)?;
@@ -1872,11 +1566,7 @@ impl ConsoleInput {
             }
         };
 
-        Ok(ConsoleInput {
-            editor,
-            keymap: Emacs::new(),
-            stuffcmds: default(),
-        })
+        Ok(ConsoleInput { editor, keymap: Emacs::new(), stuffcmds: default() })
     }
 
     /// Send characters to the inner editor
@@ -1892,10 +1582,7 @@ impl ConsoleInput {
         Item: ?Sized + 'a,
         &'a Item: Into<std::borrow::Cow<'a, str>>,
     {
-        let mut completer = IterCompleter {
-            iter: candidates,
-            _marker: PhantomData,
-        };
+        let mut completer = IterCompleter { iter: candidates, _marker: PhantomData };
         keys.into_iter().filter_map(move |key| {
             let editor = self.editor.as_mut()?;
 
@@ -1925,9 +1612,7 @@ impl ConsoleInput {
 
     /// Returns the text currently being edited
     pub fn get_text(&self) -> impl Iterator<Item = char> + '_ {
-        Self::PROMPT
-            .chars()
-            .chain(self.editor.iter().flat_map(|e| e.current_buffer().chars()))
+        Self::PROMPT.chars().chain(self.editor.iter().flat_map(|e| e.current_buffer().chars()))
     }
 }
 
@@ -1945,10 +1630,7 @@ pub struct Timestamp {
 
 impl Timestamp {
     pub fn new(timestamp: i64, generation: u16) -> Self {
-        Self {
-            timestamp,
-            generation,
-        }
+        Self { timestamp, generation }
     }
 }
 
@@ -2033,10 +1715,7 @@ impl ConsoleOutput {
         let generation = self.generation();
         self.unwritten_chunks.push((
             Timestamp::new(self.last_timestamp, generation),
-            ConsoleText {
-                text: mem::take(&mut self.buffer),
-                output_type: self.buffer_ty,
-            },
+            ConsoleText { text: mem::take(&mut self.buffer), output_type: self.buffer_ty },
         ));
     }
 
@@ -2059,10 +1738,8 @@ impl ConsoleOutput {
 
     pub fn set_center_print<S: Into<QString>>(&mut self, print: S, timestamp: Duration) {
         let generation = self.generation();
-        self.center_print = Some((
-            Timestamp::new(timestamp.num_milliseconds(), generation),
-            print.into(),
-        ));
+        self.center_print =
+            Some((Timestamp::new(timestamp.num_milliseconds(), generation), print.into()));
     }
 
     pub fn drain_center_print(&mut self) -> Option<(Timestamp, QString)> {
@@ -2078,9 +1755,7 @@ impl ConsoleOutput {
 
 impl RenderConsoleOutput {
     pub fn text(&self) -> impl Iterator<Item = (i64, &ConsoleText)> + '_ {
-        self.text_chunks
-            .iter()
-            .map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
+        self.text_chunks.iter().map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
     }
 
     pub fn center_print(&self, since: Duration) -> Option<QStr<'_>> {
@@ -2119,10 +1794,7 @@ pub struct ConsoleAlertSettings {
 
 impl Default for ConsoleAlertSettings {
     fn default() -> Self {
-        Self {
-            timeout: Duration::try_seconds(3).unwrap(),
-            max_lines: 10,
-        }
+        Self { timeout: Duration::try_seconds(3).unwrap(), max_lines: 10 }
     }
 }
 
@@ -2187,9 +1859,7 @@ mod gfx {
         }
 
         pub fn load<S>(vfs: &Vfs, path: S) -> Palette
-        where
-            S: AsRef<str>,
-        {
+        where S: AsRef<str> {
             let mut data = BufReader::new(vfs.open(path).unwrap());
 
             let mut rgb = [[0u8; 3]; 256];
@@ -2298,17 +1968,10 @@ mod gfx {
             let conchars = Conchars {
                 image,
                 layout,
-                glyph_size: (
-                    Val::Px(GLYPH_WIDTH as _) * SCALE,
-                    Val::Px(GLYPH_HEIGHT as _) * SCALE,
-                ),
+                glyph_size: (Val::Px(GLYPH_WIDTH as _) * SCALE, Val::Px(GLYPH_HEIGHT as _) * SCALE),
             };
 
-            Self {
-                palette,
-                wad,
-                conchars,
-            }
+            Self { palette, wad, conchars }
         }
     }
 }
@@ -2409,11 +2072,7 @@ mod systems {
         use super::*;
 
         pub fn init_alert_output(mut commands: Commands, gfx: Res<Gfx>) {
-            let Conchars {
-                image,
-                layout,
-                glyph_size,
-            } = gfx.conchars.clone();
+            let Conchars { image, layout, glyph_size } = gfx.conchars.clone();
             commands.spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -2429,10 +2088,7 @@ mod systems {
                     image: image.clone(),
                     layout: layout.clone(),
                     glyph_size: (glyph_size.0 * 1.5, glyph_size.1 * 1.5),
-                    line_padding: UiRect {
-                        top: Val::Px(4.),
-                        ..default()
-                    },
+                    line_padding: UiRect { top: Val::Px(4.), ..default() },
                     justify: JustifyContent::Center,
                 },
                 ConsoleTextCenterPrintUi,
@@ -2448,10 +2104,7 @@ mod systems {
                     text: "".into(),
                     image,
                     layout,
-                    line_padding: UiRect {
-                        top: Val::Px(4.),
-                        ..default()
-                    },
+                    line_padding: UiRect { top: Val::Px(4.), ..default() },
                     glyph_size: (glyph_size.0, glyph_size.1),
                     justify: JustifyContent::Center,
                 },
@@ -2465,11 +2118,7 @@ mod systems {
             gfx: Res<Gfx>,
             assets: Res<AssetServer>,
         ) {
-            let Conchars {
-                image: conchars_img,
-                layout,
-                glyph_size,
-            } = gfx.conchars.clone();
+            let Conchars { image: conchars_img, layout, glyph_size } = gfx.conchars.clone();
 
             let conback = QPic::load(vfs.open("gfx/conback.lmp").unwrap()).unwrap();
 
@@ -2524,37 +2173,25 @@ mod systems {
                         })
                         .with_children(|commands| {
                             commands.spawn((
-                                Node {
-                                    flex_direction: FlexDirection::Column,
-                                    ..default()
-                                },
+                                Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "".into(),
                                     image: conchars_img.clone(),
                                     layout: layout.clone(),
                                     glyph_size,
-                                    line_padding: UiRect {
-                                        top: Val::Px(4.),
-                                        ..default()
-                                    },
+                                    line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },
                                 ConsoleTextOutputUi,
                             ));
                             commands.spawn((
-                                Node {
-                                    flex_direction: FlexDirection::Column,
-                                    ..default()
-                                },
+                                Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "] ".into(),
                                     image: conchars_img.clone(),
                                     layout: layout.clone(),
                                     glyph_size,
-                                    line_padding: UiRect {
-                                        top: Val::Px(4.),
-                                        ..default()
-                                    },
+                                    line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },
                                 ConsoleTextInputUi,
@@ -2586,16 +2223,9 @@ mod systems {
     ) {
         to_server.write_batch(unhandled.read().map(|UnhandledCmd(e)| {
             let mut bytes = vec![];
-            let _ = ClientCmd::StringCmd {
-                cmd: e.to_string().into(),
-            }
-            .serialize(&mut bytes);
+            let _ = ClientCmd::StringCmd { cmd: e.to_string().into() }.serialize(&mut bytes);
 
-            ClientMessage {
-                client_id: 0,
-                packet: bytes.into(),
-                kind: MessageKind::Reliable,
-            }
+            ClientMessage { client_id: 0, packet: bytes.into(), kind: MessageKind::Reliable }
         }));
     }
 
@@ -2719,10 +2349,7 @@ mod systems {
     }
 
     pub fn execute_console(world: &mut World) {
-        let mut commands = world
-            .resource_mut::<Events<RunCmd>>()
-            .drain()
-            .collect::<VecDeque<_>>();
+        let mut commands = world.resource_mut::<Events<RunCmd>>().drain().collect::<VecDeque<_>>();
 
         let mut changed_cvars = Vec::new();
 
@@ -2783,11 +2410,7 @@ mod systems {
                                         break;
                                     }
 
-                                    Ok(ExecResult {
-                                        extra_commands,
-                                        output,
-                                        output_ty,
-                                    }) => {
+                                    Ok(ExecResult { extra_commands, output, output_ty }) => {
                                         for command in extra_commands.rev() {
                                             commands.push_front(command);
                                         }
@@ -2877,10 +2500,7 @@ mod systems {
             }
         }
 
-        world
-            .resource_mut::<Registry>()
-            .changed_cvars
-            .extend(changed_cvars);
+        world.resource_mut::<Registry>().changed_cvars.extend(changed_cvars);
     }
 
     pub fn update_cvars(mut commands: Commands, mut registry: ResMut<Registry>) {

@@ -45,8 +45,7 @@ pub trait ConnectPacket {
 
     /// Writes this packet's content to the given sink.
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt;
+    where W: WriteBytesExt;
 
     /// Returns the total length in bytes of this packet, including the header.
     fn packet_len(&self) -> i32 {
@@ -111,9 +110,7 @@ impl ConnectPacket for RequestConnect {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(self.game_name.as_bytes())?;
         writer.write_u8(0)?;
         writer.write_u8(self.proto_ver)?;
@@ -137,9 +134,7 @@ impl ConnectPacket for RequestServerInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(self.game_name.as_bytes())?;
         writer.write_u8(0)?;
         Ok(())
@@ -162,9 +157,7 @@ impl ConnectPacket for RequestPlayerInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_u8(self.player_id)?;
         Ok(())
     }
@@ -186,9 +179,7 @@ impl ConnectPacket for RequestRuleInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(self.prev_cvar.as_bytes())?;
         writer.write_u8(0)?;
         Ok(())
@@ -206,22 +197,13 @@ pub enum Request {
 
 impl Request {
     pub fn connect<S>(game_name: S, proto_ver: u8) -> Request
-    where
-        S: AsRef<str>,
-    {
-        Request::Connect(RequestConnect {
-            game_name: game_name.as_ref().to_owned(),
-            proto_ver,
-        })
+    where S: AsRef<str> {
+        Request::Connect(RequestConnect { game_name: game_name.as_ref().to_owned(), proto_ver })
     }
 
     pub fn server_info<S>(game_name: S) -> Request
-    where
-        S: AsRef<str>,
-    {
-        Request::ServerInfo(RequestServerInfo {
-            game_name: game_name.as_ref().to_owned(),
-        })
+    where S: AsRef<str> {
+        Request::ServerInfo(RequestServerInfo { game_name: game_name.as_ref().to_owned() })
     }
 
     pub fn player_info(player_id: u8) -> Request {
@@ -229,12 +211,8 @@ impl Request {
     }
 
     pub fn rule_info<S>(prev_cvar: S) -> Request
-    where
-        S: AsRef<str>,
-    {
-        Request::RuleInfo(RequestRuleInfo {
-            prev_cvar: prev_cvar.as_ref().to_string(),
-        })
+    where S: AsRef<str> {
+        Request::RuleInfo(RequestRuleInfo { prev_cvar: prev_cvar.as_ref().to_string() })
     }
 }
 
@@ -260,9 +238,7 @@ impl ConnectPacket for Request {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         use self::Request::*;
         match *self {
             Connect(ref c) => c.write_content(writer),
@@ -298,9 +274,7 @@ impl ConnectPacket for ResponseAccept {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_i32::<LittleEndian>(self.port)?;
         Ok(())
     }
@@ -322,9 +296,7 @@ impl ConnectPacket for ResponseReject {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(&self.message.raw)?;
         writer.write_u8(0)?;
         Ok(())
@@ -371,9 +343,7 @@ impl ConnectPacket for ResponseServerInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(self.address.as_bytes())?;
         writer.write_u8(0)?;
         writer.write_all(self.hostname.as_bytes())?;
@@ -427,9 +397,7 @@ impl ConnectPacket for ResponsePlayerInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_u8(self.player_id)?;
         writer.write_all(self.player_name.as_bytes())?;
         writer.write_u8(0)?; // NUL-terminate
@@ -466,9 +434,7 @@ impl ConnectPacket for ResponseRuleInfo {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         writer.write_all(self.cvar_name.as_bytes())?;
         writer.write_u8(0)?;
         writer.write_all(self.cvar_val.as_bytes())?;
@@ -510,9 +476,7 @@ impl ConnectPacket for Response {
     }
 
     fn write_content<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where
-        W: WriteBytesExt,
-    {
+    where W: WriteBytesExt {
         use self::Response::*;
         match *self {
             Accept(ref a) => a.write_content(writer),
@@ -532,9 +496,7 @@ pub struct ConnectListener {
 impl ConnectListener {
     /// Creates a `ConnectListener` from the given address.
     pub fn bind<A>(addr: A) -> Result<ConnectListener, NetError>
-    where
-        A: ToSocketAddrs,
-    {
+    where A: ToSocketAddrs {
         let socket = UdpSocket::bind(addr)?;
 
         Ok(ConnectListener { socket })
@@ -576,9 +538,7 @@ impl ConnectListener {
         let request_code = match RequestCode::from_u8(request_byte) {
             Some(r) => r,
             None => {
-                return Err(NetError::invalid_data(format!(
-                    "request code {request_byte}",
-                )));
+                return Err(NetError::invalid_data(format!("request code {request_byte}",)));
             }
         };
 
@@ -586,10 +546,7 @@ impl ConnectListener {
             RequestCode::Connect => {
                 let game_name = seismon_utils::read_cstring(&mut reader)?.into_string();
                 let proto_ver = reader.read_u8()?;
-                Request::Connect(RequestConnect {
-                    game_name,
-                    proto_ver,
-                })
+                Request::Connect(RequestConnect { game_name, proto_ver })
             }
 
             RequestCode::ServerInfo => {
@@ -623,9 +580,7 @@ pub struct ConnectSocket {
 
 impl ConnectSocket {
     pub fn bind<A>(local: A) -> Result<ConnectSocket, NetError>
-    where
-        A: ToSocketAddrs,
-    {
+    where A: ToSocketAddrs {
         let socket = UdpSocket::bind(local)?;
 
         Ok(ConnectSocket { socket })
@@ -652,8 +607,7 @@ impl ConnectSocket {
         let mut recv_buf = [0u8; MAX_MESSAGE];
 
         // if a timeout was specified, apply it for this recv
-        self.socket
-            .set_read_timeout(timeout.map(|d| d.to_std().unwrap()))?;
+        self.socket.set_read_timeout(timeout.map(|d| d.to_std().unwrap()))?;
         let (len, remote) = match self.socket.recv_from(&mut recv_buf) {
             Err(e) => match e.kind() {
                 ErrorKind::WouldBlock | ErrorKind::TimedOut => return Ok(None),
@@ -692,9 +646,7 @@ impl ConnectSocket {
         let response_code = match ResponseCode::from_u8(response_byte) {
             Some(r) => r,
             None => {
-                return Err(NetError::invalid_data(format!(
-                    "response code {response_byte}",
-                )));
+                return Err(NetError::invalid_data(format!("response code {response_byte}",)));
             }
         };
 
@@ -757,9 +709,7 @@ mod test {
 
     #[test]
     fn test_request_server_info_packet_len() {
-        let request_server_info = RequestServerInfo {
-            game_name: String::from("QUAKE"),
-        };
+        let request_server_info = RequestServerInfo { game_name: String::from("QUAKE") };
         let packet_len = request_server_info.packet_len() as usize;
         let packet = request_server_info.to_bytes().unwrap();
         assert_eq!(packet_len, packet.len());
@@ -775,9 +725,7 @@ mod test {
 
     #[test]
     fn test_request_rule_info_packet_len() {
-        let request_rule_info = RequestRuleInfo {
-            prev_cvar: String::from("sv_gravity"),
-        };
+        let request_rule_info = RequestRuleInfo { prev_cvar: String::from("sv_gravity") };
         let packet_len = request_rule_info.packet_len() as usize;
         let packet = request_rule_info.to_bytes().unwrap();
         assert_eq!(packet_len, packet.len());
@@ -793,9 +741,7 @@ mod test {
 
     #[test]
     fn test_response_reject_packet_len() {
-        let response_reject = ResponseReject {
-            message: QString::from("error"),
-        };
+        let response_reject = ResponseReject { message: QString::from("error") };
         let packet_len = response_reject.packet_len() as usize;
         let packet = response_reject.to_bytes().unwrap();
         assert_eq!(packet_len, packet.len());

@@ -147,8 +147,8 @@ impl io::Write for DefaultTty {
     }
 }
 
-/// The context for a `lined` session. Contains the history, configurable word dividers, keybindings,
-/// the underlying TTY, and the current line being edited.
+/// The context for a `lined` session. Contains the history, configurable word dividers,
+/// keybindings, the underlying TTY, and the current line being edited.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Context<T = DefaultTty, W = DefaultWordDivider> {
     /// The history of previous commands (see [`History`]).
@@ -163,8 +163,8 @@ pub struct Context<T = DefaultTty, W = DefaultWordDivider> {
     pub buffer: String,
 }
 
-/// The core trait of `lined`. This is the entry point that your should interact with if you want to embed
-/// this readline implementation in your code.
+/// The core trait of `lined`. This is the entry point that your should interact with if you want to
+/// embed this readline implementation in your code.
 pub trait EditorContext: fmt::Write {
     /// The inner TTY (see [`Tty`]).
     type Terminal: Tty;
@@ -191,8 +191,7 @@ pub trait EditorContext: fmt::Write {
     fn read_line<C>(&mut self, prompt: Prompt, handler: &mut C) -> io::Result<String>
     where
         C: Completer,
-        Self: Sized,
-    {
+        Self: Sized, {
         self.read_line_with_highlighter(prompt, handler, NoHighlighting)
     }
 
@@ -211,7 +210,8 @@ pub trait EditorContext: fmt::Write {
         self.read_line_with_init_buffer_and_highlighter(prompt, handler, highlighter, Buffer::new())
     }
 
-    /// Same as [`Context::read_line_with_highlighter`], but passes the provided initial buffer to the editor.
+    /// Same as [`Context::read_line_with_highlighter`], but passes the provided initial buffer to
+    /// the editor.
     ///
     /// ```no_run
     /// use liner::{Context, Completer, Prompt, EditorContext};
@@ -246,9 +246,7 @@ pub trait EditorContext: fmt::Write {
     {
         let keybindings = self.key_bindings();
 
-        let ed = Editor::new(prompt, self)?
-            .with_init_buffer(buffer)
-            .with_highlighter(highlighter);
+        let ed = Editor::new(prompt, self)?.with_init_buffer(buffer).with_highlighter(highlighter);
 
         match keybindings {
             KeyBindings::Emacs => Self::handle_keys(keymap::Emacs::new(), ed, handler),
@@ -389,7 +387,8 @@ impl<T> Context<T> {
 }
 
 impl<T, W> Context<T, W> {
-    /// Consume this [`Context`], returning a new one that has the word divider set to `word_divider`.
+    /// Consume this [`Context`], returning a new one that has the word divider set to
+    /// `word_divider`.
     pub fn with_word_divider<NewW>(self, word_divider: NewW) -> Context<T, NewW> {
         Context {
             history: self.history,

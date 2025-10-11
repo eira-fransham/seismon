@@ -91,12 +91,11 @@ fn main() {
         }
     };
 
-    con.history
-        .set_file_name_and_load_history(history_file)
-        .unwrap();
+    con.history.set_file_name_and_load_history(history_file).unwrap();
 
     loop {
-        // Reads the line, the first arg is the prompt, the second arg is a function called on every bit of text leaving lined, and the third is called on every key press
+        // Reads the line, the first arg is the prompt, the second arg is a function called on every
+        // bit of text leaving lined, and the third is called on every key press
         // Basically highlight_dodo(read_line()), where on every keypress, the lambda is called
         let res = con.read_line_with_highlighter(
             Prompt::from("[prompt]\n% "),

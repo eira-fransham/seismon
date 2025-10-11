@@ -125,7 +125,8 @@ use std::{collections::HashSet, error::Error, fmt, iter, sync::Arc};
 use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 
 use crate::server::world::phys::TraceEndBoundary;
-// TODO: Either Trace should be moved into common or the functions requiring it should be moved into server
+// TODO: Either Trace should be moved into common or the functions requiring it should be moved into
+// server
 use crate::server::world::{Trace, TraceEnd, TraceEndKind};
 
 use bevy::prelude::*;
@@ -154,9 +155,7 @@ pub enum BspError {
 
 impl BspError {
     fn with_msg<S>(msg: S) -> Self
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         BspError::Other(msg.as_ref().to_owned())
     }
 }
@@ -208,10 +207,7 @@ impl BspTextureFrame {
 #[derive(Debug)]
 pub enum BspTextureKind {
     Static(BspTextureFrame),
-    Animated {
-        primary: Vec<BspTextureFrame>,
-        alternate: Option<Vec<BspTextureFrame>>,
-    },
+    Animated { primary: Vec<BspTextureFrame>, alternate: Option<Vec<BspTextureFrame>> },
 }
 
 #[derive(Debug)]
@@ -376,10 +372,7 @@ impl BspCollisionHull {
     /// This generates six planes which intersect to form a rectangular prism. The interior of the
     /// prism is `BspLeafContents::Solid`; the exterior is `BspLeafContents::Empty`.
     pub fn for_bounds(mins: Vec3, maxs: Vec3) -> Result<BspCollisionHull, BspError> {
-        debug!(
-            "Generating collision hull for min = {:?} max = {:?}",
-            mins, maxs
-        );
+        debug!("Generating collision hull for min = {:?} max = {:?}", mins, maxs);
 
         if mins.x > maxs.x || mins.y > maxs.y || mins.z > maxs.z {
             return Err(BspError::with_msg("min bound exceeds max bound"));
@@ -773,11 +766,9 @@ impl BspData {
     pub fn face_iter_vertices(&self, face_id: usize) -> impl Iterator<Item = Vec3> + '_ {
         let face = &self.faces[face_id];
 
-        self.edgelist[face.edge_id..face.edge_id + face.edge_count]
-            .iter()
-            .map(move |id| {
-                self.vertices[self.edges[id.index].vertex_ids[id.direction as usize] as usize]
-            })
+        self.edgelist[face.edge_id..face.edge_id + face.edge_count].iter().map(move |id| {
+            self.vertices[self.edges[id.index].vertex_ids[id.direction as usize] as usize]
+        })
     }
 
     pub fn face_texinfo(&self, face_id: usize) -> &BspTexInfo {
@@ -841,9 +832,7 @@ impl BspData {
 
     /// Locates the leaf containing the given position vector and returns its index.
     pub fn find_leaf<V>(&self, pos: V) -> usize
-    where
-        V: Into<Vec3>,
-    {
+    where V: Into<Vec3> {
         let pos_vec = pos.into();
 
         let mut node = &self.render_nodes[0];
@@ -1037,10 +1026,7 @@ mod test {
         ];
 
         for point in empty_points {
-            assert_eq!(
-                hull.contents_at_point(point).unwrap(),
-                BspLeafContents::Empty
-            );
+            assert_eq!(hull.contents_at_point(point).unwrap(), BspLeafContents::Empty);
         }
 
         let solid_points = vec![
@@ -1058,10 +1044,7 @@ mod test {
         ];
 
         for point in solid_points {
-            assert_eq!(
-                hull.contents_at_point(point).unwrap(),
-                BspLeafContents::Solid
-            );
+            assert_eq!(hull.contents_at_point(point).unwrap(), BspLeafContents::Solid);
         }
     }
 }

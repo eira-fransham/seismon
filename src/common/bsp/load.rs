@@ -79,10 +79,7 @@ pub enum BspFileError {
         "invalid BSP file section size: section {section:?} size is {size}, must be multiple of {}",
         section.element_size(),
     )]
-    InvalidSectionSize {
-        section: BspFileSectionId,
-        size: usize,
-    },
+    InvalidSectionSize { section: BspFileSectionId, size: usize },
     #[error("invalid BSP texture frame specifier: {0}")]
     InvalidTextureFrameSpecifier(String),
     #[error("texture has primary animation with 0 frames: {0}")]
@@ -97,9 +94,7 @@ struct BspFileSection {
 
 impl BspFileSection {
     fn read_from<R>(reader: &mut R) -> Result<BspFileSection, BspFileError>
-    where
-        R: ReadBytesExt,
-    {
+    where R: ReadBytesExt {
         let offset = match reader.read_i32::<LittleEndian>()? {
             ofs if ofs < 0 => Err(BspFileError::NegativeSectionOffset(ofs)),
             ofs => Ok(ofs as u64),
@@ -176,19 +171,14 @@ struct BspFileTable {
 
 impl BspFileTable {
     fn read_from<R>(reader: &mut R) -> Result<BspFileTable, BspFileError>
-    where
-        R: ReadBytesExt,
-    {
+    where R: ReadBytesExt {
         let mut sections = [BspFileSection { offset: 0, size: 0 }; SECTION_COUNT];
 
         for (id, section) in sections.iter_mut().enumerate() {
             *section = BspFileSection::read_from(reader)?;
             let section_id = BspFileSectionId::from_usize(id).unwrap();
             if section.size % section_id.element_size() != 0 {
-                Err(BspFileError::InvalidSectionSize {
-                    section: section_id,
-                    size: section.size,
-                })?
+                Err(BspFileError::InvalidSectionSize { section: section_id, size: section.size })?
             }
         }
 
@@ -219,9 +209,7 @@ impl BspFileTable {
 }
 
 fn read_hyperplane<R>(reader: &mut R) -> Result<Hyperplane, failure::Error>
-where
-    R: ReadBytesExt,
-{
+where R: ReadBytesExt {
     let normal: Vec3 = read_f32_3(reader)?.into();
     let dist = reader.read_f32::<LittleEndian>()?;
     let plane = match Axis::from_i32(reader.read_i32::<LittleEndian>()?) {
@@ -278,23 +266,14 @@ where
         let mipmap_size = (width as usize / factor) * (height as usize / factor);
         let offset = tex_section_ofs + tex_ofs + mip_offsets[m] as u64;
         reader.seek(SeekFrom::Start(offset))?;
-        (&mut reader)
-            .take(mipmap_size as u64)
-            .read_to_end(&mut mipmaps[m])?;
+        (&mut reader).take(mipmap_size as u64).read_to_end(&mut mipmaps[m])?;
     }
 
-    Ok(BspFileTexture {
-        name: tex_name,
-        width,
-        height,
-        mipmaps,
-    })
+    Ok(BspFileTexture { name: tex_name, width, height, mipmaps })
 }
 
 fn load_render_node<R>(reader: &mut R) -> Result<BspRenderNode, failure::Error>
-where
-    R: ReadBytesExt,
-{
+where R: ReadBytesExt {
     let plane_id = reader.read_i32::<LittleEndian>()?;
     if plane_id < 0 {
         bail!("Invalid plane id");
@@ -337,9 +316,7 @@ where
 }
 
 fn load_texinfo<R>(reader: &mut R, texture_count: usize) -> Result<BspTexInfo, failure::Error>
-where
-    R: ReadBytesExt,
-{
+where R: ReadBytesExt {
     let s_vector = read_f32_3(reader)?.into();
     let s_offset = reader.read_f32::<LittleEndian>()?;
     let t_vector = read_f32_3(reader)?.into();
@@ -356,23 +333,13 @@ where
         _ => bail!("Invalid texture flags"),
     };
 
-    Ok(BspTexInfo {
-        s_vector,
-        s_offset,
-        t_vector,
-        t_offset,
-
-        tex_id,
-        special,
-    })
+    Ok(BspTexInfo { s_vector, s_offset, t_vector, t_offset, tex_id, special })
 }
 
 /// Load a BSP file, returning the models it contains and a `String` describing the entities
 /// it contains.
 pub fn load<R>(data: R) -> Result<(Vec<Model>, String), failure::Error>
-where
-    R: Read + Seek,
-{
+where R: Read + Seek {
     let mut reader = BufReader::new(data);
 
     let version = reader.read_i32::<LittleEndian>()?;
@@ -413,41 +380,23 @@ where
 
     // check limits
     ensure!(plane_count <= MAX_PLANES, "Plane count exceeds MAX_PLANES");
-    ensure!(
-        vert_count <= MAX_VERTICES,
-        "Vertex count exceeds MAX_VERTICES"
-    );
-    ensure!(
-        vis_section.size <= MAX_VISLIST,
-        "Visibility data size exceeds MAX_VISLIST"
-    );
-    ensure!(
-        render_node_count <= MAX_RENDER_NODES,
-        "Render node count exceeds MAX_RENDER_NODES"
-    );
+    ensure!(vert_count <= MAX_VERTICES, "Vertex count exceeds MAX_VERTICES");
+    ensure!(vis_section.size <= MAX_VISLIST, "Visibility data size exceeds MAX_VISLIST");
+    ensure!(render_node_count <= MAX_RENDER_NODES, "Render node count exceeds MAX_RENDER_NODES");
     ensure!(
         collision_node_count <= MAX_COLLISION_NODES,
         "Collision node count exceeds MAX_COLLISION_NODES"
     );
     ensure!(leaf_count <= MAX_LEAVES, "Leaf count exceeds MAX_LEAVES");
     ensure!(edge_count <= MAX_EDGES, "Edge count exceeds MAX_EDGES");
-    ensure!(
-        edgelist_count <= MAX_EDGELIST,
-        "Edge list count exceeds MAX_EDGELIST"
-    );
-    ensure!(
-        model_count > 0,
-        "No brush models (need at least 1 for worldmodel)"
-    );
+    ensure!(edgelist_count <= MAX_EDGELIST, "Edge list count exceeds MAX_EDGELIST");
+    ensure!(model_count > 0, "No brush models (need at least 1 for worldmodel)");
     ensure!(model_count <= MAX_MODELS, "Model count exceeds MAX_MODELS");
 
     reader.seek(SeekFrom::Start(ent_section.offset))?;
     let mut ent_data = Vec::with_capacity(MAX_ENTSTRING);
     reader.read_until(0x00, &mut ent_data)?;
-    ensure!(
-        ent_data.len() <= MAX_ENTSTRING,
-        "Entity data exceeds MAX_ENTSTRING"
-    );
+    ensure!(ent_data.len() <= MAX_ENTSTRING, "Entity data exceeds MAX_ENTSTRING");
     let ent_string =
         String::from_utf8(ent_data).context("Failed to create string from entity data")?;
     table.check_end_position(&mut reader, BspFileSectionId::Entities)?;
@@ -465,10 +414,7 @@ where
     // load textures
     reader.seek(SeekFrom::Start(tex_section.offset))?;
     let tex_count = reader.read_i32::<LittleEndian>()?;
-    ensure!(
-        tex_count >= 0 && tex_count as usize <= MAX_TEXTURES,
-        "Invalid texture count"
-    );
+    ensure!(tex_count >= 0 && tex_count as usize <= MAX_TEXTURES, "Invalid texture count");
     let tex_count = tex_count as usize;
 
     let mut tex_offsets = Vec::with_capacity(tex_count);
@@ -538,37 +484,27 @@ where
             Some(rest) => {
                 let (frame, stem) = rest.split_at(1);
 
-                debug!(
-                    "Sequencing texture {}: {}",
-                    file_texture_id, &file_texture.name
-                );
+                debug!("Sequencing texture {}: {}", file_texture_id, &file_texture.name);
 
                 let anims =
-                    anim_file_textures
-                        .entry(stem.to_owned())
-                        .or_insert(BspFileTextureAnimations {
-                            primary: Vec::new(),
-                            alternate: Vec::new(),
-                        });
+                    anim_file_textures.entry(stem.to_owned()).or_insert(BspFileTextureAnimations {
+                        primary: Vec::new(),
+                        alternate: Vec::new(),
+                    });
 
                 match frame.chars().next().unwrap() {
                     '0'..='9' => anims.primary.push((file_texture_id, file_texture)),
                     // guaranteed to be lowercase by load_texture
                     'a'..='j' => anims.alternate.push((file_texture_id, file_texture)),
-                    _ => Err(BspFileError::InvalidTextureFrameSpecifier(
-                        file_texture.name.clone(),
-                    ))?,
+                    _ => {
+                        Err(BspFileError::InvalidTextureFrameSpecifier(file_texture.name.clone()))?
+                    }
                 };
             }
 
             // if the string doesn't match, it's not animated, so add it as a static texture
             None => {
-                let BspFileTexture {
-                    name,
-                    width,
-                    height,
-                    mipmaps,
-                } = file_texture;
+                let BspFileTexture { name, width, height, mipmaps } = file_texture;
 
                 let texture_id = textures.len();
                 static_texture_ids.insert(file_texture_id, texture_id);
@@ -584,13 +520,8 @@ where
     }
 
     // sequence animated textures with the same stem
-    for (
-        name,
-        BspFileTextureAnimations {
-            primary: mut pri,
-            alternate: mut alt,
-        },
-    ) in anim_file_textures.into_iter()
+    for (name, BspFileTextureAnimations { primary: mut pri, alternate: mut alt }) in
+        anim_file_textures.into_iter()
     {
         if pri.is_empty() {
             Err(BspFileError::EmptyPrimaryAnimation(name.to_owned()))?;
@@ -608,14 +539,9 @@ where
         let mut corresponding_file_ids = Vec::new();
         let mut primary = Vec::new();
         for (file_id, file_texture) in pri {
-            debug!(
-                "primary frame: id = {}, name = {}",
-                file_id, file_texture.name
-            );
+            debug!("primary frame: id = {}, name = {}", file_id, file_texture.name);
             corresponding_file_ids.push(file_id);
-            primary.push(BspTextureFrame {
-                mipmaps: file_texture.mipmaps,
-            });
+            primary.push(BspTextureFrame { mipmaps: file_texture.mipmaps });
         }
 
         let mut alt_corresp_file_ids = Vec::new();
@@ -626,9 +552,7 @@ where
                 let mut alternate = Vec::new();
                 for (file_id, file_texture) in alt {
                     alt_corresp_file_ids.push(file_id);
-                    alternate.push(BspTextureFrame {
-                        mipmaps: file_texture.mipmaps,
-                    });
+                    alternate.push(BspTextureFrame { mipmaps: file_texture.mipmaps });
                 }
                 Some(alternate)
             }
@@ -679,9 +603,7 @@ where
 
     // visibility data
     let mut vis_data = Vec::with_capacity(vis_section.size);
-    (&mut reader)
-        .take(vis_section.size as u64)
-        .read_to_end(&mut vis_data)?;
+    (&mut reader).take(vis_section.size as u64).read_to_end(&mut vis_data)?;
     table.check_end_position(&mut reader, BspFileSectionId::Visibility)?;
 
     // render nodes
@@ -759,9 +681,7 @@ where
 
     reader.seek(SeekFrom::Start(lightmap_section.offset))?;
     let mut lightmaps = Vec::with_capacity(lightmap_section.size);
-    (&mut reader)
-        .take(lightmap_section.size as u64)
-        .read_to_end(&mut lightmaps)?;
+    (&mut reader).take(lightmap_section.size as u64).read_to_end(&mut lightmaps)?;
     table.check_end_position(&mut reader, BspFileSectionId::Lightmaps)?;
 
     reader.seek(SeekFrom::Start(collision_node_section.offset))?;
@@ -789,10 +709,7 @@ where
             x => BspCollisionNodeChild::Node(x as usize),
         };
 
-        collision_nodes.push(BspCollisionNode {
-            plane_id,
-            children: [front, back],
-        });
+        collision_nodes.push(BspCollisionNode { plane_id, children: [front, back] });
     }
 
     let collision_nodes_rc: Arc<[_]> = collision_nodes.into_boxed_slice().into();
@@ -835,8 +752,8 @@ where
     // });
 
     for _ in 0..leaf_count {
-        // note the negation here (the constants are negative in the original engine to differentiate
-        // them from plane IDs)
+        // note the negation here (the constants are negative in the original engine to
+        // differentiate them from plane IDs)
         let contents_id = -reader.read_i32::<LittleEndian>()?;
 
         let contents = match BspLeafContents::from_i32(contents_id) {
@@ -875,9 +792,7 @@ where
         facelist.push(reader.read_u16::<LittleEndian>()? as usize);
     }
     if reader.stream_position()?
-        != reader.seek(SeekFrom::Start(
-            facelist_section.offset + facelist_section.size as u64,
-        ))?
+        != reader.seek(SeekFrom::Start(facelist_section.offset + facelist_section.size as u64))?
     {
         bail!("BSP read data misaligned");
     }
@@ -886,10 +801,7 @@ where
     let mut edges = Vec::with_capacity(edge_count);
     for _ in 0..edge_count {
         edges.push(BspEdge {
-            vertex_ids: [
-                reader.read_u16::<LittleEndian>()?,
-                reader.read_u16::<LittleEndian>()?,
-            ],
+            vertex_ids: [reader.read_u16::<LittleEndian>()?, reader.read_u16::<LittleEndian>()?],
         });
     }
     table.check_end_position(&mut reader, BspFileSectionId::Edges)?;
@@ -898,23 +810,17 @@ where
     let mut edgelist = Vec::with_capacity(edgelist_count);
     for _ in 0..edgelist_count {
         edgelist.push(match reader.read_i32::<LittleEndian>()? {
-            x if x >= 0 => BspEdgeIndex {
-                direction: BspEdgeDirection::Forward,
-                index: x as usize,
-            },
+            x if x >= 0 => BspEdgeIndex { direction: BspEdgeDirection::Forward, index: x as usize },
 
-            x if x < 0 => BspEdgeIndex {
-                direction: BspEdgeDirection::Backward,
-                index: -x as usize,
-            },
+            x if x < 0 => {
+                BspEdgeIndex { direction: BspEdgeDirection::Backward, index: -x as usize }
+            }
 
             x => bail!(format!("Invalid edge index {}", x)),
         });
     }
     if reader.stream_position()?
-        != reader.seek(SeekFrom::Start(
-            edgelist_section.offset + edgelist_section.size as u64,
-        ))?
+        != reader.seek(SeekFrom::Start(edgelist_section.offset + edgelist_section.size as u64))?
     {
         bail!("BSP read data misaligned");
     }
@@ -1092,9 +998,7 @@ where
 }
 
 fn read_i16_3<R>(reader: &mut R) -> Result<[i16; 3], std::io::Error>
-where
-    R: ReadBytesExt,
-{
+where R: ReadBytesExt {
     let mut ar = [0i16; 3];
     reader.read_i16_into::<LittleEndian>(&mut ar)?;
     Ok(ar)

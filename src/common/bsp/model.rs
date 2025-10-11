@@ -80,16 +80,14 @@ pub mod systems {
                 continue;
             };
 
-            let lightmap_atlas = match bsp_data
-                .0
-                .compute_lightmap_atlas(PerStyleLightmapPacker::new(default()))
-            {
-                Ok(atlas) => Some(atlas),
-                Err(e) => {
-                    error!("Error computing lightmap for BSP: {e}");
-                    None
-                }
-            };
+            let lightmap_atlas =
+                match bsp_data.0.compute_lightmap_atlas(PerStyleLightmapPacker::new(default())) {
+                    Ok(atlas) => Some(atlas),
+                    Err(e) => {
+                        error!("Error computing lightmap for BSP: {e}");
+                        None
+                    }
+                };
 
             let mut bsp_model_iter = bsp_data.0.models.iter().enumerate();
 
@@ -100,9 +98,8 @@ pub mod systems {
 
             // Non-world models (do not require vis calculation)
             for (i, bsp_model) in bsp_model_iter {
-                let mesh = bsp_data
-                    .0
-                    .mesh_model(i, lightmap_atlas.as_ref().map(|atlas| &atlas.uvs));
+                let mesh =
+                    bsp_data.0.mesh_model(i, lightmap_atlas.as_ref().map(|atlas| &atlas.uvs));
             }
         }
     }
@@ -115,20 +112,16 @@ pub mod systems {
         bsp_data: Res<Assets<BspAsset>>,
     ) {
         for (model_ent, worldmodel, leaves, bsp_target, mut cached_vis) in worldmodels {
-            let Some(bsp_data) = bsps
-                .get(bsp_target.0)
-                .ok()
-                .and_then(|bsp| bsp_data.get(&bsp.data))
+            let Some(bsp_data) =
+                bsps.get(bsp_target.0).ok().and_then(|bsp| bsp_data.get(&bsp.data))
             else {
                 commands.entity(model_ent).despawn();
                 continue;
             };
 
             let cam_count = cached_vis.last_leaves_seen.len();
-            let prev_vis = mem::replace(
-                &mut cached_vis.last_leaves_seen,
-                HashSet::with_capacity(cam_count),
-            );
+            let prev_vis =
+                mem::replace(&mut cached_vis.last_leaves_seen, HashSet::with_capacity(cam_count));
             let mut visible = BitVec::repeat(false, leaves.len());
 
             for camera in cameras {
@@ -142,19 +135,13 @@ pub mod systems {
                 }
             }
 
-            for ((is_enabled, last_enabled), leaf) in visible
-                .iter()
-                .zip(&cached_vis.last_vis_bits)
-                .zip(&leaves[..])
+            for ((is_enabled, last_enabled), leaf) in
+                visible.iter().zip(&cached_vis.last_vis_bits).zip(&leaves[..])
             {
                 if is_enabled != last_enabled {
-                    commands
-                        .entity(*leaf)
-                        .remove_recursive::<Children, Disabled>();
+                    commands.entity(*leaf).remove_recursive::<Children, Disabled>();
                 } else {
-                    commands
-                        .entity(*leaf)
-                        .insert_recursive::<Children>(Disabled);
+                    commands.entity(*leaf).insert_recursive::<Children>(Disabled);
                 }
             }
 

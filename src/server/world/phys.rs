@@ -132,17 +132,11 @@ pub struct TraceEnd {
 
 impl TraceEnd {
     pub fn terminal(point: Vec3) -> TraceEnd {
-        TraceEnd {
-            point,
-            kind: TraceEndKind::Terminal,
-        }
+        TraceEnd { point, kind: TraceEndKind::Terminal }
     }
 
     pub fn boundary(point: Vec3, ratio: f32, plane: Hyperplane) -> TraceEnd {
-        TraceEnd {
-            point,
-            kind: TraceEndKind::Boundary(TraceEndBoundary { ratio, plane }),
-        }
+        TraceEnd { point, kind: TraceEndKind::Boundary(TraceEndBoundary { ratio, plane }) }
     }
 
     pub fn kind(&self) -> &TraceEndKind {
@@ -163,14 +157,8 @@ pub struct Trace {
 impl Trace {
     pub fn uninitialized(start: Vec3, end: Vec3) -> Self {
         Self {
-            start: TraceStart {
-                point: start,
-                ratio: 0.,
-            },
-            end: TraceEnd {
-                point: end,
-                kind: TraceEndKind::Terminal,
-            },
+            start: TraceStart { point: start, ratio: 0. },
+            end: TraceEnd { point: end, kind: TraceEndKind::Terminal },
             ..Default::default()
         }
     }
@@ -192,14 +180,8 @@ impl Trace {
     /// Adjusts the start and end points of the trace by an offset.
     pub fn adjust(self, offset: Vec3) -> Trace {
         Trace {
-            start: TraceStart {
-                point: self.start.point + offset,
-                ratio: self.start.ratio,
-            },
-            end: TraceEnd {
-                point: self.end.point + offset,
-                kind: self.end.kind,
-            },
+            start: TraceStart { point: self.start.point + offset, ratio: self.start.ratio },
+            end: TraceEnd { point: self.end.point + offset, kind: self.end.kind },
             start_solid: self.start_solid,
             all_solid: self.all_solid,
             in_open: self.in_open,

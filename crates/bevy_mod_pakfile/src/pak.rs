@@ -156,15 +156,10 @@ impl AssetReader for Pak {
         &'a self,
         path: &'a Path,
     ) -> Result<Box<PathStream>, AssetReaderError> {
-        let entry = self
-            .entries
-            .get(path)
-            .ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
-        let dir_entries = if let PakEntry::Directory(entries) = entry {
-            Some(entries)
-        } else {
-            None
-        };
+        let entry =
+            self.entries.get(path).ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
+        let dir_entries =
+            if let PakEntry::Directory(entries) = entry { Some(entries) } else { None };
         let iter = dir_entries
             .into_iter()
             .flat_map(AsRef::as_ref)
@@ -234,12 +229,9 @@ impl Pak {
                 s => s as u32,
             };
 
-            let last = path_bytes
-                .iter()
-                .position(|b| *b == 0)
-                .ok_or(PakError::FileNameTooLong(
-                    String::from_utf8_lossy(&path_bytes).into_owned(),
-                ))?;
+            let last = path_bytes.iter().position(|b| *b == 0).ok_or(PakError::FileNameTooLong(
+                String::from_utf8_lossy(&path_bytes).into_owned(),
+            ))?;
             let path = String::from_utf8(path_bytes[0..last].to_vec())?;
 
             map.insert(
@@ -274,10 +266,6 @@ impl Pak {
 
         let name = name.to_string();
 
-        Ok(Pak {
-            name,
-            memory: bytes,
-            entries: map,
-        })
+        Ok(Pak { name, memory: bytes, entries: map })
     }
 }

@@ -76,9 +76,7 @@ fn main() {
         }
     };
 
-    con.history
-        .set_file_name_and_load_history(history_file)
-        .unwrap();
+    con.history.set_file_name_and_load_history(history_file).unwrap();
 
     loop {
         let res = con.read_line_with_highlighter(

@@ -310,12 +310,7 @@ fn vi_move_word_end<C: EditorContext>(
 
 fn find_char(buf: &Buffer, start: usize, ch: char, count: usize) -> Option<usize> {
     assert!(count > 0);
-    buf.chars()
-        .enumerate()
-        .skip(start)
-        .filter(|(_, c)| *c == ch)
-        .nth(count - 1)
-        .map(|(i, _)| i)
+    buf.chars().enumerate().skip(start).filter(|(_, c)| *c == ch).nth(count - 1).map(|(i, _)| i)
 }
 
 fn find_char_rev(buf: &Buffer, start: usize, ch: char, count: usize) -> Option<usize> {
@@ -520,10 +515,7 @@ impl Vi {
 
     /// Get the current count or the number of remaining chars in the buffer.
     fn move_count_right<C: EditorContext>(&self, ed: &Editor<C, dyn Highlighter>) -> usize {
-        cmp::min(
-            ed.current_buffer().num_chars() - ed.cursor(),
-            self.move_count(),
-        )
+        cmp::min(ed.current_buffer().num_chars() - ed.cursor(), self.move_count())
     }
 
     fn repeat<C: EditorContext>(&mut self, ed: &mut Editor<C, dyn Highlighter>) -> io::Result<()> {
@@ -1239,15 +1231,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Char('i'),
-                Char('n'),
-                Char('s'),
-                Char('e'),
-                Char('r'),
-                Char('t'),
-            ]
-            .iter(),
+            [Char('i'), Char('n'), Char('s'), Char('e'), Char('r'), Char('t')].iter(),
         );
 
         assert_eq!(ed.cursor(), 6);
@@ -1321,7 +1305,7 @@ mod tests {
                 Char('i'),
                 Esc,
                 Char('i'),
-                //Ctrl+[ is the same as escape
+                // Ctrl+[ is the same as escape
                 Ctrl('['),
                 Char('i'),
                 Esc,
@@ -1388,24 +1372,15 @@ mod tests {
         simulate_keys(&mut map, &mut ed, [Ctrl('r'), Right].iter());
         assert_eq!(ed.cursor(), 12);
 
-        //simulate_keys(&mut map,     &mut ed, [Ctrl('['), Char('u'), Char('i')].iter());
+        // simulate_keys(&mut map,     &mut ed, [Ctrl('['), Char('u'), Char('i')].iter());
         ed.delete_all_before_cursor().unwrap();
         assert_eq!(ed.cursor(), 0);
-        //ed.insert_str_after_cursor("pat").unwrap();
-        //assert_eq!(ed.cursor(), 3);
+        // ed.insert_str_after_cursor("pat").unwrap();
+        // assert_eq!(ed.cursor(), 3);
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Ctrl('r'),
-                Char('p'),
-                Char('a'),
-                Char('t'),
-                Ctrl('['),
-                Char('k'),
-                Ctrl('f'),
-            ]
-            .iter(),
+            [Ctrl('r'), Char('p'), Char('a'), Char('t'), Ctrl('['), Char('k'), Ctrl('f')].iter(),
         );
         assert_eq!(ed.cursor(), 14);
 
@@ -1422,11 +1397,7 @@ mod tests {
         assert_eq!(ed.cursor(), 0);
         ed.insert_str_after_cursor("pat").unwrap();
         assert_eq!(ed.cursor(), 3);
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Ctrl('s'), Ctrl('['), Char('j'), Right].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Ctrl('s'), Ctrl('['), Char('j'), Right].iter());
         assert_eq!(ed.cursor(), 11);
     }
 
@@ -1440,11 +1411,7 @@ mod tests {
         ed.insert_str_after_cursor("data").unwrap();
         assert_eq!(ed.cursor(), 4);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Delete, Char('x')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Delete, Char('x')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "ta");
     }
@@ -1461,7 +1428,7 @@ mod tests {
             &mut map,
             &mut ed,
             [
-                //ctrl+[ is the same as Esc
+                // ctrl+[ is the same as Esc
                 Ctrl('['),
                 Char('0'),
                 Char('s'),
@@ -1507,7 +1474,7 @@ mod tests {
                 Char('s'),
                 Char('b'),
                 Char('e'),
-                //The same as Esc
+                // The same as Esc
                 Ctrl('['),
                 Char('4'),
                 Char('l'),
@@ -1733,7 +1700,7 @@ mod tests {
             &mut map,
             &mut ed,
             [
-                //same as Esc
+                // same as Esc
                 Ctrl('['),
                 Char('3'),
                 Char('i'),
@@ -1756,11 +1723,7 @@ mod tests {
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Char('i'), Char('f'), Esc, Char('.'), Char('.')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Char('i'), Char('f'), Esc, Char('.'), Char('.')].iter());
         assert_eq!(String::from(ed), "iiifff");
     }
 
@@ -1772,11 +1735,7 @@ mod tests {
         let mut map = Vi::new();
         map.init(&mut ed).unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Char('i'), Char('f'), Esc, Char('3'), Char('.')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Char('i'), Char('f'), Esc, Char('3'), Char('.')].iter());
         assert_eq!(String::from(ed), "iifififf");
     }
 
@@ -1808,16 +1767,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('a'),
-                Char('i'),
-                Char('f'),
-                Esc,
-                Char('.'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('a'), Char('i'), Char('f'), Esc, Char('.'), Char('.')].iter(),
         );
         assert_eq!(String::from(ed), "ififif");
     }
@@ -1834,16 +1784,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('a'),
-                Char('i'),
-                Char('f'),
-                Esc,
-                Char('3'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('a'), Char('i'), Char('f'), Esc, Char('3'), Char('.')].iter(),
         );
         assert_eq!(String::from(ed), "ifififif");
     }
@@ -1906,18 +1847,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('3'),
-                Char('i'),
-                Char('t'),
-                Char('h'),
-                Char('i'),
-                Char('s'),
-                Left,
-                Esc,
-            ]
-            .iter(),
+            [Esc, Char('3'), Char('i'), Char('t'), Char('h'), Char('i'), Char('s'), Left, Esc]
+                .iter(),
         );
         assert_eq!(String::from(ed), "this");
     }
@@ -1947,11 +1878,7 @@ mod tests {
         ed.insert_str_after_cursor("right").unwrap();
         assert_eq!(ed.cursor(), 5);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('3'), Left, Char('i'), Char(' '), Esc].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('3'), Left, Char('i'), Char(' '), Esc].iter());
         assert_eq!(String::from(ed), "r ight");
     }
 
@@ -1966,11 +1893,7 @@ mod tests {
         ed.insert_str_after_cursor("replace").unwrap();
         assert_eq!(ed.cursor(), 7);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('3'), Char('r'), Char('x')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('3'), Char('r'), Char('x')].iter());
         // the cursor should not have moved and no change should have occured
         assert_eq!(ed.cursor(), 6);
         assert_eq!(String::from(ed), "replace");
@@ -2001,11 +1924,7 @@ mod tests {
         ed.insert_str_after_cursor("replace").unwrap();
         assert_eq!(ed.cursor(), 7);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('3'), Char('r'), Char(' ')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('3'), Char('r'), Char(' ')].iter());
         // cursor should be on the last replaced char
         assert_eq!(ed.cursor(), 2);
         assert_eq!(String::from(ed), "   lace");
@@ -2022,11 +1941,7 @@ mod tests {
         ed.insert_str_after_cursor("replace").unwrap();
         assert_eq!(ed.cursor(), 7);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('3'), Char('r'), Char('x')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('3'), Char('r'), Char('x')].iter());
         // the cursor should not have moved and no change should have occured
         assert_eq!(ed.cursor(), 6);
         assert_eq!(String::from(ed), "replace");
@@ -2043,11 +1958,7 @@ mod tests {
         ed.insert_str_after_cursor("replace").unwrap();
         assert_eq!(ed.cursor(), 7);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('r'), Char('x'), Char('0')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('r'), Char('x'), Char('0')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "replacx");
     }
@@ -2066,17 +1977,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('r'),
-                Char('x'),
-                Char('.'),
-                Char('.'),
-                Char('7'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('r'), Char('x'), Char('.'), Char('.'), Char('7'), Char('.')]
+                .iter(),
         );
         assert_eq!(String::from(ed), "xxxxxxx");
     }
@@ -2125,16 +2027,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('3'),
-                Char('r'),
-                Char('x'),
-                Char('.'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('3'), Char('r'), Char('x'), Char('.'), Char('.')].iter(),
         );
         assert_eq!(String::from(ed), "xxxt");
     }
@@ -2217,11 +2110,7 @@ mod tests {
         ed.insert_str_after_cursor("replace").unwrap();
         assert_eq!(ed.cursor(), 7);
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('2'), Char('x'), Char('.')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('2'), Char('x'), Char('.')].iter());
         assert_eq!(String::from(ed), "ace");
     }
 
@@ -2252,17 +2141,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('d'),
-                Char('d'),
-                Char('i'),
-                Char('n'),
-                Char('e'),
-                Char('w'),
-                Esc,
-            ]
-            .iter(),
+            [Esc, Char('d'), Char('d'), Char('i'), Char('n'), Char('e'), Char('w'), Esc].iter(),
         );
         assert_eq!(ed.cursor(), 2);
         assert_eq!(String::from(ed), "new");
@@ -2281,16 +2160,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('d'),
-                Esc,
-                Char('d'),
-                Char('c'),
-                Char('c'),
-                Char('d'),
-            ]
-            .iter(),
+            [Esc, Char('d'), Esc, Char('d'), Char('c'), Char('c'), Char('d')].iter(),
         );
         assert_eq!(ed.cursor(), 11);
         assert_eq!(String::from(ed), "don't delete");
@@ -2319,11 +2189,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('3'), Char('d'), Char('h')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('3'), Char('d'), Char('h')].iter());
         assert_eq!(ed.cursor(), 2);
         assert_eq!(String::from(ed), "dee");
     }
@@ -2338,11 +2204,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('d'), Char('l')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('d'), Char('l')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "elete");
     }
@@ -2357,11 +2219,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('3'), Char('d'), Char('l')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('3'), Char('d'), Char('l')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "ete");
     }
@@ -2376,11 +2234,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('d'), Char('l'), Char('.')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('d'), Char('l'), Char('.')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "lete");
     }
@@ -2395,11 +2249,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('d'), Char('$')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('d'), Char('$')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "");
     }
@@ -2428,11 +2278,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('$'), Char('d'), Char('0')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('$'), Char('d'), Char('0')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "e");
     }
@@ -2469,16 +2315,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('2'),
-                Char('d'),
-                Char('2'),
-                Char('l'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('2'), Char('d'), Char('2'), Char('l'), Char('.')].iter(),
         );
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "elete");
@@ -2886,11 +2723,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("delete some words").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('d'), Char('w')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('d'), Char('w')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "some words");
     }
@@ -2908,16 +2741,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('c'),
-                Char('c'),
-                Char('d'),
-                Char('o'),
-                Char('n'),
-                Char('e'),
-            ]
-            .iter(),
+            [Esc, Char('c'), Char('c'), Char('d'), Char('o'), Char('n'), Char('e')].iter(),
         );
         assert_eq!(ed.cursor(), 4);
         assert_eq!(String::from(ed), "done");
@@ -2932,11 +2756,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('c'), Char('h'), Char('e'), Esc].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('c'), Char('h'), Char('e'), Esc].iter());
         assert_eq!(ed.cursor(), 4);
         assert_eq!(String::from(ed), "chanee");
     }
@@ -2950,11 +2770,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('3'), Char('c'), Char('h'), Char('e')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('3'), Char('c'), Char('h'), Char('e')].iter());
         assert_eq!(ed.cursor(), 3);
         assert_eq!(String::from(ed), "chee");
     }
@@ -2968,11 +2784,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('c'), Char('l'), Char('s')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('c'), Char('l'), Char('s')].iter());
         assert_eq!(ed.cursor(), 1);
         assert_eq!(String::from(ed), "shange");
     }
@@ -3052,16 +2864,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('c'),
-                Char('$'),
-                Char('o'),
-                Char('k'),
-                Esc,
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('c'), Char('$'), Char('o'), Char('k'), Esc].iter(),
         );
         assert_eq!(ed.cursor(), 1);
         assert_eq!(String::from(ed), "ok");
@@ -3076,11 +2879,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("change").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('C'), Char('o'), Char('k')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('C'), Char('o'), Char('k')].iter());
         assert_eq!(ed.cursor(), 2);
         assert_eq!(String::from(ed), "ok");
     }
@@ -3098,18 +2897,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('2'),
-                Char('l'),
-                Char('C'),
-                Char(' '),
-                Char('o'),
-                Char('k'),
-                Esc,
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('2'), Char('l'), Char('C'), Char(' '), Char('o'), Char('k'), Esc]
+                .iter(),
         );
         assert_eq!(String::from(ed), "ch ok");
     }
@@ -3191,18 +2980,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('2'),
-                Char('c'),
-                Char('2'),
-                Char('l'),
-                Char('o'),
-                Esc,
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('2'), Char('c'), Char('2'), Char('l'), Char('o'), Esc, Char('.')]
+                .iter(),
         );
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "ochange");
@@ -3283,11 +3062,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('t'), Char('z')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('t'), Char('z')].iter());
         assert_eq!(ed.cursor(), 0);
     }
 
@@ -3300,11 +3075,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('t'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('t'), Char('d')].iter());
         assert_eq!(ed.cursor(), 3);
     }
 
@@ -3318,11 +3089,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg d").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('2'), Char('t'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('2'), Char('t'), Char('d')].iter());
         assert_eq!(ed.cursor(), 8);
     }
 
@@ -3335,11 +3102,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('t'), Char('d'), Char('l')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('t'), Char('d'), Char('l')].iter());
         assert_eq!(ed.cursor(), 4);
     }
 
@@ -3353,11 +3116,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('d'), Char('t'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('d'), Char('t'), Char('d')].iter());
         assert_eq!(ed.cursor(), 0);
         assert_eq!(String::from(ed), "defg");
     }
@@ -3375,17 +3134,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('c'),
-                Char('t'),
-                Char('d'),
-                Char('z'),
-                Char(' '),
-                Esc,
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('c'), Char('t'), Char('d'), Char('z'), Char(' '), Esc].iter(),
         );
         assert_eq!(ed.cursor(), 1);
         assert_eq!(String::from(ed), "z defg");
@@ -3400,11 +3149,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('f'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('f'), Char('d')].iter());
         assert_eq!(ed.cursor(), 4);
     }
 
@@ -3417,11 +3162,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('$'), Char('T'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('$'), Char('T'), Char('d')].iter());
         assert_eq!(ed.cursor(), 5);
     }
 
@@ -3434,11 +3175,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc defg").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('$'), Char('F'), Char('d')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('$'), Char('F'), Char('d')].iter());
         assert_eq!(ed.cursor(), 4);
     }
 
@@ -3451,11 +3188,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("abc abc").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('f'), Char('c'), Char(';')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('f'), Char('c'), Char(';')].iter());
         assert_eq!(ed.cursor(), 6);
     }
 
@@ -3507,17 +3240,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('f'),
-                Char('c'),
-                Char('d'),
-                Char(';'),
-                Char('.'),
-                Char('.'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('f'), Char('c'), Char('d'), Char(';'), Char('.'), Char('.')]
+                .iter(),
         );
         assert_eq!(String::from(ed), "ab");
     }
@@ -3564,10 +3288,7 @@ mod tests {
         let mut context = Context::test();
         let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcdefg").unwrap();
-        assert_eq!(
-            super::find_char_rev(ed.current_buffer(), 6, 'd', 1),
-            Some(3)
-        );
+        assert_eq!(super::find_char_rev(ed.current_buffer(), 6, 'd', 1), Some(3));
     }
 
     #[test]
@@ -3576,10 +3297,7 @@ mod tests {
         let mut context = Context::test();
         let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
-        assert_eq!(
-            super::find_char_rev(ed.current_buffer(), 5, 'c', 1),
-            Some(2)
-        );
+        assert_eq!(super::find_char_rev(ed.current_buffer(), 5, 'c', 1), Some(2));
     }
 
     #[test]
@@ -3588,10 +3306,7 @@ mod tests {
         let mut context = Context::test();
         let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         ed.insert_str_after_cursor("abcabc").unwrap();
-        assert_eq!(
-            super::find_char_rev(ed.current_buffer(), 6, 'c', 2),
-            Some(2)
-        );
+        assert_eq!(super::find_char_rev(ed.current_buffer(), 6, 'c', 2), Some(2));
     }
 
     #[test]
@@ -3632,16 +3347,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('x'),
-                Char('x'),
-                Char('x'),
-                Char('u'),
-                Char('u'),
-                Char('u'),
-            ]
-            .iter(),
+            [Esc, Char('x'), Char('x'), Char('x'), Char('u'), Char('u'), Char('u')].iter(),
         );
         // Ctrl-r taken by incremental search so do this manually.
         ed.redo().unwrap();
@@ -3692,17 +3398,8 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Char('i'),
-                Char('n'),
-                Char('s'),
-                Char('e'),
-                Char('r'),
-                Char('t'),
-                Esc,
-                Char('u'),
-            ]
-            .iter(),
+            [Char('i'), Char('n'), Char('s'), Char('e'), Char('r'), Char('t'), Esc, Char('u')]
+                .iter(),
         );
         assert_eq!(String::from(ed), "");
     }
@@ -3740,10 +3437,7 @@ mod tests {
     /// test undo in groups
     fn undo_insert_with_history() {
         let mut context = Context::test();
-        context
-            .history
-            .push(Buffer::from("insert something"))
-            .unwrap();
+        context.history.push(Buffer::from("insert something")).unwrap();
 
         let mut ed = Editor::new(Prompt::from("prompt"), &mut context).unwrap();
         let mut map = Vi::new();
@@ -3860,11 +3554,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("rm some words").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('3'), Char('x'), Char('u')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('3'), Char('x'), Char('u')].iter());
         assert_eq!(String::from(ed), "rm some words");
     }
 
@@ -3947,17 +3637,7 @@ mod tests {
         simulate_keys(
             &mut map,
             &mut ed,
-            [
-                Esc,
-                Char('0'),
-                Char('8'),
-                Char('s'),
-                Char('o'),
-                Char('k'),
-                Esc,
-                Char('u'),
-            ]
-            .iter(),
+            [Esc, Char('0'), Char('8'), Char('s'), Char('o'), Char('k'), Esc, Char('u')].iter(),
         );
         assert_eq!(String::from(ed), "replace some words");
     }
@@ -4051,11 +3731,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('~'), Char('~')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('~'), Char('~')].iter());
         assert_eq!(String::from(ed), "TIlde");
     }
 
@@ -4081,11 +3757,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("tilde").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('1'), Char('0'), Char('~')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('1'), Char('0'), Char('~')].iter());
         assert_eq!(String::from(ed), "TILDE");
     }
 
@@ -4098,11 +3770,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("TILDE").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('2'), Char('~')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('2'), Char('~')].iter());
         assert_eq!(String::from(ed), "tiLDE");
     }
 
@@ -4115,11 +3783,7 @@ mod tests {
         map.init(&mut ed).unwrap();
         ed.insert_str_after_cursor("ti_lde").unwrap();
 
-        simulate_keys(
-            &mut map,
-            &mut ed,
-            [Esc, Char('0'), Char('6'), Char('~')].iter(),
-        );
+        simulate_keys(&mut map, &mut ed, [Esc, Char('0'), Char('6'), Char('~')].iter());
         assert_eq!(String::from(ed), "TI_LDE");
     }
 

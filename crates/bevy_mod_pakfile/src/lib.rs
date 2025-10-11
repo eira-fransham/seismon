@@ -52,12 +52,13 @@ impl PakSource {
             Self::File(reader) => {
                 let full_path = reader.root_path().join(file);
 
-                // Safety: The file is only ever accessed as a blob of bytes, so the potential for unsoundness
-                // is low, but since it means data can change behind a `&` reference it is technically
-                // unsound to open a memmap for any purpose.
+                // Safety: The file is only ever accessed as a blob of bytes, so the potential for
+                // unsoundness is low, but since it means data can change behind a
+                // `&` reference it is technically unsound to open a memmap for any
+                // purpose.
                 //
-                // TODO: Investigate the performance of copying and then unlinking the .pak in order to make
-                // the data we access inaccessible to other processes.
+                // TODO: Investigate the performance of copying and then unlinking the .pak in order
+                // to make the data we access inaccessible to other processes.
                 let mmap = unsafe { memmap2::Mmap::map(&std::fs::File::open(full_path)?)? };
 
                 Ok(Pak::from_backing(file.display(), mmap)?)
@@ -129,13 +130,13 @@ impl From<Box<dyn ErasedAssetReader>> for PakSource {
 
 type MakeSource = dyn Fn() -> PakSource + Send + Sync + 'static;
 
-/// The core plugin to enable reading from pakfiles. Note that if you do not explicitly set a source ID using
-/// [`PakfilePlugin::with_source_id`], this _must_ be added before Bevy's asset plugin.
+/// The core plugin to enable reading from pakfiles. Note that if you do not explicitly set a source
+/// ID using [`PakfilePlugin::with_source_id`], this _must_ be added before Bevy's asset plugin.
 ///
-/// Note that when using [`PakfilePlugin::push_reader`], the pak will be loaded into memory, but with
-/// [`PakfilePlugin::push_path`], the files will be mapped using [`memmap2`](https://crates.io/crates/memmap2).
-/// On platforms that do not support memory mapping, all pakfiles will be loaded into memory before they can
-/// be used.
+/// Note that when using [`PakfilePlugin::push_reader`], the pak will be loaded into memory, but
+/// with [`PakfilePlugin::push_path`], the files will be mapped using [`memmap2`](https://crates.io/crates/memmap2).
+/// On platforms that do not support memory mapping, all pakfiles will be loaded into memory before
+/// they can be used.
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
@@ -159,35 +160,31 @@ impl Default for PakfilePlugin {
 
 impl PakfilePlugin {
     /// Create a new empty [`PakfilePlugin`]. Note that if you add this to an app without adding any
-    /// directories with [`PakfilePlugin::push_path`] or [`PakfilePlugin::push_reader`] then trying to
-    /// read any asset will fail.
+    /// directories with [`PakfilePlugin::push_path`] or [`PakfilePlugin::push_reader`] then trying
+    /// to read any asset will fail.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add a game directory to search for pakfiles. Note that paths are evaluated in reverse order, so
-    /// if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`]. On platforms
-    /// that support it, pakfiles in directories added using this method will be loaded using a memory
-    /// map for maximum efficiency.
+    /// Add a game directory to search for pakfiles. Note that paths are evaluated in reverse order,
+    /// so if you want to have a mod `foo` that depends on `id1`, you'd pass [`id1`, `foo`]. On
+    /// platforms that support it, pakfiles in directories added using this method will be
+    /// loaded using a memory map for maximum efficiency.
     pub fn push_path<P: Into<PathBuf>>(&mut self, path: P) -> &mut Self {
         let path = path.into();
 
-        self.sources
-            .push(Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>);
+        self.sources.push(Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>);
 
         self
     }
 
-    /// Add an arbitrary source to search for pakfiles. The returned reader must be able to list directories.
-    /// If you want to use an [`AssetReader`] that is not able to do this, such as web sources, you should
-    /// implement a wrapper that shims in this ability - e.g. by searching for `pak0.pak`, `pak1.pak`, etc and
-    /// returning the paths that resolve.
+    /// Add an arbitrary source to search for pakfiles. The returned reader must be able to list
+    /// directories. If you want to use an [`AssetReader`] that is not able to do this, such as
+    /// web sources, you should implement a wrapper that shims in this ability - e.g. by
+    /// searching for `pak0.pak`, `pak1.pak`, etc and returning the paths that resolve.
     pub fn push_reader<MkReader>(&mut self, make_reader: MkReader) -> &mut Self
-    where
-        MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static,
-    {
-        self.sources
-            .push(Arc::new(move || PakSource::from(make_reader())) as Arc<MakeSource>);
+    where MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static {
+        self.sources.push(Arc::new(move || PakSource::from(make_reader())) as Arc<MakeSource>);
 
         self
     }
@@ -197,8 +194,7 @@ impl PakfilePlugin {
     pub fn from_paths<I>(paths: I) -> Self
     where
         I: IntoIterator,
-        I::Item: Into<PathBuf>,
-    {
+        I::Item: Into<PathBuf>, {
         Self {
             sources: paths
                 .into_iter()
@@ -249,10 +245,8 @@ impl PakCollection {
             let mut pakfiles = Vec::new();
 
             while let Some(file) = dir.next().await {
-                let file_extension_is_pak = file
-                    .extension()
-                    .map(|ext| ext.eq_ignore_ascii_case("pak"))
-                    .unwrap_or(false);
+                let file_extension_is_pak =
+                    file.extension().map(|ext| ext.eq_ignore_ascii_case("pak")).unwrap_or(false);
 
                 if !file_extension_is_pak {
                     continue;
@@ -413,17 +407,13 @@ impl Plugin for PakfilePlugin {
                 let asset_readers = sources
                     .iter()
                     .map(|reader| {
-                        Box::new(PakCollection {
-                            readers: SetOnce::new(),
-                            dir_reader: reader(),
-                        }) as Box<dyn ErasedAssetReader + 'static>
+                        Box::new(PakCollection { readers: SetOnce::new(), dir_reader: reader() })
+                            as Box<dyn ErasedAssetReader + 'static>
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
 
-                Box::new(VfsCollection {
-                    inner: asset_readers,
-                })
+                Box::new(VfsCollection { inner: asset_readers })
             }),
         );
     }

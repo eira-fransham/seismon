@@ -51,9 +51,7 @@ pub enum EntityError {
 
 impl EntityError {
     pub fn with_msg<S>(msg: S) -> Self
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         EntityError::Other(msg.as_ref().to_owned())
     }
 }
@@ -87,8 +85,7 @@ pub trait FieldAddr {
 
     /// Loads the value at this address.
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>;
+    where A: FocusIndex<Output = EntityField>;
 
     /// Stores a value at this address.
     fn store<A, M>(
@@ -299,13 +296,15 @@ impl FieldAddr for FieldAddrFloat {
     type Value = f32;
 
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>,
-    {
+    where A: FocusIndex<Output = EntityField> {
         ent.get_float(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
@@ -335,13 +334,15 @@ impl FieldAddr for FieldAddrVector {
     type Value = Vec3;
 
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>,
-    {
+    where A: FocusIndex<Output = EntityField> {
         ent.get_vector(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
@@ -390,14 +391,15 @@ impl FieldAddr for FieldAddrStringId {
     type Value = StringId;
 
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>,
-    {
-        ent.get_int(*self as i16)
-            .map(|val| StringId(val.try_into().unwrap()))
+    where A: FocusIndex<Output = EntityField> {
+        ent.get_int(*self as i16).map(|val| StringId(val.try_into().unwrap()))
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
@@ -421,13 +423,15 @@ impl FieldAddr for FieldAddrEntityId {
     type Value = EntityId;
 
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>,
-    {
+    where A: FocusIndex<Output = EntityField> {
         ent.entity_id(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
@@ -447,13 +451,15 @@ impl FieldAddr for FieldAddrFunctionId {
     type Value = FunctionId;
 
     fn load<A, M>(&self, ent: &mut Entity<'_, A, M>) -> Result<Self::Value, EntityError>
-    where
-        A: FocusIndex<Output = EntityField>,
-    {
+    where A: FocusIndex<Output = EntityField> {
         ent.function_id(*self as i16)
     }
 
-    fn store<A, M>(&self, ent: &mut Entity<'_, A, M>, value: Self::Value) -> Result<(), EntityError>
+    fn store<A, M>(
+        &self,
+        ent: &mut Entity<'_, A, M>,
+        value: Self::Value,
+    ) -> Result<(), EntityError>
     where
         A: FocusIndexMut<Output = EntityField>,
     {
@@ -505,11 +511,7 @@ impl EntityTypeDef {
             )));
         }
 
-        Ok(EntityTypeDef {
-            addr_count,
-            field_defs,
-            name_cache: default(),
-        })
+        Ok(EntityTypeDef { addr_count, field_defs, name_cache: default() })
     }
 
     pub fn addr_count(&self) -> usize {
@@ -522,9 +524,7 @@ impl EntityTypeDef {
 
     /// Locate a field definition given its name.
     pub fn find<S>(&self, string_table: &StringTable, name: S) -> Option<&FieldDef>
-    where
-        S: AsRef<str>,
-    {
+    where S: AsRef<str> {
         let name = name.as_ref();
 
         let mut name_cache = self.name_cache.lock();
@@ -535,16 +535,10 @@ impl EntityTypeDef {
 
         let name_id = string_table.find(name)?;
 
-        let (index, def) = self
-            .field_defs
-            .iter()
-            .enumerate()
-            .find(|(_, def)| def.name_id == name_id)?;
+        let (index, def) =
+            self.field_defs.iter().enumerate().find(|(_, def)| def.name_id == name_id)?;
 
-        name_cache.insert(FieldDefCacheEntry {
-            name: ArrayString::from(name).unwrap(),
-            index,
-        });
+        name_cache.insert(FieldDefCacheEntry { name: ArrayString::from(name).unwrap(), index });
 
         Some(def)
     }
@@ -574,8 +568,7 @@ pub struct Entity<'a, Addrs, Meta> {
 }
 
 impl<A, M> ops::Deref for Entity<'_, A, M>
-where
-    M: ops::Deref,
+where M: ops::Deref
 {
     type Target = <M as ops::Deref>::Target;
 
@@ -585,8 +578,7 @@ where
 }
 
 impl<A, M> ops::DerefMut for Entity<'_, A, M>
-where
-    M: ops::DerefMut,
+where M: ops::DerefMut
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.meta
@@ -665,11 +657,7 @@ macro_rules! field_accessors {
 
 impl<'a, Addrs, Meta> Entity<'a, Addrs, Meta> {
     pub fn new(type_def: &'a EntityTypeDef, addrs: Addrs, meta: Meta) -> Self {
-        Self {
-            addrs,
-            meta,
-            type_def,
-        }
+        Self { addrs, meta, type_def }
     }
 }
 
@@ -684,8 +672,7 @@ pub trait FocusIndexMut: FocusIndex {
 }
 
 impl<T> FocusIndex for Focus<'_, T>
-where
-    T: Clone,
+where T: Clone
 {
     type Output = T;
 
@@ -695,8 +682,7 @@ where
 }
 
 impl<T> FocusIndex for FocusMut<'_, T>
-where
-    T: Clone,
+where T: Clone
 {
     type Output = T;
 
@@ -706,8 +692,7 @@ where
 }
 
 impl<T> FocusIndexMut for FocusMut<'_, T>
-where
-    T: Clone,
+where T: Clone
 {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         FocusMut::index_mut(self, index)
@@ -719,16 +704,12 @@ impl<'a> EntityRef<'a> {
         &'this self,
         string_table: &'this StringTable,
     ) -> impl fmt::Display + use<'a, 'this> {
-        EntityFormatter {
-            entity: self,
-            string_table,
-        }
+        EntityFormatter { entity: self, string_table }
     }
 }
 
 impl<Addrs, Meta> Entity<'_, Addrs, Meta>
-where
-    Addrs: FocusIndex<Output = EntityField>,
+where Addrs: FocusIndex<Output = EntityField>
 {
     pub fn type_check(&mut self, addr: usize, type_: Type) -> Result<(), EntityError> {
         match self
@@ -765,15 +746,7 @@ where
             self.angles().ok()?,
         );
 
-        Some(EntityState {
-            model_id,
-            frame_id,
-            colormap,
-            skin_id,
-            origin,
-            angles,
-            effects,
-        })
+        Some(EntityState { model_id, frame_id, colormap, skin_id, origin, angles, effects })
     }
 
     /// Returns a reference to the memory at the given address.
@@ -793,9 +766,7 @@ where
 
     /// Returns a mutable reference to the memory at the given address.
     pub fn get_addr_mut(&mut self, addr: i16) -> Result<&mut [u8], EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
@@ -829,9 +800,7 @@ where
     /// This can be used to circumvent the type checker in cases where an operation is not dependent
     /// of the type of the data.
     pub fn put_bytes(&mut self, val: [u8; 4], addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         if addr < 0 {
             return Err(EntityError::Address(addr as isize));
         }
@@ -847,17 +816,14 @@ where
     }
 
     pub fn load<F>(&mut self, field: F) -> Result<F::Value, EntityError>
-    where
-        F: FieldAddr,
-    {
+    where F: FieldAddr {
         field.load(self)
     }
 
     pub fn store<F>(&mut self, field: F, value: F::Value) -> Result<(), EntityError>
     where
         F: FieldAddr,
-        Addrs: FocusIndexMut,
-    {
+        Addrs: FocusIndexMut, {
         field.store(self, value)
     }
 
@@ -868,9 +834,7 @@ where
 
     /// Loads an `i32` from the given virtual address.
     pub fn put_int(&mut self, val: i32, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val)?;
         Ok(())
     }
@@ -889,9 +853,7 @@ where
 
     /// Stores an `f32` at the given virtual address.
     pub fn put_float(&mut self, val: f32, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.type_check(addr as usize, Type::QFloat)?;
         self.get_addr_mut(addr)?.write_f32::<LittleEndian>(val)?;
         Ok(())
@@ -912,9 +874,7 @@ where
 
     /// Stores an `[f32; 3]` at the given virtual address.
     pub fn put_vector(&mut self, val: Vec3, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.type_check(addr as usize, Type::QVector)?;
         let val = crate::server::limit_vec3(val, None);
         for i in 0..3 {
@@ -933,13 +893,10 @@ where
 
     /// Stores a `StringId` at the given virtual address.
     pub fn put_string_id(&mut self, val: StringId, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.type_check(addr as usize, Type::QString)?;
 
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.try_into().unwrap())?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.try_into().unwrap())?;
         Ok(())
     }
 
@@ -952,9 +909,7 @@ where
 
     /// Stores an `EntityId` at the given virtual address.
     pub fn put_entity_id(&mut self, val: EntityId, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.type_check(addr as usize, Type::QEntity)?;
 
         self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.0)?;
@@ -969,12 +924,9 @@ where
 
     /// Stores a `FunctionId` at the given virtual address.
     pub fn put_function_id(&mut self, val: FunctionId, addr: i16) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         self.type_check(addr as usize, Type::QFunction)?;
-        self.get_addr_mut(addr)?
-            .write_i32::<LittleEndian>(val.try_into().unwrap())?;
+        self.get_addr_mut(addr)?.write_i32::<LittleEndian>(val.try_into().unwrap())?;
         Ok(())
     }
 
@@ -982,8 +934,7 @@ where
     pub fn set_min_max_size<V>(&mut self, min: V, max: V) -> Result<(), EntityError>
     where
         V: Into<Vec3>,
-        Addrs: FocusIndexMut,
-    {
+        Addrs: FocusIndexMut, {
         let min = min.into();
         let max = max.into();
         let size = max - min;
@@ -1003,9 +954,9 @@ where
         let solid_i = self.load(FieldAddrFloat::Solid)? as i32;
         match EntitySolid::from_i32(solid_i) {
             Some(s) => Ok(s),
-            None => Err(EntityError::with_msg(format!(
-                "Invalid value for entity.solid ({solid_i})",
-            ))),
+            None => {
+                Err(EntityError::with_msg(format!("Invalid value for entity.solid ({solid_i})",)))
+            }
         }
     }
 
@@ -1080,35 +1031,18 @@ where
     }
 
     pub fn set_buttons(&mut self, buttons: ButtonFlags) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut<Output = EntityField>,
-    {
-        self.set_button_0(if buttons.contains(ButtonFlags::ATTACK) {
-            1.
-        } else {
-            0.
-        })?;
+    where Addrs: FocusIndexMut<Output = EntityField> {
+        self.set_button_0(if buttons.contains(ButtonFlags::ATTACK) { 1. } else { 0. })?;
 
-        self.set_button_1(if buttons.contains(ButtonFlags::USE) {
-            1.
-        } else {
-            0.
-        })?;
+        self.set_button_1(if buttons.contains(ButtonFlags::USE) { 1. } else { 0. })?;
 
-        self.set_button_2(if buttons.contains(ButtonFlags::JUMP) {
-            1.
-        } else {
-            0.
-        })?;
+        self.set_button_2(if buttons.contains(ButtonFlags::JUMP) { 1. } else { 0. })?;
 
         Ok(())
     }
 
     pub fn abs_bounding_box(&mut self) -> Result<Aabb3d, EntityError> {
-        Ok(Aabb3d {
-            min: self.abs_min()?.into(),
-            max: self.abs_max()?.into(),
-        })
+        Ok(Aabb3d { min: self.abs_min()?.into(), max: self.abs_max()?.into() })
     }
 
     /// Applies gravity to the entity.
@@ -1140,9 +1074,7 @@ where
     /// Limits the entity's velocity by clamping each component (not the
     /// magnitude!) to an absolute value of `sv_maxvelocity`.
     pub fn limit_velocity(&mut self, sv_maxvelocity: f32) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         let vel = self.velocity()?;
         self.set_velocity(crate::server::limit_vec3(vel, Some(sv_maxvelocity)))?;
 
@@ -1164,9 +1096,7 @@ where
         let flags_i = self.get_float(FieldAddrFloat::Flags as i16)? as u16;
         match EntityFlags::from_bits(flags_i) {
             Some(f) => Ok(f),
-            None => Err(EntityError::with_msg(format!(
-                "Invalid internal flags value ({flags_i})"
-            ))),
+            None => Err(EntityError::with_msg(format!("Invalid internal flags value ({flags_i})"))),
         }
     }
 
@@ -1175,18 +1105,14 @@ where
     }
 
     pub fn add_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         let result = self.flags()? | (flags);
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 
     pub fn remove_flags(&mut self, flags: EntityFlags) -> Result<(), EntityError>
-    where
-        Addrs: FocusIndexMut,
-    {
+    where Addrs: FocusIndexMut {
         let result = self.flags()? & !flags;
         self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())

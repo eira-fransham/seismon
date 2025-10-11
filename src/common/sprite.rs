@@ -77,13 +77,8 @@ impl SpriteModel {
 
 #[derive(Debug, Clone)]
 pub enum SpriteFrame {
-    Static {
-        frame: SpriteSubframe,
-    },
-    Animated {
-        subframes: Vec<SpriteSubframe>,
-        durations: Vec<Duration>,
-    },
+    Static { frame: SpriteSubframe },
+    Animated { subframes: Vec<SpriteSubframe>, durations: Vec<Duration> },
 }
 
 #[derive(Debug, Clone)]
@@ -108,9 +103,7 @@ impl SpriteSubframe {
 }
 
 pub fn load<R>(data: R) -> SpriteModel
-where
-    R: Read + Seek,
-{
+where R: Read + Seek {
     let mut reader = BufReader::new(data);
 
     let magic = reader.read_u32::<LittleEndian>().unwrap();
@@ -148,10 +141,7 @@ where
         l => l as usize,
     };
 
-    debug!(
-        "max_width = {} max_height = {} frame_count = {}",
-        max_width, max_height, frame_count
-    );
+    debug!("max_width = {} max_height = {} frame_count = {}", max_width, max_height, frame_count);
 
     let _sync_type = SyncType::from_i32(reader.read_i32::<LittleEndian>().unwrap()).unwrap();
 
@@ -177,9 +167,8 @@ where
                 debug!("Frame {}: width = {} height = {}", i, width, height);
 
                 let index_count = (width * height) as usize;
-                let indices = (0..index_count as usize)
-                    .map(|_| reader.read_u8().unwrap())
-                    .collect();
+                let indices =
+                    (0..index_count as usize).map(|_| reader.read_u8().unwrap()).collect();
 
                 SpriteFrame::Static {
                     frame: SpriteSubframe {
@@ -216,9 +205,8 @@ where
                         };
 
                         let index_count = (width * height) as usize;
-                        let indices = (0..index_count as usize)
-                            .map(|_| reader.read_u8().unwrap())
-                            .collect();
+                        let indices =
+                            (0..index_count as usize).map(|_| reader.read_u8().unwrap()).collect();
 
                         SpriteSubframe {
                             width: width as u32,
@@ -228,19 +216,10 @@ where
                     })
                     .collect();
 
-                SpriteFrame::Animated {
-                    durations,
-                    subframes,
-                }
+                SpriteFrame::Animated { durations, subframes }
             }
         })
         .collect();
 
-    SpriteModel {
-        kind,
-        max_width,
-        max_height,
-        radius,
-        frames,
-    }
+    SpriteModel { kind, max_width, max_height, radius, frames }
 }

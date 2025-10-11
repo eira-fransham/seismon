@@ -41,10 +41,8 @@ static COLOR_RAMP_EXPLOSION_SLOW: LazyLock<ColorRamp> = LazyLock::new(|| ColorRa
     ramp: vec![0x6F, 0x6E, 0x6D, 0x6C, 0x6B, 0x6A, 0x68, 0x66],
     fps: 5.0,
 });
-static COLOR_RAMP_FIRE: LazyLock<ColorRamp> = LazyLock::new(|| ColorRamp {
-    ramp: vec![0x6D, 0x6B, 0x06, 0x05, 0x04, 0x03],
-    fps: 15.0,
-});
+static COLOR_RAMP_FIRE: LazyLock<ColorRamp> =
+    LazyLock::new(|| ColorRamp { ramp: vec![0x6D, 0x6B, 0x06, 0x05, 0x04, 0x03], fps: 15.0 });
 static EXPLOSION_SCATTER_DISTRIBUTION: LazyLock<Uniform<f32>> =
     LazyLock::new(|| Uniform::new(-16.0, 16.0).unwrap());
 static EXPLOSION_VELOCITY_DISTRIBUTION: LazyLock<Uniform<f32>> =
@@ -248,11 +246,7 @@ impl Particles {
         let rng = SmallRng::from_rng(&mut rand::rng());
         let angle_velocities = [Vec3::ZERO; VERTEX_NORMAL_COUNT];
 
-        let mut particles = Particles {
-            particles: Default::default(),
-            rng,
-            angle_velocities,
-        };
+        let mut particles = Particles { particles: Default::default(), rng, angle_velocities };
 
         for i in 0..angle_velocities.len() {
             particles.angle_velocities[i] = particles.random_vector3(&VELOCITY_DISTRIBUTION);
@@ -293,11 +287,7 @@ impl Particles {
         self.particles = mem::take(&mut self.particles)
             .into_iter()
             .filter_map(|mut particle| {
-                if particle.update(time, frame_time, sv_gravity) {
-                    Some(particle)
-                } else {
-                    None
-                }
+                if particle.update(time, frame_time, sv_gravity) { Some(particle) } else { None }
             })
             .collect();
     }
@@ -340,10 +330,7 @@ impl Particles {
             let origin = entity.origin + dist * math::VERTEX_NORMALS[i] + beam_length * forward;
 
             self.insert(Particle {
-                kind: ParticleKind::Explosion {
-                    ramp: &COLOR_RAMP_EXPLOSION_FAST,
-                    frame_skip: 0,
-                },
+                kind: ParticleKind::Explosion { ramp: &COLOR_RAMP_EXPLOSION_FAST, frame_skip: 0 },
                 origin,
                 velocity: Vec3::ZERO,
                 color: COLOR_RAMP_EXPLOSION_FAST.ramp[0],
@@ -426,9 +413,7 @@ impl Particles {
         self.create_random_cloud(
             512,
             colors,
-            ParticleKind::Blob {
-                has_z_velocity: true,
-            },
+            ParticleKind::Blob { has_z_velocity: true },
             time,
             Duration::try_milliseconds(300).unwrap(),
             origin,
@@ -443,18 +428,13 @@ impl Particles {
         // which gives a value of either 1 or 1.4 seconds.
         // (it's possible it was supposed to be 1 + (rand() & 7) * 0.05, which
         // would yield between 1 and 1.35 seconds in increments of 50ms.)
-        let ttls = [
-            Duration::try_seconds(1).unwrap(),
-            Duration::try_milliseconds(1400).unwrap(),
-        ];
+        let ttls = [Duration::try_seconds(1).unwrap(), Duration::try_milliseconds(1400).unwrap()];
 
         for ttl in ttls.iter().cloned() {
             self.create_random_cloud(
                 256,
                 66..=71,
-                ParticleKind::Blob {
-                    has_z_velocity: true,
-                },
+                ParticleKind::Blob { has_z_velocity: true },
                 time,
                 ttl,
                 origin,
@@ -465,9 +445,7 @@ impl Particles {
             self.create_random_cloud(
                 256,
                 150..=155,
-                ParticleKind::Blob {
-                    has_z_velocity: false,
-                },
+                ParticleKind::Blob { has_z_velocity: false },
                 time,
                 ttl,
                 origin,
@@ -644,9 +622,7 @@ impl Particles {
             let frame_skip = FRAME_SKIP_DISTRIBUTION.sample(&mut self.rng);
             let particle_kind = match kind {
                 Rocket => ParticleKind::Fire { frame_skip },
-                Smoke => ParticleKind::Fire {
-                    frame_skip: frame_skip + 2,
-                },
+                Smoke => ParticleKind::Fire { frame_skip: frame_skip + 2 },
                 Blood | BloodSlight => ParticleKind::Grav,
                 TracerGreen | TracerRed | Vore => ParticleKind::Static,
             };
@@ -736,9 +712,6 @@ mod tests {
             Duration::try_milliseconds(17).unwrap(),
             10.0,
         );
-        after_update
-            .iter()
-            .zip(expected.iter())
-            .for_each(|(p1, p2)| assert!(particles_eq(p1, p2)));
+        after_update.iter().zip(expected.iter()).for_each(|(p1, p2)| assert!(particles_eq(p1, p2)));
     }
 }

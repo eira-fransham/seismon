@@ -11,7 +11,7 @@ use std::{
     ops::Index,
     ops::IndexMut,
     path::Path,
-    //time::Duration,
+    // time::Duration,
 };
 
 const DEFAULT_MAX_SIZE: usize = 1000;
@@ -73,15 +73,14 @@ impl History {
         self.buffers.clear();
     }
 
-    /// Loads the history file from the saved path and appends it to the end of the history if append
-    /// is true otherwise replace history.
+    /// Loads the history file from the saved path and appends it to the end of the history if
+    /// append is true otherwise replace history.
     pub fn load_history(&mut self, append: bool) -> io::Result<u64> {
         if let Some(path) = self.file_name.clone() {
             let file_size = self.file_size;
-            self.load_history_file_test(&path, file_size, append)
-                .inspect(|l| {
-                    self.file_size = *l;
-                })
+            self.load_history_file_test(&path, file_size, append).inspect(|l| {
+                self.file_size = *l;
+            })
         } else {
             Err(io::Error::other("History filename not set!"))
         }
@@ -248,7 +247,7 @@ impl History {
 
         let item_str = String::from(new_item.clone());
         self.buffers.push_back(new_item);
-        //self.to_max_size();
+        // self.to_max_size();
         while self.buffers.len() > self.max_buffers_size {
             self.buffers.pop_front();
         }
@@ -257,9 +256,9 @@ impl History {
             if !self.load_duplicates {
                 // Do not want duplicates so periodically compact the history file.
                 self.compaction_writes += 1;
-                // Every 30 writes "compact" the history file by writing just in memory history.  This
-                // is to keep the history file clean and at a reasonable size (not much over max
-                // history size at it's worst).
+                // Every 30 writes "compact" the history file by writing just in memory history.
+                // This is to keep the history file clean and at a reasonable size
+                // (not much over max history size at it's worst).
                 if self.compaction_writes > 29 {
                     if self.share {
                         // Reload history, we may be out of sync.
@@ -290,7 +289,8 @@ impl History {
                     let mut file = BufWriter::new(inner_file);
                     let _ = file.write_all(item_str.as_bytes());
                     let _ = file.write_all(b"\n");
-                    // Save the filesize after each append so we do not reload when we do not need to.
+                    // Save the filesize after each append so we do not reload when we do not need
+                    // to.
                     self.file_size += item_str.len() as u64 + 1;
                 }
             }
@@ -301,41 +301,33 @@ impl History {
     /// Removes duplicate entries in the history
     pub fn remove_duplicates(&mut self, input: &str) {
         self.buffers.retain(|buffer| {
-            input
-                .chars()
-                .zip_longest(buffer.chars())
-                .any(|a_and_b| match a_and_b {
-                    itertools::EitherOrBoth::Both(a, b) => a != b,
-                    _ => true,
-                })
+            input.chars().zip_longest(buffer.chars()).any(|a_and_b| match a_and_b {
+                itertools::EitherOrBoth::Both(a, b) => a != b,
+                _ => true,
+            })
         });
     }
 
     fn get_match<I>(&self, vals: I, search_term: &Buffer) -> Option<usize>
-    where
-        I: Iterator<Item = usize>,
-    {
+    where I: Iterator<Item = usize> {
         vals.filter_map(|i| self.buffers.get(i).map(|t| (i, t)))
             .find(|(_i, tested)| tested.starts_with(search_term))
             .map(|(i, _)| i)
     }
 
     /// Go through the history and try to find an index (newest to oldest) which starts the same
-    /// as the new buffer given to this function as argument.  Starts at curr_position.  Does no wrap.
+    /// as the new buffer given to this function as argument.  Starts at curr_position.  Does no
+    /// wrap.
     pub fn newest_match(&self, curr_position: Option<usize>, new_buff: &Buffer) -> Option<usize> {
         let pos = curr_position.unwrap_or(self.buffers.len());
-        if pos > 0 {
-            self.get_match((0..pos).rev(), new_buff)
-        } else {
-            None
-        }
+        if pos > 0 { self.get_match((0..pos).rev(), new_buff) } else { None }
     }
 
     /// Get the subset of the history that matches the search term (similar to reverse-i-search, see
     /// [Bash documentation](https://www.gnu.org/software/bash/manual/html_node/Commands-For-History.html)).
     ///
-    /// Similar to [`Self::search_index`], but tries to order the results in a helpful manner (specifically,
-    /// will put results that start with the search term first).
+    /// Similar to [`Self::search_index`], but tries to order the results in a helpful manner
+    /// (specifically, will put results that start with the search term first).
     pub fn history_subset(&self, search_term: &Buffer) -> Vec<usize> {
         let mut v: Vec<usize> = Vec::new();
         let mut ret: Vec<usize> = (0..self.len())
@@ -358,8 +350,8 @@ impl History {
 
     /// Reverse-i-search (see
     /// [Bash documentation](https://www.gnu.org/software/bash/manual/html_node/Commands-For-History.html))
-    /// without any bias - simply returns the items from the history in the order they appear. Similar to
-    /// [`Self::history_subset`].
+    /// without any bias - simply returns the items from the history in the order they appear.
+    /// Similar to [`Self::history_subset`].
     pub fn search_index(&self, search_term: &Buffer) -> Vec<usize> {
         (0..self.len())
             .filter_map(|i| self.buffers.get(i).map(|t| (i, t)))

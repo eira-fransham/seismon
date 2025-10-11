@@ -14,9 +14,7 @@ impl<const N_64: usize> BitSet<N_64> {
     }
 
     pub fn all_set() -> Self {
-        BitSet {
-            blocks: [u64::MAX; N_64],
-        }
+        BitSet { blocks: [u64::MAX; N_64] }
     }
 
     fn bit_location(bit: u64) -> (u64, u64) {
@@ -69,11 +67,7 @@ pub struct BitSetIter<'a, const N_64: usize> {
 
 impl<'a, const N_64: usize> BitSetIter<'a, N_64> {
     fn new(blocks: &'a [u64; N_64]) -> Self {
-        BitSetIter {
-            block_index: 0,
-            block_val: blocks[0],
-            blocks,
-        }
+        BitSetIter { block_index: 0, block_val: blocks[0], blocks }
     }
 }
 
@@ -82,10 +76,7 @@ impl<'a, const N_64: usize> Iterator for BitSetIter<'a, N_64> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.block_index < N_64 {
-            println!(
-                "block_index = {} | block_val = {:b}",
-                self.block_index, self.block_val
-            );
+            println!("block_index = {} | block_val = {:b}", self.block_index, self.block_val);
 
             if self.block_val != 0 {
                 // Locate the next set bit in the block.

@@ -124,15 +124,10 @@ impl AssetReader for Pak {
         &'a self,
         path: &'a Path,
     ) -> Result<Box<PathStream>, AssetReaderError> {
-        let entry = self
-            .entries
-            .get(path)
-            .ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
-        let dir_entries = if let PakEntry::Directory(entries) = entry {
-            Some(entries)
-        } else {
-            None
-        };
+        let entry =
+            self.entries.get(path).ok_or_else(|| AssetReaderError::NotFound(path.to_owned()))?;
+        let dir_entries =
+            if let PakEntry::Directory(entries) = entry { Some(entries) } else { None };
         let iter = dir_entries
             .into_iter()
             .flat_map(AsRef::as_ref)
@@ -155,9 +150,7 @@ impl AssetReader for Pak {
 impl Pak {
     // TODO: rename to from_path or similar
     pub fn open<P>(path: P) -> Result<Pak, PakError>
-    where
-        P: AsRef<Path>,
-    {
+    where P: AsRef<Path> {
         debug!("Opening {}", path.as_ref().to_str().unwrap());
 
         Self::read(unsafe { MmapOptions::new().map(&fs::File::open(path)?)? })
@@ -209,12 +202,9 @@ impl Pak {
                 s => s as u32,
             };
 
-            let last = path_bytes
-                .iter()
-                .position(|b| *b == 0)
-                .ok_or(PakError::FileNameTooLong(
-                    String::from_utf8_lossy(&path_bytes).into_owned(),
-                ))?;
+            let last = path_bytes.iter().position(|b| *b == 0).ok_or(PakError::FileNameTooLong(
+                String::from_utf8_lossy(&path_bytes).into_owned(),
+            ))?;
             let path = String::from_utf8(path_bytes[0..last].to_vec())?;
 
             map.insert(
@@ -247,10 +237,7 @@ impl Pak {
 
         map.shrink_to_fit();
 
-        Ok(Pak {
-            memory: bytes,
-            entries: map,
-        })
+        Ok(Pak { memory: bytes, entries: map })
     }
 
     /// Opens a file in the file tree for reading.
@@ -266,9 +253,7 @@ impl Pak {
     /// # }
     /// ```
     pub fn get<S>(&self, path: S) -> Result<&[u8], PakError>
-    where
-        S: AsRef<Path>,
-    {
+    where S: AsRef<Path> {
         let path = path.as_ref();
         self.entries
             .get(path)
