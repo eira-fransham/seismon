@@ -51,10 +51,10 @@ fn cmd_map(
         map_name.set_extension("bsp");
     }
 
-    let mut path = PathBuf::from("maps");
-    path.push(map_name);
+    let path = PathBuf::from("maps").join(map_name);
 
     let bsp_name = format!("{}", path.display());
+    // TODO: Use `bevy_trenchbroom` for this too (may require ugly hacks or a small fork of `bevy_trenchbroom`)
     let bsp = vfs.open(&bsp_name)?;
     let (models, entmap) = crate::common::bsp::load(bsp)?;
 

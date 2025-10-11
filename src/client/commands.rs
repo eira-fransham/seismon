@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    ColorShiftCode, Connection, ConnectionKind, ConnectionState, DemoQueue, connect,
+    ColorShiftCode, Connection, ConnectionKind, ConnectionStage, DemoQueue, connect,
     demo::DemoServer,
     input::InputFocus,
     sound::{MixerEvent, MusicSource},
@@ -105,8 +105,7 @@ pub fn register_commands(app: &mut App) {
                 Ok((new_conn, new_state)) => {
                     *focus = InputFocus::Game;
                     commands.insert_resource(new_conn);
-                    commands.insert_resource(Connection::new_server());
-                    commands.insert_resource(new_state);
+                    commands.insert_resource(Connection::new_server(new_state));
                     default()
                 }
                 Err(e) => e.to_string().into(),
@@ -119,17 +118,15 @@ pub fn register_commands(app: &mut App) {
     struct Reconnect;
 
     app.command(
-        |In(Reconnect),
-         conn: Option<Res<Connection>>,
-         mut conn_state: ResMut<ConnectionState>,
-         mut focus: ResMut<InputFocus>| {
-            if conn.is_some() {
-                // TODO: clear client state
-                *conn_state = ConnectionState::SignOn(SignOnStage::Prespawn);
+        |In(Reconnect), mut conn: Option<ResMut<Connection>>, mut focus: ResMut<InputFocus>| {
+            if let Some(conn) = conn.as_deref_mut()
+                && let ConnectionKind::Server { stage, .. } = &mut conn.kind
+            {
+                // TODO: is this all that's needed to reconnect to a server?
+                *stage = ConnectionStage::SignOn(SignOnStage::Prespawn);
                 *focus = InputFocus::Game;
                 default()
             } else {
-                // TODO: log message, e.g. "can't reconnect while disconnected"
                 "not connected".into()
             }
         },
@@ -165,34 +162,29 @@ pub fn register_commands(app: &mut App) {
         |In(PlayDemo { demo }),
          mut commands: Commands,
          vfs: Res<Vfs>,
-         mut focus: ResMut<InputFocus>,
-         mut conn_state: ResMut<ConnectionState>| {
-            let (new_conn, new_state) = {
-                let mut demo_file = match vfs.open(format!("{demo}.dem")) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        return e.to_string().into();
-                    }
-                };
-
-                match DemoServer::new(&mut demo_file) {
-                    Ok(d) => (
-                        Connection {
-                            kind: ConnectionKind::Demo(d),
-                            state: ClientState::new(),
-                        },
-                        ConnectionState::SignOn(SignOnStage::Prespawn),
-                    ),
-                    Err(e) => {
-                        return e.to_string().into();
-                    }
+         time: Res<Time>,
+         mut focus: ResMut<InputFocus>| {
+            let mut demo_file = match vfs.open(format!("{demo}.dem")) {
+                Ok(f) => f,
+                Err(e) => {
+                    return e.to_string().into();
                 }
             };
 
-            *focus = InputFocus::Game;
+            match DemoServer::new(&mut demo_file) {
+                Ok(d) => {
+                    *focus = InputFocus::Game;
 
-            commands.insert_resource(new_conn);
-            *conn_state = new_state;
+                    commands.insert_resource(Connection {
+                        kind: ConnectionKind::Demo(d),
+                        client_state: ClientState::new(),
+                        last_msg_time: *time,
+                    });
+                }
+                Err(e) => {
+                    return e.to_string().into();
+                }
+            }
 
             default()
         },
@@ -208,9 +200,9 @@ pub fn register_commands(app: &mut App) {
         |In(StartDemos { demos }),
          mut commands: Commands,
          vfs: Res<Vfs>,
+         time: Res<Time>,
          mut demo_queue: ResMut<DemoQueue>,
          mut focus: ResMut<InputFocus>,
-         mut conn_state: ResMut<ConnectionState>,
          server: Option<Res<Session>>| {
             if !demos.is_empty() {
                 *demo_queue = DemoQueue::new(demos);
@@ -221,7 +213,7 @@ pub fn register_commands(app: &mut App) {
             // Only actually start playing the demos if we aren't already running a server
             // (this appears to be Quake's expected behaviour?)
             if server.is_none() {
-                let (new_conn, new_state) = match demo_queue.next_demo() {
+                let new_conn = match demo_queue.next_demo() {
                     Some(demo) => {
                         let mut demo_file = match vfs
                             .open(format!("{demo}.dem"))
@@ -235,13 +227,11 @@ pub fn register_commands(app: &mut App) {
                         };
 
                         match DemoServer::new(&mut demo_file) {
-                            Ok(d) => (
-                                Connection {
-                                    kind: ConnectionKind::Demo(d),
-                                    state: ClientState::new(),
-                                },
-                                ConnectionState::SignOn(SignOnStage::Prespawn),
-                            ),
+                            Ok(d) => Connection {
+                                kind: ConnectionKind::Demo(d),
+                                client_state: ClientState::new(),
+                                last_msg_time: *time,
+                            },
                             Err(e) => {
                                 return e.to_string().into();
                             }
@@ -251,7 +241,6 @@ pub fn register_commands(app: &mut App) {
                 };
 
                 commands.insert_resource(new_conn);
-                *conn_state = new_state;
                 *focus = InputFocus::Game;
             }
 
@@ -434,57 +423,57 @@ pub fn register_commands(app: &mut App) {
         }
     });
 
-    #[derive(Parser)]
-    #[command(name = "bf", about = "Flash the screen")]
-    struct Bf;
+    // #[derive(Parser)]
+    // #[command(name = "bf", about = "Flash the screen")]
+    // struct Bf;
 
-    app.command(
-        move |In(Bf), conn: Option<ResMut<Connection>>| -> ExecResult {
-            const BF_DECAY: f32 = 100.;
+    // app.command(
+    //     move |In(Bf), conn: Option<ResMut<Connection>>| -> ExecResult {
+    //         const BF_DECAY: f32 = 100.;
 
-            if let Some(mut conn) = conn {
-                conn.state.color_shifts[ColorShiftCode::Bonus as usize] = ColorShift {
-                    dest_color: [215, 186, 69],
-                    density: 0.5,
-                    decay: BF_DECAY,
-                };
-            }
-            default()
-        },
-    );
+    //         if let Some(mut conn) = conn {
+    //             conn.client_state.color_shifts[ColorShiftCode::Bonus as usize] = ColorShift {
+    //                 dest_color: [215, 186, 69],
+    //                 density: 0.5,
+    //                 decay: BF_DECAY,
+    //             };
+    //         }
+    //         default()
+    //     },
+    // );
 
-    #[derive(Parser, Debug, Copy, Clone)]
-    #[command(name = "v_cshift", about = "Colored form of `bf`")]
-    struct CShift {
-        r: f32,
-        g: f32,
-        b: f32,
-        #[arg(default_value_t = 1.)]
-        density: f32,
-        #[arg(default_value_t = 0.)]
-        decay: f32,
-    }
+    // #[derive(Parser, Debug, Copy, Clone)]
+    // #[command(name = "v_cshift", about = "Colored form of `bf`")]
+    // struct CShift {
+    //     r: f32,
+    //     g: f32,
+    //     b: f32,
+    //     #[arg(default_value_t = 1.)]
+    //     density: f32,
+    //     #[arg(default_value_t = 0.)]
+    //     decay: f32,
+    // }
 
-    app.command(
-        move |In(CShift {
-                  r,
-                  g,
-                  b,
-                  density,
-                  decay,
-              }),
-              conn: Option<ResMut<Connection>>|
-              -> ExecResult {
-            if let Some(mut conn) = conn {
-                conn.state.color_shifts[ColorShiftCode::Custom as usize] = ColorShift {
-                    dest_color: [r, g, b].map(|v| v.clamp(0., u8::MAX as _) as u8),
-                    density: density / u8::MAX as f32,
-                    decay,
-                };
-            }
-            default()
-        },
-    );
+    // app.command(
+    //     move |In(CShift {
+    //               r,
+    //               g,
+    //               b,
+    //               density,
+    //               decay,
+    //           }),
+    //           conn: Option<ResMut<Connection>>|
+    //           -> ExecResult {
+    //         if let Some(mut conn) = conn {
+    //             conn.client_state.color_shifts[ColorShiftCode::Custom as usize] = ColorShift {
+    //                 dest_color: [r, g, b].map(|v| v.clamp(0., u8::MAX as _) as u8),
+    //                 density: density / u8::MAX as f32,
+    //                 decay,
+    //             };
+    //         }
+    //         default()
+    //     },
+    // );
 
     #[derive(Parser)]
     #[command(name = "name", about = "Set the player name")]
@@ -519,10 +508,11 @@ pub fn register_commands(app: &mut App) {
         server_events.clear();
 
         let mut bytes = vec![];
-        let _ = ClientCmd::StringCmd {
-            cmd: format!("map {map_name}"),
+        ClientCmd::StringCmd {
+            cmd: format!("map {map_name}").into(),
         }
-        .serialize(&mut bytes);
+        .serialize(&mut bytes)
+        .unwrap();
 
         client_events.send(ClientMessage {
             client_id: 0,
@@ -531,8 +521,9 @@ pub fn register_commands(app: &mut App) {
         });
 
         // TODO: This should not be handled here, server and client should be decoupled
-        commands.insert_resource(Connection::new_server());
-        commands.insert_resource(ConnectionState::SignOn(SignOnStage::Not));
+        commands.insert_resource(Connection::new_server(ConnectionStage::SignOn(
+            SignOnStage::Prespawn,
+        )));
         *focus = InputFocus::Game;
 
         Default::default()

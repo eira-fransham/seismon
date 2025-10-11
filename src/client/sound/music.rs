@@ -35,19 +35,13 @@ pub struct MusicPlayer {
 
 impl Default for MusicPlayer {
     fn default() -> Self {
-        Self {
-            loader: SymphoniumLoader::new(),
-            playing: None,
-        }
+        Self { playing: None }
     }
 }
 
 impl MusicPlayer {
     pub fn new() -> MusicPlayer {
-        MusicPlayer {
-            loader: SymphoniumLoader::new(),
-            playing: None,
-        }
+        MusicPlayer { playing: None }
     }
 
     /// Start playing the track with the given name.
@@ -62,14 +56,13 @@ impl MusicPlayer {
         &mut self,
         asset_server: &AssetServer,
         commands: &mut Commands,
-        vfs: &Vfs,
         pool: Pool,
         name: S,
     ) -> Result<(), SoundError>
     where
         S: AsRef<str>,
     {
-        let name = name.as_ref();
+        let name = Path::new(name.as_ref());
 
         // don't replay the same track
         if let Some((playing, _)) = &self.playing
@@ -79,20 +72,11 @@ impl MusicPlayer {
         }
 
         // TODO: there's probably a better way to do this extension check
-        let (mut file, extension) = if !name.contains('.') {
-            'out: {
-                for extension in ["flac", "wav", "mp3", "ogg"] {
-                    if let Ok(file) = vfs.open(format!("music/{name}.{extension}")) {
-                        break 'out (file, Some(Cow::from(extension)));
-                    }
-                }
-
-                return Ok(());
-            }
+        let file: Cow<Path> = if name.extension().is_none() {
+            // TODO: Have some way to do globbing in `bevy_mod_pakfile` so we can try a few different filenames.
+            name.with_extension("mp3").into()
         } else {
-            let path = Path::new(name);
-            let ext = path.extension().map(|e| e.to_string_lossy().into());
-            (vfs.open(name)?, ext)
+            name.into()
         };
 
         // TODO: Turn VFS into an AssetReader so that this is asynchronous

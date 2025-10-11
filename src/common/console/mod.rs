@@ -55,7 +55,7 @@ use snafu::{Backtrace, prelude::*};
 use wgpu::{Extent3d, TextureDimension};
 
 use crate::client::{
-    ConnectionState,
+    ConnectionStage,
     input::{InputFocus, game::Trigger},
     render::{Palette, TextureData},
 };
@@ -198,7 +198,7 @@ impl Plugin for SeismonConsolePlugin {
                 Update,
                 (
                     systems::update_console_size
-                        .run_if(resource_changed_or_removed::<ConnectionState>),
+                        .run_if(resource_changed_or_removed::<ConnectionStage>),
                     systems::update_render_console,
                     systems::write_alert,
                     (systems::write_console_out, systems::write_center_print)
@@ -2287,7 +2287,7 @@ mod systems {
     use chrono::TimeDelta;
 
     use crate::{
-        client::ConnectionState,
+        client::ConnectionStage,
         common::net::{ClientCmd, ClientMessage, MessageKind},
     };
 
@@ -2474,11 +2474,11 @@ mod systems {
     }
 
     pub fn update_console_size(
-        conn: Option<Res<ConnectionState>>,
+        conn: Option<Res<ConnectionStage>>,
         mut console_ui: Query<&mut Node, With<ConsoleUi>>,
     ) {
         for mut style in &mut console_ui {
-            style.height = if matches!(conn.as_deref(), Some(ConnectionState::Connected(_))) {
+            style.height = if matches!(conn.as_deref(), Some(ConnectionStage::Connected(_))) {
                 Val::Percent(30.)
             } else {
                 Val::Percent(100.)

@@ -30,6 +30,7 @@ use std::{
     sync::{Arc, mpsc},
 };
 
+use beef::Cow;
 use bevy::{prelude::*, utils::synccell::SyncCell};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -2103,7 +2104,7 @@ pub enum ClientCmd {
         impulse: u8,
     },
     StringCmd {
-        cmd: String,
+        cmd: Cow<'static, str>,
     },
 }
 
@@ -2172,7 +2173,10 @@ impl ClientCmd {
                 }
             }
             ClientCmdCode::StringCmd => {
-                let cmd = seismon_utils::read_cstring(reader)?.into_str().into_owned();
+                let cmd = seismon_utils::read_cstring(reader)?
+                    .into_str()
+                    .into_owned()
+                    .into();
                 ClientCmd::StringCmd { cmd }
             }
         };

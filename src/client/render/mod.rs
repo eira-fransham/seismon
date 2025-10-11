@@ -427,7 +427,10 @@ impl ExtractResource for RenderState {
     type Source = Connection;
 
     fn extract_resource(source: &Self::Source) -> Self {
-        let Connection { state, kind } = source;
+        let Connection {
+            client_state: state,
+            kind,
+        } = source;
 
         RenderState {
             state: state.clone(),

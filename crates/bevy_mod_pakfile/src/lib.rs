@@ -284,6 +284,9 @@ impl PakCollection {
     }
 }
 
+// TODO: We should have a `bevy_mod_glob_reader` package that adds glob support to readers.
+// TODO: This isn't specific to pakfiles, `VfsCollection` is more generic. Maybe glob and overlay
+// should be part of the same package?
 impl AssetReader for VfsCollection {
     async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
         let mut err = AssetReaderError::NotFound(path.to_owned());
