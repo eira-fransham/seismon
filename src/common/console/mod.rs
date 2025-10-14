@@ -53,11 +53,11 @@ use serde_lexpr::Value;
 use snafu::{Backtrace, prelude::*};
 
 use crate::client::{
-    Connected, ConnectionStage,
+    Connected,
     input::{InputFocus, game::Trigger},
 };
 
-use super::{parse, vfs::Vfs, wad::Wad};
+use super::{parse, vfs::Vfs};
 
 pub struct SeismonConsoleCorePlugin;
 
@@ -2475,7 +2475,7 @@ mod systems {
                 };
 
                 if !output.is_empty() {
-                    let time = world.resource::<Time<Real>>().clone();
+                    let time = *world.resource::<Time<Real>>();
 
                     if let Some(mut console_out) = world.get_resource_mut::<ConsoleOutput>() {
                         match output_ty {

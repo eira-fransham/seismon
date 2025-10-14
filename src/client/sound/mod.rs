@@ -345,7 +345,7 @@ mod systems {
     }
 
     pub fn update_entities(
-        mut entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
+        entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
         conn: Option<Res<Connection>>,
     ) {
         // let Some(conn) = conn else {
@@ -360,7 +360,7 @@ mod systems {
     }
 
     pub fn update_listener(
-        mut listeners: Query<&mut Transform, With<SpatialListener3D>>,
+        listeners: Query<&mut Transform, With<SpatialListener3D>>,
         conn: Option<Res<Connection>>,
     ) {
         // if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {

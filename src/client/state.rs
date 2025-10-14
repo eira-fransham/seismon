@@ -1,21 +1,15 @@
 use std::{
-    io::{Cursor, Read},
+    io::Read,
     iter,
-    num::NonZeroU32,
-    path::Path,
 };
 
 use super::view::BobVars;
 use crate::{
     client::{
-        ClientError, ColorShiftCode,
-        entity::ClientEntity,
+        ClientError,
         view::{IdleVars, KickVars, RollVars},
     },
-    common::{
-        math::Angles,
-        net::{EntityEffects, EntityState, EntityUpdate, PlayerColor},
-    },
+    common::net::{EntityEffects, EntityState, EntityUpdate, PlayerColor},
 };
 use beef::Cow;
 use bevy::{
@@ -23,16 +17,13 @@ use bevy::{
     ecs::{entity::Entity, system::Commands},
     log::*,
     math::{EulerRot, Quat, Vec3},
-    prelude::default,
     scene::{Scene, SceneRoot},
     transform::components::Transform,
 };
 use bevy_seedling::sample::Sample;
-use chrono::Duration;
 use hashbrown::HashMap;
 use rand::distr::Distribution as _;
 use seismon_utils::QString;
-use symphonium::{SymphoniumLoader, symphonia::core::probe::Hint};
 
 /// When certain temporary entities are spawned, Quake has builtin code to
 /// start sounds without the server instructing it to.
@@ -92,7 +83,7 @@ impl ClientState {
             model_precache.next().ok_or_else(|| ClientError::InvalidConnectResponse)?;
 
         // TODO: validate submodel names
-        let models = model_precache.into_iter().map(|model_name| {
+        let models = model_precache.map(|model_name| {
             let path: Cow<str> = if model_name.ends_with(".bsp") {
                 // BSPs can have more than one model
                 // TODO: Reimplement multiple model support for .bsp files

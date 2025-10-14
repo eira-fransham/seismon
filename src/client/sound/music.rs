@@ -1,9 +1,6 @@
-use std::{
-    io::{Cursor, Read},
-    path::Path,
-};
+use std::path::Path;
 
-use crate::{client::sound::SoundError, common::vfs::Vfs};
+use crate::client::sound::SoundError;
 
 use beef::Cow;
 use bevy::{
@@ -19,23 +16,18 @@ use bevy::{
 use bevy_seedling::{
     edge::Connect as _,
     prelude::{PoolLabel, SamplerNode},
-    sample::{Sample, SamplePlayer},
+    sample::SamplePlayer,
 };
-use firewheel::sample_resource::DecodedAudioF32;
 
 use super::MasterOut;
 
 /// Plays music tracks.
 #[derive(Resource)]
+#[derive(Default)]
 pub struct MusicPlayer {
     playing: Option<(String, Entity)>,
 }
 
-impl Default for MusicPlayer {
-    fn default() -> Self {
-        Self { playing: None }
-    }
-}
 
 impl MusicPlayer {
     pub fn new() -> MusicPlayer {

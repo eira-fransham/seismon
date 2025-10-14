@@ -503,7 +503,7 @@ impl Connection {
 
             // finished signing on, build world renderer
             S::Done => {
-                if let Some(model) = self.client_state.models.get(0) {
+                if let Some(model) = self.client_state.models.first() {
                     commands.spawn(SceneRoot(model.clone()));
                 } else {
                     todo!("No worldmodel in precache")
@@ -1069,7 +1069,7 @@ mod systems {
 
                             // TODO
                             frame_id: frame_id.into(),
-                            colormap: colormap,
+                            colormap,
                             skin_id: skin_id.into(),
                             effects: Default::default(),
                         },
@@ -1309,7 +1309,7 @@ mod systems {
             };
 
             // don't allow game focus when disconnected
-            if new_conn.is_none() {}
+            new_conn.is_none();
 
             if let Some(new_conn) = new_conn {
                 commands.insert_resource(new_conn);
