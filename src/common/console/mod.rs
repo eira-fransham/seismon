@@ -86,6 +86,7 @@ impl Plugin for SeismonConsoleCorePlugin {
         struct ResetAll;
 
         app.init_resource::<Registry>()
+            .init_resource::<gfx::Gfx>()
             .add_event::<RunCmd<'static>>()
             .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
                 ExecResult {
@@ -165,7 +166,6 @@ impl Plugin for SeismonConsolePlugin {
             .init_resource::<RenderConsoleOutput>()
             .init_resource::<RenderConsoleInput>()
             .init_resource::<ConsoleAlertSettings>()
-            .init_resource::<Gfx>()
             .add_systems(
                 Startup,
                 (systems::startup::init_alert_output, systems::startup::init_console),
@@ -1736,10 +1736,10 @@ impl ConsoleOutput {
         out
     }
 
-    pub fn set_center_print<S: Into<QString>>(&mut self, print: S, timestamp: Duration) {
+    pub fn set_center_print<S: Into<QString>>(&mut self, print: S, timestamp: &Time<impl Default>) {
         let generation = self.generation();
         self.center_print =
-            Some((Timestamp::new(timestamp.num_milliseconds(), generation), print.into()));
+            Some((Timestamp::new(elapsed_millis(timestamp), generation), print.into()));
     }
 
     pub fn drain_center_print(&mut self) -> Option<(Timestamp, QString)> {

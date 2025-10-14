@@ -68,7 +68,7 @@ use self::{
 
 use arrayvec::ArrayVec;
 use bevy::{
-    app::{AppLabel, MainSchedulePlugin},
+    app::{AppLabel, FixedMain, MainSchedulePlugin},
     math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
     time::TimePlugin,
@@ -194,19 +194,19 @@ impl Plugin for SeismonListenServerPlugin {
 
         let mut server_sub_app = SubApp::new();
         server_sub_app
+            .add_plugins(MainSchedulePlugin)
             .insert_resource(app_type_registry)
             .insert_resource(asset_server)
             .insert_resource(vfs)
             .insert_resource(server_messaging)
             .add_event::<ServerMessage>()
             .add_event::<ClientMessage>()
-            .add_systems(First, server_recv_from_client)
-            .add_systems(Last, server_send_to_client)
+            .add_systems(FixedFirst, server_recv_from_client)
+            .add_systems(FixedLast, server_send_to_client)
             .add_plugins(SeismonServerPlugin)
-            .add_plugins(TimePlugin)
-            .add_plugins(MainSchedulePlugin);
+            .add_plugins(TimePlugin);
 
-        server_sub_app.update_schedule = Some(Main.intern());
+        server_sub_app.update_schedule = Some(FixedMain.intern());
 
         server_sub_app.set_extract(|client_world, server_world| {
             server_world.resource_mut::<Events<ClientMessage>>().send_batch(
@@ -234,7 +234,7 @@ impl Plugin for SeismonServerPlugin {
         app.init_resource::<Vfs>()
             .add_systems(PreUpdate, systems::recv_client_messages)
             .add_systems(
-                FixedUpdate,
+                FixedMain,
                 (
                     systems::server_update,
                     systems::server_spawn.pipe(

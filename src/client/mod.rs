@@ -49,8 +49,8 @@ use crate::{
         self,
         console::{ConsoleError, ConsoleOutput, RunCmd, SeismonConsolePlugin},
         net::{
-            self, BlockingMode, ClientCmd, ClientMessage, GameType, NetError, QSocket, ServerCmd,
-            ServerMessage, SignOnStage,
+            self, BlockingMode, ClientCmd, ClientMessage, EntityState, GameType, NetError, QSocket,
+            ServerCmd, ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         vfs::{Vfs, VfsError},
@@ -77,7 +77,6 @@ use seismon_utils::QString;
 use serde::Deserialize;
 use sound::SoundError;
 use thiserror::Error;
-use view::BobVars;
 
 // connections are tried 3 times, see
 // https://github.com/id-Software/Quake/blob/master/WinQuake/net_dgrm.c#L1248
@@ -146,8 +145,6 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
             .add_systems(
                 Main,
                 (
-                    systems::lock_cursor,
-                    systems::send_input_to_server,
                     systems::frame::parse_server_msg
                         .pipe(systems::frame::advance_frame)
                         .pipe(systems::frame::end_frame)
@@ -156,21 +153,31 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                             if let Err(e) = res {
                                 error!("Error handling input: {}", e);
                             }
-                        })
-                        // TODO: Use bevy's state system
-                        .run_if(
-                            resource_exists::<Connection>
-                                .and(|conn: Res<Connection>| conn.is_connected()),
-                        ),
-                    systems::process_network_messages
-                        .pipe(|In(res)| {
-                            // TODO: Error handling
-                            if let Err(e) = res {
-                                error!("Error handling frame: {}", e);
-                            }
-                        })
-                        .run_if(resource_exists::<QSocket>),
-                ),
+                        }),
+                    systems::send_input_to_server.pipe(|In(res)| {
+                        // TODO: Error handling
+                        if let Err(e) = res {
+                            error!("Error handling frame: {}", e);
+                        }
+                    }),
+                )
+                    // TODO: Use bevy's state system
+                    .run_if(
+                        resource_exists::<Connection>
+                            .and(|conn: Res<Connection>| conn.is_connected()),
+                    ),
+            )
+            .add_systems(Main, systems::lock_cursor)
+            .add_systems(
+                Main,
+                systems::process_network_messages
+                    .pipe(|In(res)| {
+                        // TODO: Error handling
+                        if let Err(e) = res {
+                            error!("Error handling frame: {}", e);
+                        }
+                    })
+                    .run_if(resource_exists::<QSocket>),
             )
             .add_plugins(SeismonConsolePlugin)
             .add_plugins(SeismonSoundPlugin)
@@ -823,35 +830,50 @@ mod systems {
         }
     }
 
-    mod frame {
+    pub mod frame {
         use super::*;
 
         pub enum FrameSystem {}
 
         pub fn parse_server_msg(
-            commands: Commands<'_, '_>,
+            mut commands: Commands<'_, '_>,
             mut conn: ResMut<Connection>,
             time: Res<Time<Virtual>>,
-            asset_server: &AssetServer,
-            server_events: &Events<ServerMessage>,
-            mixer_events: &mut EventWriter<MixerEvent>,
-            console_commands: &mut EventWriter<RunCmd<'static>>,
-            mut console_output: Mut<ConsoleOutput>,
-            kick_vars: KickVars,
-            client_vars: ClientVars,
+            asset_server: Res<AssetServer>,
+            registry: Res<Registry>,
+            server_events: Res<Events<ServerMessage>>,
+            mut mixer_events: EventWriter<MixerEvent>,
+            mut console_commands: EventWriter<RunCmd<'static>>,
+            mut console_output: ResMut<ConsoleOutput>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
+
+            let kick_vars: KickVars = registry.read_cvars()?;
+            // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
+            // recognise symbols as valid strings, so we need to use
+            // `.value().as_name()` and can't use `read_cvars`.
+            // TODO: Use `nu` (https://github.com/eira-fransham/seismon/issues/44)
+            let client_vars: ClientVars = ClientVars {
+                name: registry
+                    .get_cvar("_cl_name")
+                    .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
+                        backtrace: snafu::Backtrace::capture(),
+                    }))?
+                    .value()
+                    .as_name()
+                    .unwrap_or("player"),
+                color: registry.read_cvar("_cl_color")?,
+            };
 
             if time.elapsed() < conn.last_msg_time.elapsed() {
                 return Ok(S::Maintain);
             }
 
-            let Some(server_update) = conn.target.recv(server_events)? else {
+            let Some(server_update) = conn.target.recv(&server_events)? else {
                 return if conn.target.is_demo() { Ok(S::NextDemo) } else { Ok(S::Maintain) };
             };
 
-            let ServerUpdate { message, angles: demo_view_angles, track_override } =
-                server_update.into_owned();
+            let ServerUpdate { message, track_override, .. } = server_update.into_owned();
 
             // no data available at this time
             if message.is_empty() {
@@ -899,6 +921,12 @@ mod systems {
 
                         let _server_info =
                             ServerInfo { _max_clients: max_clients, _game_type: game_type };
+
+                        conn.client_state = ClientState::from_server_info(
+                            &asset_server,
+                            model_precache,
+                            sound_precache,
+                        )?;
                     }
 
                     ServerCmd::Bad => {
@@ -944,7 +972,7 @@ mod systems {
                         // first update signals the last sign-on stage
                         conn.handle_signon(SignOnStage::Done, commands.reborrow(), &client_vars)?;
 
-                        conn.client_state.update_entity(commands.reborrow(), &ent_update)?;
+                        conn.client_state.update_entity(commands.reborrow(), &ent_update);
 
                         // patch view angles in demos
                         // if let Some(angles) = demo_view_angles
@@ -1031,28 +1059,23 @@ mod systems {
                         skin_id,
                         origin,
                         angles,
-                    } => {
-                        let entity = commands
-                            .spawn((
-                                SceneRoot(conn.client_state.models[model_id as usize].clone()),
-                                Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                                    Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                                ),
-                                // TODO: Handle the other fields
-                            ))
-                            .id();
+                    } => conn.client_state.spawn_entities(
+                        commands.reborrow(),
+                        ent_id,
+                        EntityState {
+                            origin,
+                            angles,
+                            model_id: model_id.into(),
 
-                        conn.client_state.server_entity_to_client_entity.insert(ent_id, entity);
-                    }
+                            // TODO
+                            frame_id: frame_id.into(),
+                            colormap: colormap,
+                            skin_id: skin_id.into(),
+                            effects: Default::default(),
+                        },
+                    ),
 
-                    ServerCmd::SpawnStatic {
-                        model_id,
-                        frame_id,
-                        colormap,
-                        skin_id,
-                        origin,
-                        angles,
-                    } => {
+                    ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
                         commands.spawn((
                             SceneRoot(conn.client_state.models[model_id as usize].clone()),
                             Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
@@ -1187,8 +1210,8 @@ mod systems {
 
         pub fn advance_frame(
             In(status): In<Result<ConnectionStatus, ClientError>>,
-            mut conn: Mut<Connection>,
-            to_server: &mut EventWriter<ClientMessage>,
+            mut conn: ResMut<Connection>,
+            mut to_server: EventWriter<ClientMessage>,
         ) -> Result<ConnectionStatus, ClientError> {
             match status? {
                 ConnectionStatus::Maintain => {}

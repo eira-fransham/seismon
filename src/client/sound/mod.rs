@@ -275,6 +275,7 @@ mod systems {
                 MixerEvent::StartSound(start) => {
                     let attenuation =
                         if start.attenuation.is_finite() { start.attenuation } else { 1. };
+                    // TODO: Entity channels should be children of the enitities they're spawned on.
                     let mut new_sound = commands.spawn((
                         Sound,
                         Channel { channel: start.ent_channel },
@@ -329,14 +330,12 @@ mod systems {
                 MixerEvent::StartMusic(Some(MusicSource::Named(named))) => {
                     // TODO: Error handling
                     music_player
-                        .play_named(&asset_server, &mut commands, &vfs, MusicPool, named)
+                        .play_named(&asset_server, &mut commands, MusicPool, named)
                         .unwrap();
                 }
                 MixerEvent::StartMusic(Some(MusicSource::TrackId(id))) => {
                     // TODO: Error handling
-                    music_player
-                        .play_track(&asset_server, &mut commands, &vfs, MusicPool, *id)
-                        .unwrap();
+                    music_player.play_track(&asset_server, &mut commands, MusicPool, *id).unwrap();
                 }
                 MixerEvent::StartMusic(None) => music_player.resume(&mut all_sounds),
                 MixerEvent::StopMusic => music_player.stop(&mut commands),
@@ -349,26 +348,26 @@ mod systems {
         mut entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
         conn: Option<Res<Connection>>,
     ) {
-        let Some(conn) = conn else {
-            return;
-        };
+        // let Some(conn) = conn else {
+        //     return;
+        // };
 
-        for (mut transform, e_chan) in &mut entities {
-            if let Some(e) = conn.state.entities.get(e_chan.id) {
-                *transform = Transform::from_translation(e.origin);
-            }
-        }
+        // for (mut transform, e_chan) in &mut entities {
+        //     if let Some(e) = conn.client_state.entities.get(e_chan.id) {
+        //         *transform = Transform::from_translation(e.origin);
+        //     }
+        // }
     }
 
     pub fn update_listener(
         mut listeners: Query<&mut Transform, With<SpatialListener3D>>,
         conn: Option<Res<Connection>>,
     ) {
-        if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {
-            for mut transform in &mut listeners {
-                *transform = Transform::from_rotation(new_listener.rotation)
-                    .with_translation(new_listener.origin);
-            }
-        }
+        // if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {
+        //     for mut transform in &mut listeners {
+        //         *transform = Transform::from_rotation(new_listener.rotation)
+        //             .with_translation(new_listener.origin);
+        //     }
+        // }
     }
 }

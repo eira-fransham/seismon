@@ -258,7 +258,8 @@ where
     let width = reader.read_u32::<LittleEndian>()?;
     let height = reader.read_u32::<LittleEndian>()?;
 
-    let mip_offsets = [(); MIPLEVELS].try_map(|_| reader.read_u32::<LittleEndian>())?;
+    let mip_offsets: [_; MIPLEVELS] =
+        std::array::try_from_fn(|_| reader.read_u32::<LittleEndian>())?;
 
     let mut mipmaps = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for m in 0..MIPLEVELS {

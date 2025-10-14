@@ -203,34 +203,41 @@ impl ClientState {
     // TODO: skipping entities indicates that the entities have been freed by
     // the server. it may make more sense to use a HashMap to store entities by
     // ID since the lookup table is relatively sparse.
-    pub fn spawn_entities(&mut self, id: usize, baseline: EntityState) -> Result<(), ClientError> {
-        // don't clobber existing entities
-        // if id < self.entities.len() {
-        //     Err(ClientError::EntityExists(id))?;
-        // }
-
-        // spawn intermediate entities (uninitialized)
-        self.entities.extend((self.entities.len()..id).map(|i| {
-            debug!("Spawning uninitialized entity with ID {}", i);
-            ClientEntity::uninitialized(i)
-        }));
-
-        debug!(
-            "Spawning entity with id {} (real: {}) from baseline {:?}",
-            id,
-            self.entities.len(),
-            baseline
-        );
-        self.entities.push_back(ClientEntity::from_baseline(id, baseline));
-
-        Ok(())
-    }
-
-    pub fn update_entity(
+    pub fn spawn_entities(
         &mut self,
         mut commands: Commands<'_, '_>,
-        update: &EntityUpdate,
-    ) -> Result<(), ClientError> {
+        id: u16,
+        baseline: EntityState,
+    ) {
+        let EntityState {
+            origin,
+            angles,
+            model_id,
+
+            // TODO
+            frame_id: _,
+            colormap: _,
+            skin_id: _,
+            effects: _,
+        } = baseline;
+
+        if let Some(model) = self.models.get(model_id).cloned() {
+            let ent = commands
+                .spawn((
+                    SceneRoot(model),
+                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                        Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
+                    ),
+                ))
+                .id();
+
+            self.server_entity_to_client_entity.insert(id, ent);
+        } else {
+            warn!("Model {model_id} not found (TODO)");
+        }
+    }
+
+    pub fn update_entity(&mut self, mut commands: Commands<'_, '_>, update: &EntityUpdate) {
         if let Some(entity) = self.server_entity_to_client_entity.get(&update.ent_id) {
             // entity.update(self.msg_times, update);
             // if entity.model_changed() {
@@ -256,6 +263,11 @@ impl ClientState {
             //     e.colormap = Some(c);
             // }
         } else {
+            let Some(model_id) = update.model_id else {
+                warn!("Tried to spawn ent without model");
+                return;
+            };
+
             let EntityState {
                 origin,
                 angles,
@@ -277,26 +289,28 @@ impl ClientState {
                     update.yaw.unwrap_or(0.),
                     update.roll.unwrap_or(0.),
                 ),
-                // If this is the baseline, we probably don't want to accidentally set a model to
-                // the worldspawn.
-                model_id: update.model_id.unwrap() as usize,
+                model_id: model_id as usize,
                 frame_id: update.frame_id.unwrap_or_default() as usize,
                 colormap: update.colormap.unwrap_or_default(),
                 skin_id: update.skin_id.unwrap_or_default() as usize,
                 effects: EntityEffects::empty(),
             };
 
-            commands.spawn((
-                SceneRoot(self.models[model_id].clone()),
-                Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(Quat::from_euler(
-                    EulerRot::YZX,
-                    angles.x,
-                    angles.y,
-                    angles.z,
-                )),
-            ));
+            if let Some(model) = self.models.get(model_id).cloned() {
+                let ent = commands
+                    .spawn((
+                        SceneRoot(model),
+                        Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                            Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
+                        ),
+                    ))
+                    .id();
+
+                self.server_entity_to_client_entity.insert(update.ent_id, ent);
+            } else {
+                warn!("Model {model_id} not found (TODO)");
+            }
         }
-        Ok(())
     }
 }
 
