@@ -327,7 +327,7 @@ impl Buffer {
 
     /// The final WORD - split by spaces.
     pub fn last_arg(&self) -> Option<&[char]> {
-        self.data.split(|&c| c == ' ').filter(|s| !s.is_empty()).next_back()
+        self.data.split(|&c| c == ' ').rfind(|s| !s.is_empty())
     }
 
     /// The number of characters currently in the buffer.

@@ -1189,7 +1189,7 @@ where
         }
 
         // at the end of the line, move the cursor down a line
-        if new_total_width % terminal_width == 0 {
+        if new_total_width.is_multiple_of(terminal_width) {
             out_buf.push_str("\r\n");
         }
 
