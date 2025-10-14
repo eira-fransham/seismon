@@ -148,7 +148,7 @@ impl Plugin for SeismonListenServerPlugin {
 
         pub fn server_send_to_client(
             mut sender: ResMut<InMemoryMessagingServer>,
-            mut server_events: EventReader<ServerMessage>,
+            mut server_events: MessageReader<ServerMessage>,
         ) {
             for event in server_events.read().cloned() {
                 sender.send(event);
@@ -157,14 +157,14 @@ impl Plugin for SeismonListenServerPlugin {
 
         pub fn server_recv_from_client(
             mut receiver: ResMut<InMemoryMessagingServer>,
-            mut client_events: EventWriter<ClientMessage>,
+            mut client_events: MessageWriter<ClientMessage>,
         ) {
             client_events.write_batch(receiver.recv());
         }
 
         pub fn client_send_to_server(
             mut sender: ResMut<InMemoryMessagingClient>,
-            mut client_events: EventReader<ClientMessage>,
+            mut client_events: MessageReader<ClientMessage>,
         ) {
             for event in client_events.read().cloned() {
                 sender.send(event);
@@ -173,7 +173,7 @@ impl Plugin for SeismonListenServerPlugin {
 
         pub fn client_recv_from_server(
             mut receiver: ResMut<InMemoryMessagingClient>,
-            mut server_events: EventWriter<ServerMessage>,
+            mut server_events: MessageWriter<ServerMessage>,
         ) {
             server_events.write_batch(receiver.recv());
         }
@@ -182,8 +182,8 @@ impl Plugin for SeismonListenServerPlugin {
         struct ServerApp;
 
         let (client_messaging, server_messaging) = in_memory_messaging();
-        app.add_event::<ServerMessage>()
-            .add_event::<ClientMessage>()
+        app.add_message::<ServerMessage>()
+            .add_message::<ClientMessage>()
             .insert_resource(client_messaging)
             .add_systems(First, client_recv_from_server)
             .add_systems(Last, client_send_to_server);
@@ -199,8 +199,8 @@ impl Plugin for SeismonListenServerPlugin {
             .insert_resource(asset_server)
             .insert_resource(vfs)
             .insert_resource(server_messaging)
-            .add_event::<ServerMessage>()
-            .add_event::<ClientMessage>()
+            .add_message::<ServerMessage>()
+            .add_message::<ClientMessage>()
             .add_systems(FixedFirst, server_recv_from_client)
             .add_systems(FixedLast, server_send_to_client)
             .add_plugins(SeismonServerPlugin)
@@ -209,16 +209,16 @@ impl Plugin for SeismonListenServerPlugin {
         server_sub_app.update_schedule = Some(FixedMain.intern());
 
         server_sub_app.set_extract(|client_world, server_world| {
-            server_world.resource_mut::<Events<ClientMessage>>().send_batch(
+            server_world.resource_mut::<Messages<ClientMessage>>().write_batch(
                 client_world
-                    .resource_mut::<Events<ClientMessage>>()
-                    .iter_current_update_events()
+                    .resource_mut::<Messages<ClientMessage>>()
+                    .iter_current_update_messages()
                     .cloned(),
             );
-            client_world.resource_mut::<Events<ServerMessage>>().send_batch(
+            client_world.resource_mut::<Messages<ServerMessage>>().write_batch(
                 server_world
-                    .resource_mut::<Events<ServerMessage>>()
-                    .iter_current_update_events()
+                    .resource_mut::<Messages<ServerMessage>>()
+                    .iter_current_update_messages()
                     .cloned(),
             );
         });
@@ -240,7 +240,7 @@ impl Plugin for SeismonServerPlugin {
                     systems::server_spawn.pipe(
                         |In(res),
                          mut commands: Commands,
-                         mut runcmd: EventWriter<RunCmd<'static>>| {
+                         mut runcmd: MessageWriter<RunCmd<'static>>| {
                             if let Err(e) = res {
                                 error!("Failed spawning server: {}", Report::from_error(e));
                                 commands.remove_resource::<Session>();
@@ -251,8 +251,8 @@ impl Plugin for SeismonServerPlugin {
                 )
                     .run_if(resource_exists::<Session>),
             )
-            .add_event::<ClientMessage>()
-            .add_event::<ServerMessage>()
+            .add_message::<ClientMessage>()
+            .add_message::<ServerMessage>()
             .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
             .add_plugins(SeismonConsoleCorePlugin);
 
@@ -3900,10 +3900,10 @@ pub mod systems {
 
     pub fn recv_client_messages(
         mut server: Option<ResMut<Session>>,
-        mut client_msgs: EventReader<ClientMessage>,
-        mut server_messages: EventWriter<ServerMessage>,
+        mut client_msgs: MessageReader<ClientMessage>,
+        mut server_messages: MessageWriter<ServerMessage>,
 
-        mut run_cmds: EventWriter<RunCmd<'static>>,
+        mut run_cmds: MessageWriter<RunCmd<'static>>,
         mut registry: ResMut<Registry>,
         vfs: Res<Vfs>,
     ) {
@@ -4069,7 +4069,7 @@ pub mod systems {
     pub fn server_spawn(
         mut server: ResMut<Session>,
         mut registry: ResMut<Registry>,
-        mut server_messages: EventWriter<ServerMessage>,
+        mut server_messages: MessageWriter<ServerMessage>,
         time: Res<Time<Fixed>>,
         vfs: Res<Vfs>,
     ) -> progs::Result<()> {
@@ -4133,7 +4133,7 @@ pub mod systems {
     pub fn server_update(
         mut server: ResMut<Session>,
         time: Res<Time<Fixed>>,
-        mut server_messages: EventWriter<ServerMessage>,
+        mut server_messages: MessageWriter<ServerMessage>,
         mut registry: ResMut<Registry>,
         vfs: Res<Vfs>,
     ) {

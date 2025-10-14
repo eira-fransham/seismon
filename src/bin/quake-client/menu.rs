@@ -21,7 +21,7 @@
 use bevy::{
     app::AppExit,
     ecs::{
-        event::{EventWriter, Events},
+        message::{MessageWriter, Messages},
         system::ResMut,
     },
     log::warn,
@@ -39,8 +39,8 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
         .add_submenu("Multiplayer", build_menu_mp)?
         .add_submenu("Options", build_menu_options)?
         .add_action("Help/Ordering", || ())
-        .add_action("Quit", |mut quit: ResMut<Events<AppExit>>| {
-            quit.send(AppExit::Success);
+        .add_action("Quit", |mut quit: ResMut<Messages<AppExit>>| {
+            quit.write(AppExit::Success);
         })
         .build(MenuView {
             draw_plaque: true,
@@ -51,7 +51,7 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
 
 fn build_menu_sp(builder: MenuBuilder) -> Result<Menu, Error> {
     Ok(builder
-        .add_action("New Game", |mut commands: EventWriter<RunCmd<'static>>| {
+        .add_action("New Game", |mut commands: MessageWriter<RunCmd<'static>>| {
             commands.write("map start".parse().unwrap());
         })
         .add_action("Load", || unimplemented!())
@@ -111,7 +111,7 @@ fn build_menu_mp_join_tcp(builder: MenuBuilder) -> Result<Menu, Error> {
 fn build_menu_options(builder: MenuBuilder) -> Result<Menu, Error> {
     Ok(builder
         // .add_submenu("Customize controls", unimplemented!())
-        .add_action("Go to console", |mut commands: EventWriter<RunCmd<'static>>| {
+        .add_action("Go to console", |mut commands: MessageWriter<RunCmd<'static>>| {
             commands.write("toggleconsole".into());
         })
         // TODO

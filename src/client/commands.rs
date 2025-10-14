@@ -16,7 +16,7 @@ use super::{
     Connection, ConnectionStage, ConnectionTarget, DemoQueue, connect,
     demo::DemoServer,
     input::InputFocus,
-    sound::{MixerEvent, MusicSource},
+    sound::{MixerMessage, MusicSource},
     state::ClientState,
 };
 
@@ -62,7 +62,7 @@ pub fn register_commands(app: &mut App) {
                 }
             }
 
-            default()
+            ExecResult::default()
         },
     );
 
@@ -86,7 +86,7 @@ pub fn register_commands(app: &mut App) {
                 }
             }
         }
-        default()
+        ExecResult::default()
     });
 
     #[derive(Parser)]
@@ -102,7 +102,7 @@ pub fn register_commands(app: &mut App) {
                 *focus = InputFocus::Game;
                 commands.insert_resource(new_conn);
                 commands.insert_resource(Connection::new_server(new_state));
-                default()
+                ExecResult::default()
             }
             Err(e) => e.to_string().into(),
         }
@@ -120,7 +120,7 @@ pub fn register_commands(app: &mut App) {
                 // TODO: is this all that's needed to reconnect to a server?
                 *stage = ConnectionStage::SignOn(SignOnStage::Prespawn);
                 *focus = InputFocus::Game;
-                default()
+                ExecResult::default()
             } else {
                 "not connected".into()
             }
@@ -140,7 +140,7 @@ pub fn register_commands(app: &mut App) {
                 commands.remove_resource::<Connection>();
                 commands.remove_resource::<QSocket>();
                 *focus = InputFocus::Console;
-                default()
+                ExecResult::default()
             } else {
                 "not connected".into()
             }
@@ -181,7 +181,7 @@ pub fn register_commands(app: &mut App) {
                 }
             }
 
-            default()
+            ExecResult::default()
         },
     );
 
@@ -239,7 +239,7 @@ pub fn register_commands(app: &mut App) {
                 *focus = InputFocus::Game;
             }
 
-            default()
+            ExecResult::default()
         },
     );
 
@@ -250,9 +250,9 @@ pub fn register_commands(app: &mut App) {
         track: String,
     }
 
-    app.command(|In(Music { track }), mut events: EventWriter<MixerEvent>| {
-        events.write(MixerEvent::StartMusic(Some(MusicSource::Named(track))));
-        default()
+    app.command(|In(Music { track }), mut events: MessageWriter<MixerMessage>| {
+        events.write(MixerMessage::StartMusic(Some(MusicSource::Named(track))));
+        ExecResult::default()
     });
 
     // TODO: Make these subcommands of `music`, with aliases
@@ -260,9 +260,9 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "music_stop", about = "Stop the current music track")]
     struct MusicStop;
 
-    app.command(|In(MusicStop), mut events: EventWriter<MixerEvent>| {
-        events.write(MixerEvent::StopMusic);
-        default()
+    app.command(|In(MusicStop), mut events: MessageWriter<MixerMessage>| {
+        events.write(MixerMessage::StopMusic);
+        ExecResult::default()
     });
 
     // TODO: Make these subcommands of `music`, with aliases
@@ -270,9 +270,9 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "music_pause", about = "Pause playback of the current music track")]
     struct MusicPause;
 
-    app.command(|In(MusicPause), mut events: EventWriter<MixerEvent>| {
-        events.write(MixerEvent::PauseMusic);
-        default()
+    app.command(|In(MusicPause), mut events: MessageWriter<MixerMessage>| {
+        events.write(MixerMessage::PauseMusic);
+        ExecResult::default()
     });
 
     // TODO: Make these subcommands of `music`, with aliases
@@ -280,9 +280,9 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "music_resume", about = "Resume playback of the current music track")]
     struct MusicResume;
 
-    app.command(|In(MusicResume), mut events: EventWriter<MixerEvent>| {
-        events.write(MixerEvent::StartMusic(None));
-        default()
+    app.command(|In(MusicResume), mut events: MessageWriter<MixerMessage>| {
+        events.write(MixerMessage::StartMusic(None));
+        ExecResult::default()
     });
 
     #[derive(Parser)]
@@ -291,7 +291,7 @@ pub fn register_commands(app: &mut App) {
         args: Vec<String>,
     }
 
-    app.command(|In(Echo { args })| args.join(" ").trim().to_owned().into());
+    app.command(|In(Echo { args })| -> ExecResult { args.join(" ").trim().to_owned().into() });
 
     #[derive(Parser)]
     #[command(name = "alias", about = "Make an alias command")]
@@ -324,7 +324,7 @@ pub fn register_commands(app: &mut App) {
             (Some(from), Some(to)) => {
                 registry.alias(from, to);
 
-                default()
+                ExecResult::default()
             }
 
             // TODO: Alias info for just one alias
@@ -338,7 +338,7 @@ pub fn register_commands(app: &mut App) {
         pattern: String,
     }
 
-    app.command(move |In(Find { pattern }), cmds: Res<Registry>| {
+    app.command(move |In(Find { pattern }), cmds: Res<Registry>| -> ExecResult {
         // Take every item starting with the target.
         let it = cmds
             .all_names()
@@ -465,8 +465,8 @@ pub fn register_commands(app: &mut App) {
         In(Map { map_name }): In<Map>,
         mut commands: Commands,
         mut focus: ResMut<InputFocus>,
-        mut client_events: ResMut<Events<ClientMessage>>,
-        mut server_events: ResMut<Events<ServerMessage>>,
+        mut client_events: ResMut<Messages<ClientMessage>>,
+        mut server_events: ResMut<Messages<ServerMessage>>,
     ) -> ExecResult {
         client_events.clear();
         server_events.clear();
@@ -476,7 +476,7 @@ pub fn register_commands(app: &mut App) {
             .serialize(&mut bytes)
             .unwrap();
 
-        client_events.send(ClientMessage {
+        client_events.write(ClientMessage {
             client_id: 0,
             packet: bytes.into(),
             kind: MessageKind::Reliable,

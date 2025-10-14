@@ -31,7 +31,7 @@ use std::{
 };
 
 use beef::Cow;
-use bevy::{prelude::*, utils::synccell::SyncCell};
+use bevy::{platform::cell::SyncCell, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use chrono::Duration;
@@ -112,7 +112,7 @@ impl InMemoryMessagingServer {
     }
 }
 
-#[derive(Clone, Event)]
+#[derive(Clone, Message)]
 pub struct ServerMessage {
     pub client_id: usize,
     pub packet: Arc<[u8]>,
@@ -125,7 +125,7 @@ pub enum MessageKind {
     Unreliable,
 }
 
-#[derive(Event, Default, Clone)]
+#[derive(Message, Default, Clone)]
 pub struct ClientMessage {
     pub client_id: usize,
     pub packet: Arc<[u8]>,
@@ -957,7 +957,7 @@ pub enum GameType {
     Deathmatch = 1,
 }
 
-#[derive(Clone, Event, Debug, PartialEq)]
+#[derive(Clone, Message, Debug, PartialEq)]
 pub enum ServerCmd {
     Bad,
     NoOp,
@@ -970,7 +970,7 @@ pub enum ServerCmd {
         version: i32,
     },
     SetView {
-        ent_id: i16,
+        ent_id: u16,
     },
     Sound {
         volume: Option<u8>,
@@ -1176,7 +1176,7 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::SetView => {
-                let ent_id = reader.read_i16::<LittleEndian>()?;
+                let ent_id = reader.read_u16::<LittleEndian>()?;
                 ServerCmd::SetView { ent_id }
             }
 
@@ -1575,7 +1575,7 @@ impl ServerCmd {
             }
 
             ServerCmd::SetView { ent_id } => {
-                writer.write_i16::<LittleEndian>(ent_id)?;
+                writer.write_u16::<LittleEndian>(ent_id)?;
             }
 
             ServerCmd::Sound { volume, attenuation, entity_id, channel, sound_id, position } => {
@@ -2631,7 +2631,7 @@ mod test {
 
     #[test]
     fn test_client_cmd_string_cmd_read_write_eq() {
-        let src = ClientCmd::StringCmd { cmd: String::from("StringCmd test") };
+        let src = ClientCmd::StringCmd { cmd: String::from("StringCmd test").into() };
         let mut packet = Vec::new();
         src.serialize(&mut packet).unwrap();
         let mut reader = BufReader::new(packet.as_slice());

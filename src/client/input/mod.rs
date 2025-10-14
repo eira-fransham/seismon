@@ -19,12 +19,9 @@ pub mod commands;
 pub mod console;
 pub mod game;
 
-use bevy::{
-    ecs::resource::Resource, input::keyboard::KeyboardInput, prelude::*,
-    render::extract_resource::ExtractResource,
-};
+use bevy::{ecs::resource::Resource, input::keyboard::KeyboardInput, prelude::*};
 
-use self::{game::GameInput, systems::InputEventReader};
+use self::{game::GameInput, systems::InputMessageReader};
 
 pub struct SeismonInputPlugin;
 
@@ -32,7 +29,7 @@ impl Plugin for SeismonInputPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.init_resource::<InputFocus>()
             .init_resource::<GameInput>()
-            .init_resource::<InputEventReader<KeyboardInput>>()
+            .init_resource::<InputMessageReader<KeyboardInput>>()
             .add_systems(
                 Update,
                 (
@@ -51,7 +48,7 @@ impl Plugin for SeismonInputPlugin {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Resource, ExtractResource)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Resource)]
 pub enum InputFocus {
     Game,
     #[default]
@@ -61,7 +58,7 @@ pub enum InputFocus {
 
 pub mod systems {
     use bevy::{
-        ecs::event::EventCursor,
+        ecs::message::MessageCursor,
         input::{ButtonState, keyboard::KeyboardInput, mouse::MouseMotion},
         prelude::*,
         window::PrimaryWindow,
@@ -86,26 +83,26 @@ pub mod systems {
     }
 
     #[derive(Resource)]
-    pub struct InputEventReader<E: Event> {
-        reader: EventCursor<E>,
+    pub struct InputMessageReader<E: Message> {
+        reader: MessageCursor<E>,
     }
 
-    impl<E: Event> Default for InputEventReader<E> {
+    impl<E: Message> Default for InputMessageReader<E> {
         fn default() -> Self {
             Self { reader: default() }
         }
     }
 
-    pub fn reset_mouse_delta(mut run_cmds: EventWriter<RunCmd<'static>>) {
+    pub fn reset_mouse_delta(mut run_cmds: MessageWriter<RunCmd<'static>>) {
         run_cmds.write(RunCmd("mousedelta".into(), Box::new(["#(0 0)".into()])));
     }
 
     pub fn game_input(
-        mut reader: ResMut<InputEventReader<KeyboardInput>>,
-        keyboard_events: Res<Events<KeyboardInput>>,
+        mut reader: ResMut<InputMessageReader<KeyboardInput>>,
+        keyboard_events: Res<Messages<KeyboardInput>>,
         keyboard_input: Res<ButtonInput<KeyCode>>,
-        mut mouse_events: EventReader<MouseMotion>,
-        mut run_cmds: EventWriter<RunCmd<'static>>,
+        mut mouse_events: MessageReader<MouseMotion>,
+        mut run_cmds: MessageWriter<RunCmd<'static>>,
         input: Res<GameInput>,
     ) {
         for key in reader.reader.read(&keyboard_events) {
@@ -148,10 +145,10 @@ pub mod systems {
     // TODO: Should use a proper input manager
     #[allow(clippy::too_many_arguments)]
     pub fn console_input(
-        mut reader: ResMut<InputEventReader<KeyboardInput>>,
-        keyboard_events: Res<Events<KeyboardInput>>,
+        mut reader: ResMut<InputMessageReader<KeyboardInput>>,
+        keyboard_events: Res<Messages<KeyboardInput>>,
         button_state: Res<ButtonInput<KeyCode>>,
-        mut run_cmds: EventWriter<RunCmd<'static>>,
+        mut run_cmds: MessageWriter<RunCmd<'static>>,
         input: Res<GameInput>,
         mut console_in: ResMut<ConsoleInput>,
         mut console_out: ResMut<ConsoleOutput>,
@@ -219,10 +216,10 @@ pub mod systems {
     }
 
     pub fn menu_input(
-        mut reader: ResMut<InputEventReader<KeyboardInput>>,
-        keyboard_events: Res<Events<KeyboardInput>>,
+        mut reader: ResMut<InputMessageReader<KeyboardInput>>,
+        keyboard_events: Res<Messages<KeyboardInput>>,
         mut commands: Commands,
-        mut run_cmds: EventWriter<RunCmd<'static>>,
+        mut run_cmds: MessageWriter<RunCmd<'static>>,
         mut menu: ResMut<Menu>,
         input: Res<GameInput>,
     ) {

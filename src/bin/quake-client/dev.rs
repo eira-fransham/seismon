@@ -28,9 +28,7 @@ impl Plugin for DevtoolsPlugins {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin::default())
             .add_plugins((
-                bevy_inspector_egui::bevy_egui::EguiPlugin {
-                    enable_multipass_for_primary_context: true,
-                },
+                bevy_inspector_egui::bevy_egui::EguiPlugin::default(),
                 bevy_inspector_egui::quick::WorldInspectorPlugin::default(),
             ))
             .add_systems(Update, (Self::move_debug_camera, Self::draw_debug_transforms));
@@ -127,4 +125,4 @@ impl DevtoolsPlugins {
 
 #[derive(Component)]
 #[require(Transform, Camera3d)]
-struct DebugCamera;
+pub struct DebugCamera;

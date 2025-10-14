@@ -1,23 +1,3 @@
-// Copyright © 2018 Cormac O'Brien
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{self, Write},
@@ -29,12 +9,7 @@ use std::{
 
 use beef::Cow;
 use bevy::{
-    ecs::{
-        prelude::Command,
-        resource::Resource,
-        system::{SystemId, SystemParamValidationError},
-        world::{DeferredWorld, World},
-    },
+    ecs::{prelude::Command, resource::Resource, system::SystemId, world::World},
     prelude::*,
 };
 use chrono::Duration;
@@ -87,7 +62,7 @@ impl Plugin for SeismonConsoleCorePlugin {
 
         app.init_resource::<Registry>()
             .init_resource::<gfx::Gfx>()
-            .add_event::<RunCmd<'static>>()
+            .add_message::<RunCmd<'static>>()
             .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
                 ExecResult {
                     extra_commands: Box::new(mem::take(&mut input.stuffcmds).into_iter()),
@@ -160,7 +135,7 @@ impl Plugin for SeismonConsolePlugin {
         }
 
         app.add_plugins(SeismonConsoleCorePlugin)
-            .add_event::<UnhandledCmd>()
+            .add_message::<UnhandledCmd>()
             .init_resource::<ConsoleOutput>()
             .insert_resource(ConsoleInput::new(history).unwrap())
             .init_resource::<RenderConsoleOutput>()
@@ -171,8 +146,7 @@ impl Plugin for SeismonConsolePlugin {
                 (systems::startup::init_alert_output, systems::startup::init_console),
             )
             .add_observer(
-                |trigger: bevy::ecs::observer::Trigger<Connected>,
-                 mut console_ui: Query<&mut Node, With<ConsoleUi>>| {
+                |trigger: On<Connected>, mut console_ui: Query<&mut Node, With<ConsoleUi>>| {
                     let height =
                         if trigger.event().0 { Val::Percent(30.) } else { Val::Percent(100.) };
 
@@ -352,11 +326,11 @@ impl std::fmt::Display for CmdName<'_> {
     }
 }
 
-#[derive(Event, PartialEq, Eq, Clone, Debug)]
+#[derive(Message, PartialEq, Eq, Clone, Debug)]
 #[repr(transparent)]
 pub struct UnhandledCmd(pub RunCmd<'static>);
 
-#[derive(Event, PartialEq, Eq, Clone, Debug)]
+#[derive(Message, PartialEq, Eq, Clone, Debug)]
 pub struct RunCmd<'a>(pub CmdName<'a>, pub Box<[String]>);
 
 impl<'a> RunCmd<'a> {
@@ -539,112 +513,6 @@ impl RegisterCmdExt for SubApp {
     }
 }
 
-struct MaybeSystem<S, F, E> {
-    inner: S,
-    handle_error: F,
-    _error: PhantomData<E>,
-}
-
-impl<S, F, E> MaybeSystem<S, F, E>
-where
-    S: System,
-    F: FnMut(E) -> S::Out + Send + Sync + 'static,
-{
-    fn new<I, A, O, M>(system: I, handle_error: F) -> Self
-    where
-        A: 'static,
-        I: IntoSystem<In<A>, O, M, System = S>, {
-        Self { inner: I::into_system(system), handle_error, _error: PhantomData }
-    }
-}
-
-impl<S, F, E> System for MaybeSystem<S, F, E>
-where
-    S: System,
-    F: FnMut(E) -> S::Out + Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    type In = In<Result<<S::In as SystemInput>::Inner<'static>, E>>;
-    type Out = S::Out;
-
-    unsafe fn validate_param_unsafe(
-        &mut self,
-        world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'_>,
-    ) -> Result<(), SystemParamValidationError> {
-        unsafe { self.inner.validate_param_unsafe(world) }
-    }
-
-    fn name(&self) -> std::borrow::Cow<'static, str> {
-        self.inner.name()
-    }
-
-    fn component_access(&self) -> &bevy::ecs::query::Access<bevy::ecs::component::ComponentId> {
-        self.inner.component_access()
-    }
-
-    fn archetype_component_access(
-        &self,
-    ) -> &bevy::ecs::query::Access<bevy::ecs::archetype::ArchetypeComponentId> {
-        self.inner.archetype_component_access()
-    }
-
-    fn is_send(&self) -> bool {
-        self.inner.is_send()
-    }
-
-    fn is_exclusive(&self) -> bool {
-        self.inner.is_exclusive()
-    }
-
-    fn has_deferred(&self) -> bool {
-        self.inner.has_deferred()
-    }
-
-    fn queue_deferred(&mut self, world: DeferredWorld<'_>) {
-        self.inner.queue_deferred(world)
-    }
-
-    unsafe fn run_unsafe(
-        &mut self,
-        input: <Self::In as SystemInput>::Inner<'_>,
-        world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell,
-    ) -> Self::Out {
-        unsafe {
-            match input {
-                Ok(input) => self.inner.run_unsafe(input, world),
-                Err(e) => (self.handle_error)(e),
-            }
-        }
-    }
-
-    fn apply_deferred(&mut self, world: &mut World) {
-        self.inner.apply_deferred(world)
-    }
-
-    fn initialize(&mut self, world: &mut World) {
-        self.inner.initialize(world)
-    }
-
-    fn update_archetype_component_access(
-        &mut self,
-        world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell,
-    ) {
-        self.inner.update_archetype_component_access(world)
-    }
-
-    fn check_change_tick(&mut self, change_tick: bevy::ecs::component::Tick) {
-        self.inner.check_change_tick(change_tick)
-    }
-
-    fn get_last_run(&self) -> bevy::ecs::component::Tick {
-        self.inner.get_last_run()
-    }
-
-    fn set_last_run(&mut self, last_run: bevy::ecs::component::Tick) {
-        self.inner.set_last_run(last_run)
-    }
-}
-
 fn parse_args<A>(
     mut command: clap::Command,
 ) -> impl FnMut(In<Box<[String]>>) -> Result<A, clap::Error>
@@ -665,18 +533,19 @@ impl RegisterCmdExt for World {
         let usage = command.render_usage();
         let short_about = command.render_help();
         let about = command.render_long_help();
-        let sys = self.register_system(parse_args::<A>(command).pipe(MaybeSystem::new(
-            run,
-            move |clap_err: clap::Error| -> ExecResult {
-                match clap_err.kind() {
+        let run_sys = self.register_system(run);
+        let sys = self.register_system(parse_args::<A>(command).pipe(
+            move |In(res): In<Result<A, clap::Error>>, world: &mut World| match res {
+                Ok(val) => world.run_system_with(run_sys, val).unwrap(),
+                Err(clap_err) => match clap_err.kind() {
                     clap::error::ErrorKind::DisplayHelp
                     | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
                         format!("{short_about}").into()
                     }
                     other => format!("{other}\n{usage}").into(),
-                }
+                },
             },
-        )));
+        ));
         self.resource_mut::<Registry>().command(command_name, sys, format!("{about}"));
 
         self
@@ -1814,7 +1683,7 @@ struct ConsoleTextInputUi;
 mod gfx {
     use super::Vfs;
     use crate::common::wad::Wad;
-    use bevy::{prelude::*, render::render_asset::RenderAssetUsages};
+    use bevy::{asset::RenderAssetUsages, prelude::*};
     use std::io::{BufReader, Read as _};
     use wgpu::{Extent3d, TextureDimension};
 
@@ -2218,8 +2087,8 @@ mod systems {
     }
 
     pub fn send_unhandled_commands_to_server(
-        mut unhandled: EventReader<UnhandledCmd>,
-        mut to_server: EventWriter<ClientMessage>,
+        mut unhandled: MessageReader<UnhandledCmd>,
+        mut to_server: MessageWriter<ClientMessage>,
     ) {
         to_server.write_batch(unhandled.read().map(|UnhandledCmd(e)| {
             let mut bytes = vec![];
@@ -2340,7 +2209,7 @@ mod systems {
             let Some((_, first)) = first else {
                 continue;
             };
-            text.text.push_bytes(first.as_ref());
+            text.text.push_bytes(first);
 
             for (_, line) in lines {
                 text.text.push_bytes(&*line.raw);
@@ -2349,12 +2218,13 @@ mod systems {
     }
 
     pub fn execute_console(world: &mut World) {
-        let mut commands = world.resource_mut::<Events<RunCmd>>().drain().collect::<VecDeque<_>>();
+        let mut commands =
+            world.resource_mut::<Messages<RunCmd>>().drain().collect::<VecDeque<_>>();
 
         let mut changed_cvars = Vec::new();
 
         let mut unhandled = Some(Vec::<UnhandledCmd>::new())
-            .filter(|_| world.get_resource::<Events<UnhandledCmd>>().is_some());
+            .filter(|_| world.get_resource::<Messages<UnhandledCmd>>().is_some());
 
         while let Some(cmd) = commands.pop_front() {
             debug!(target: "console", "{cmd}");

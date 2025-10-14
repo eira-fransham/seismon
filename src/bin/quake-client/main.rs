@@ -1,23 +1,3 @@
-// Copyright © 2018 Cormac O'Brien
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 #![recursion_limit = "256"]
 
 #[cfg(feature = "dev_tools")]
@@ -28,18 +8,17 @@ use std::{path::PathBuf, process::ExitCode};
 
 use bevy::{
     audio::AudioPlugin,
+    camera::Exposure,
     core_pipeline::{
-        bloom::Bloom,
-        experimental::taa::TemporalAntiAliasing,
+        // experimental::taa::TemporalAntiAliasing,
         prepass::{DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
+    ecs::entity_disabling::Disabled,
     pbr::DefaultOpaqueRendererMethod,
+    post_process::bloom::Bloom,
     prelude::*,
-    render::{
-        camera::Exposure,
-        view::{ColorGrading, ColorGradingGlobal},
-    },
+    render::view::{ColorGrading, ColorGradingGlobal, Hdr},
     window::{PresentMode, PrimaryWindow},
 };
 #[cfg(feature = "capture")]
@@ -47,9 +26,11 @@ use bevy_capture::{
     Capture, CaptureBundle, CapturePlugin,
     encoder::{gif::GifEncoder, mp4_openh264::Mp4Openh264Encoder},
 };
+use bevy_mod_pakfile::PakfilePlugin;
+use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
 use seismon::{
-    client::SeismonClientPlugin,
+    client::{SeismonClientPlugin, SeismonGameSettings},
     common::console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
     server::SeismonListenServerPlugin,
 };
@@ -156,12 +137,27 @@ fn cmd_gametitle(In(new_name): In<Value>, mut window: Query<&mut Window, With<Pr
     }
 }
 
-fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<RunCmd<'static>>) {
-    move |mut commands, mut input: ResMut<ConsoleInput>, mut console_cmds| {
+fn startup(
+    opt: Opt,
+) -> impl FnMut(
+    Commands,
+    ResMut<ConsoleInput>,
+    ResMut<SeismonGameSettings>,
+    MessageWriter<RunCmd<'static>>,
+) {
+    move |mut commands,
+          mut input: ResMut<ConsoleInput>,
+          mut game_settings: ResMut<SeismonGameSettings>,
+          mut console_cmds| {
         let camera_bundle = (
             Camera3d::default(),
-            Camera { hdr: true, ..default() },
-            TemporalAntiAliasing::default(),
+            Camera::default(),
+            Projection::Perspective(PerspectiveProjection {
+                fov: 90_f32.to_radians(),
+                ..default()
+            }),
+            Hdr,
+            // TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
             Exposure::INDOOR,
@@ -172,11 +168,21 @@ fn startup(opt: Opt) -> impl FnMut(Commands, ResMut<ConsoleInput>, EventWriter<R
             Bloom::default(),
             DepthPrepass,
             NormalPrepass,
+            SpatialListener3D,
+            #[cfg(feature = "dev_tools")]
+            dev::DebugCamera,
+            #[cfg(not(feature = "dev_tools"))]
+            Disabled,
         );
         #[cfg(feature = "capture")]
         let camera_bundle = (camera_bundle, CaptureBundle::default());
         // main game camera
-        commands.spawn(camera_bundle);
+        let camera_template = commands.spawn(camera_bundle).id();
+
+        #[cfg(not(feature = "dev_tools"))]
+        {
+            game_settings.camera_template = camera_template;
+        }
 
         console_cmds.write(RunCmd::parse("exec quake.rc").unwrap());
 
@@ -226,7 +232,7 @@ fn main() -> ExitCode {
             primary_window: Some(bevy::window::Window {
                 title: "Seismon".into(),
                 name: Some("seismon-engine".into()),
-                resolution: (1366., 768.).into(),
+                resolution: (1366, 768).into(),
                 present_mode: PresentMode::AutoVsync,
                 // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
                 prevent_default_event_handling: false,
@@ -244,6 +250,9 @@ fn main() -> ExitCode {
         default_plugins.disable::<AudioPlugin>().add(bevy_seedling::SeedlingPlugin::default());
 
     app
+        // TODO: Respect game dir.
+        // TODO: Use `BEVY_ASSET_ROOT`
+        .add_plugins(PakfilePlugin::from_paths([std::env::current_dir().unwrap().join("id1")]))
         .add_plugins(default_plugins)
         .add_plugins(SeismonClientPlugin{
             base_dir: opt.base_dir.clone(),
@@ -286,7 +295,7 @@ fn main() -> ExitCode {
             "blender",
             cmd_tonemapping,
             "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
-        ).insert_resource(DefaultOpaqueRendererMethod::deferred())
+        )// .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 
     #[cfg(feature = "dev_tools")]

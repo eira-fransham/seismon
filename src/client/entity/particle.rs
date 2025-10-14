@@ -219,7 +219,7 @@ pub enum TrailKind {
 #[derive(Clone)]
 pub struct Particles {
     // allocation pool
-    particles: im::Vector<Particle>,
+    particles: Vec<Particle>,
 
     // random number generator
     rng: SmallRng,
@@ -265,7 +265,7 @@ impl Particles {
         }
 
         // insert it
-        self.particles.push_back(particle);
+        self.particles.push(particle);
         true
     }
 

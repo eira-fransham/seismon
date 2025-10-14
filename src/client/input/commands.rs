@@ -1,4 +1,7 @@
-use crate::{client, common::console::RegisterCmdExt};
+use crate::{
+    client,
+    common::console::{ExecResult, RegisterCmdExt},
+};
 
 use bevy::prelude::*;
 use clap::Parser;
@@ -22,7 +25,7 @@ pub fn register_commands(app: &mut App) {
         Some(to) => match game_input.bind(&from[..], &to[..]) {
             Ok(_) => {
                 debug!("Bound {from:?} to {to:?}");
-                default()
+                ExecResult::default()
             }
             Err(e) => format!("Bind failed: {e}").into(),
         },
@@ -35,7 +38,7 @@ pub fn register_commands(app: &mut App) {
     // "unbindall"
     app.command(|In(UnbindAll), mut game_input: ResMut<GameInput>| {
         game_input.bindings = default();
-        default()
+        ExecResult::default()
     });
 
     #[derive(Parser)]
@@ -53,8 +56,8 @@ pub fn register_commands(app: &mut App) {
 
     // "impulse"
     // TODO: Add "extended help" for cases like this
-    app.command(move |In(Impulse { number }), mut impulse: EventWriter<client::Impulse>| {
+    app.command(move |In(Impulse { number }), mut impulse: MessageWriter<client::Impulse>| {
         impulse.write(client::Impulse(number));
-        default()
+        ExecResult::default()
     });
 }

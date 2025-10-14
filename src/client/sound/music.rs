@@ -22,12 +22,10 @@ use bevy_seedling::{
 use super::MasterOut;
 
 /// Plays music tracks.
-#[derive(Resource)]
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct MusicPlayer {
     playing: Option<(String, Entity)>,
 }
-
 
 impl MusicPlayer {
     pub fn new() -> MusicPlayer {
@@ -74,7 +72,7 @@ impl MusicPlayer {
             name.into()
         };
 
-        let source = SamplePlayer::new(asset_server.load(&*file)).looping();
+        let source = SamplePlayer::new(asset_server.load(file.into_owned())).looping();
 
         self.stop(commands);
 
@@ -130,7 +128,7 @@ impl MusicPlayer {
     /// paused, this has no effect.
     pub fn resume(&self, query: &mut Query<&mut SamplerNode>) {
         if let Some(mut sink) = self.playing.as_ref().and_then(|(_, e)| query.get_mut(*e).ok()) {
-            sink.resume(None);
+            sink.resume();
         }
     }
 }

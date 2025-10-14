@@ -277,7 +277,7 @@ impl Light {
 /// A set of active dynamic lights.
 #[derive(Default, Clone)]
 pub struct Lights {
-    lights: im::Vector<Light>,
+    lights: Vec<Light>,
 }
 
 impl Lights {
@@ -311,7 +311,7 @@ impl Lights {
             *key_light = Light::from_desc(time, desc);
             k
         } else {
-            self.lights.push_back(Light::from_desc(time, desc));
+            self.lights.push(Light::from_desc(time, desc));
             self.lights.len() - 1
         }
     }

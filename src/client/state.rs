@@ -1,28 +1,28 @@
-use std::{
-    io::Read,
-    iter,
-};
+use std::{convert::identity, iter};
 
 use super::view::BobVars;
 use crate::{
     client::{
-        ClientError,
+        ClientError, Connection,
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityEffects, EntityState, EntityUpdate, PlayerColor},
 };
 use beef::Cow;
 use bevy::{
-    asset::{AssetServer, Handle},
-    ecs::{entity::Entity, system::Commands},
+    asset::{AssetId, AssetPath, AssetServer, Handle},
+    ecs::{
+        component::Component,
+        entity::Entity,
+        system::{Commands, In, Query, ResMut},
+    },
     log::*,
     math::{EulerRot, Quat, Vec3},
     scene::{Scene, SceneRoot},
     transform::components::Transform,
 };
-use bevy_seedling::sample::Sample;
+use bevy_seedling::sample::AudioSample;
 use hashbrown::HashMap;
-use rand::distr::Distribution as _;
 use seismon_utils::QString;
 
 /// When certain temporary entities are spawned, Quake has builtin code to
@@ -37,8 +37,6 @@ const TEMP_ENTITY_BUILTIN_SOUNDS: &[&str] = &[
     "wizard/hit.wav",
 ];
 
-const MAX_LIGHT_STYLES: usize = 64;
-
 #[derive(Clone)]
 pub struct PlayerInfo {
     pub name: QString,
@@ -47,18 +45,51 @@ pub struct PlayerInfo {
     // translations: [u8; VID_GRADES],
 }
 
+#[derive(Clone)]
+pub enum ModelPrecache {
+    WaitingOnWorld { pending: PendingSceneRoot },
+    Loaded { handle: Handle<Scene> },
+}
+
+// HACK: https://github.com/bevyengine/bevy/issues/12756
+#[derive(Component, Clone)]
+pub struct PendingSceneRoot {
+    root: AssetId<Scene>,
+    asset: AssetPath<'static>,
+}
+
+impl PendingSceneRoot {
+    pub fn try_resolve(&self, asset_server: &AssetServer) -> Option<Handle<Scene>> {
+        if asset_server.is_loaded_with_dependencies(self.root) {
+            Some(self.force_resolve(asset_server))
+        } else {
+            None
+        }
+    }
+
+    fn force_resolve(&self, asset_server: &AssetServer) -> Handle<Scene> {
+        asset_server.load(&self.asset)
+    }
+}
+
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
 /// server entity ID to local [`Entity`].
 #[derive(Default)]
 pub struct ClientState {
-    // model precache
-    pub models: Box<[Handle<Scene>]>,
+    pub worldspawn: Handle<Scene>,
 
-    // audio source precache
-    pub sounds: Box<[Handle<Sample>]>,
+    // Model precache.
+    pub models: Box<[Option<ModelPrecache>]>,
 
-    // sounds that are always needed even if not in precache
-    cached_sounds: HashMap<&'static str, Handle<Sample>>,
+    models_all_resolved: bool,
+
+    // Sound precache.
+    pub sounds: Box<[Handle<AudioSample>]>,
+
+    /// Sounds that are always needed, even if not in precache.
+    /// This does not need to be read, it's just to ensure that
+    /// the handles are not dropped.
+    _cached_sounds: Box<[Handle<AudioSample>]>,
 
     pub server_entity_to_client_entity: HashMap<u16, Entity>,
 }
@@ -69,12 +100,28 @@ impl ClientState {
         ClientState::default()
     }
 
+    pub fn try_resolve_all(&mut self, asset_server: &AssetServer) {
+        if !self.models_all_resolved
+            && asset_server.is_loaded_with_dependencies(self.worldspawn.id())
+        {
+            self.models_all_resolved = true;
+
+            for model in &mut self.models {
+                if let Some(ModelPrecache::WaitingOnWorld { pending }) = model {
+                    let handle = pending.force_resolve(asset_server);
+
+                    *model = Some(ModelPrecache::Loaded { handle })
+                }
+            }
+        }
+    }
+
     pub fn from_server_info<SName: AsRef<str>>(
         asset_server: &AssetServer,
         model_precache: Vec<String>,
         sound_precache: Vec<SName>,
     ) -> Result<ClientState, ClientError> {
-        debug!("Model precache: {model_precache:?}");
+        info!("Model precache: {model_precache:?}");
 
         let mut model_precache = model_precache.into_iter();
 
@@ -82,42 +129,55 @@ impl ClientState {
         let worldspawn_path =
             model_precache.next().ok_or_else(|| ClientError::InvalidConnectResponse)?;
 
+        let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned().with_label("Model0");
+
+        let worldspawn = asset_server.load(worldspawn_path.clone());
+
         // TODO: validate submodel names
-        let models = model_precache.map(|model_name| {
-            let path: Cow<str> = if model_name.ends_with(".bsp") {
-                // BSPs can have more than one model
-                // TODO: Reimplement multiple model support for .bsp files
-                format!("{model_name}#Model0").into()
-            } else if let Some(model_idx) = model_name.strip_prefix('*') {
-                format!("{worldspawn_path}#Model{model_idx}").into()
-            } else {
-                "{model_name}".into()
-            };
-
-            // TODO: send keepalive message?
-
-            asset_server.load(&*path)
-        });
+        let models = [None, Some(ModelPrecache::Loaded { handle: worldspawn.clone() })]
+            .into_iter()
+            .chain(model_precache.map(|model_name| {
+                if model_name.ends_with(".bsp") {
+                    // TODO: We want the worldspawn to be `Model0` but other BSPs to be all models
+                    Some(ModelPrecache::Loaded {
+                        handle: asset_server
+                            .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
+                    })
+                } else if let Some(model_idx) = model_name.strip_prefix('*') {
+                    Some(ModelPrecache::WaitingOnWorld {
+                        pending: PendingSceneRoot {
+                            root: worldspawn.id(),
+                            asset: worldspawn_path.clone().with_label(format!("Model{model_idx}")),
+                        },
+                    })
+                } else {
+                    // TODO: `asset-importer`
+                    // model_name.into()
+                    None
+                }
+            }))
+            .collect();
 
         let sounds = iter::once("misc/null.wav")
             .chain(sound_precache.iter().map(AsRef::as_ref))
             .enumerate()
             .map(|(i, snd_name)| {
                 debug!("Loading sound {}: {}", i, snd_name);
-                asset_server.load(snd_name)
+                asset_server.load(format!("sound/{snd_name}"))
                 // TODO: send keepalive message?
             });
 
         let cached_sounds = TEMP_ENTITY_BUILTIN_SOUNDS
             .iter()
             .copied()
-            .map(|snd_name| (snd_name, asset_server.load(format!("sound/{snd_name}"))))
+            .map(|snd_name| asset_server.load(format!("sound/{snd_name}")))
             .collect();
 
         Ok(ClientState {
-            models: models.collect(),
+            worldspawn,
+            models,
             sounds: sounds.collect(),
-            cached_sounds,
+            _cached_sounds: cached_sounds,
             ..ClientState::new()
         })
     }
@@ -212,47 +272,128 @@ impl ClientState {
             effects: _,
         } = baseline;
 
-        if let Some(model) = self.models.get(model_id).cloned() {
-            let ent = commands
-                .spawn((
-                    SceneRoot(model),
-                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                        Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                    ),
-                ))
-                .id();
+        if id == 0 {
+            info!("Spawning world: {baseline:?}");
+        }
 
-            self.server_entity_to_client_entity.insert(id, ent);
+        let model = self.models.get(model_id).cloned().and_then(identity);
+        let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
+            .with_rotation(Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z));
+
+        let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
+            let mut entity = commands.entity(*ent);
+
+            entity.insert(transform);
+
+            entity
         } else {
-            warn!("Model {model_id} not found (TODO)");
+            let entity = commands.spawn(transform);
+
+            self.server_entity_to_client_entity.insert(id, entity.id());
+
+            entity
+        };
+
+        if let Some(model) = model {
+            match model {
+                ModelPrecache::WaitingOnWorld { pending } => {
+                    ent.insert(pending);
+                }
+                ModelPrecache::Loaded { handle } => {
+                    ent.insert(SceneRoot(handle));
+                }
+            }
         }
     }
 
-    pub fn update_entity(&mut self, mut commands: Commands<'_, '_>, update: &EntityUpdate) {
-        if let Some(entity) = self.server_entity_to_client_entity.get(&update.ent_id) {
-            // entity.update(self.msg_times, update);
-            // if entity.model_changed() {
-            //     match self
-            //         .models
-            //         .get(entity.model_id)
-            //         .map(|m| m.kind())
-            //         .unwrap_or_default()
-            //     {
-            //         ModelKind::None => (),
-            //         _ => {
-            //             entity.sync_base = match self.models[entity.model_id].sync_type() {
-            //                 SyncType::Sync => Duration::zero(),
-            //                 SyncType::Rand => unimplemented!(), // TODO
-            //             }
-            //         }
-            //     }
-            // }
+    pub fn update_entity(
+        In(update): In<EntityUpdate>,
+        mut commands: Commands<'_, '_>,
+        mut conn: ResMut<Connection>,
+        mut existing_entities: Query<&mut Transform>,
+    ) {
+        if let Some(entity) = conn.client_state.server_entity_to_client_entity.get(&update.ent_id) {
+            let Ok(mut ent) = commands.get_entity(*entity) else {
+                warn!("Server tried to update non-existent entity {}", update.ent_id);
+                return;
+            };
 
-            // if let Some(c) = entity.colormap()
-            //     && let Some(e) = self.entities.get_mut(id)
-            // {
-            //     e.colormap = Some(c);
-            // }
+            if let Some(model_id) = update.model_id
+                && let Some(model) =
+                    conn.client_state.models.get(model_id as usize).cloned().and_then(identity)
+            {
+                match model {
+                    ModelPrecache::WaitingOnWorld { pending } => {
+                        ent.insert(pending);
+                    }
+                    ModelPrecache::Loaded { handle } => {
+                        ent.insert(SceneRoot(handle));
+                    }
+                }
+            }
+
+            let update_transform = [
+                update.origin_x,
+                update.origin_y,
+                update.origin_z,
+                update.pitch,
+                update.yaw,
+                update.roll,
+            ]
+            .iter()
+            .any(|v| v.is_some());
+
+            if !update_transform {
+                return;
+            }
+
+            if let Ok(mut transform) = existing_entities.get_mut(*entity) {
+                let mut new_trans = transform.translation;
+                if let Some(o_x) = update.origin_x {
+                    new_trans = new_trans.with_x(o_x);
+                }
+                if let Some(o_y) = update.origin_y {
+                    new_trans = new_trans.with_y(o_y);
+                }
+                if let Some(o_z) = update.origin_z {
+                    new_trans = new_trans.with_z(o_z);
+                }
+
+                let new_transform = transform.with_translation(new_trans);
+
+                let (mut pitch, mut yaw, mut roll) = transform.rotation.to_euler(EulerRot::YZX);
+                if let Some(new_pitch) = update.pitch {
+                    pitch = new_pitch;
+                }
+                if let Some(new_yaw) = update.yaw {
+                    yaw = new_yaw;
+                }
+                if let Some(new_roll) = update.roll {
+                    roll = new_roll;
+                }
+
+                let new_transform =
+                    new_transform.with_rotation(Quat::from_euler(EulerRot::YZX, pitch, yaw, roll));
+
+                *transform = new_transform;
+            } else {
+                let origin = Vec3::new(
+                    update.origin_x.unwrap_or_default(),
+                    update.origin_y.unwrap_or_default(),
+                    update.origin_z.unwrap_or_default(),
+                );
+                let angles = Vec3::new(
+                    update.pitch.unwrap_or(0.),
+                    update.yaw.unwrap_or(0.),
+                    update.roll.unwrap_or(0.),
+                );
+
+                ent.insert(
+                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                        Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
+                    ),
+                );
+            }
         } else {
             let Some(model_id) = update.model_id else {
                 warn!("Tried to spawn ent without model");
@@ -287,20 +428,28 @@ impl ClientState {
                 effects: EntityEffects::empty(),
             };
 
-            if let Some(model) = self.models.get(model_id).cloned() {
-                let ent = commands
-                    .spawn((
-                        SceneRoot(model),
-                        Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                            Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                        ),
-                    ))
-                    .id();
+            let mut ent =
+                commands.spawn(
+                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                        Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
+                    ),
+                );
 
-                self.server_entity_to_client_entity.insert(update.ent_id, ent);
+            if let Some(model) = conn.client_state.models.get(model_id).cloned().and_then(identity)
+            {
+                match model {
+                    ModelPrecache::WaitingOnWorld { pending } => {
+                        ent.insert(pending);
+                    }
+                    ModelPrecache::Loaded { handle } => {
+                        ent.insert(SceneRoot(handle));
+                    }
+                }
             } else {
                 warn!("Model {model_id} not found (TODO)");
             }
+
+            conn.client_state.server_entity_to_client_entity.insert(update.ent_id, ent.id());
         }
     }
 }

@@ -1,23 +1,3 @@
-// Copyright © 2020 Cormac O'Brien
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 pub mod commands;
 mod cvars;
 pub mod demo;
@@ -32,7 +12,7 @@ pub mod view;
 use self::{
     input::SeismonInputPlugin,
     menu::{MenuBodyView, MenuBuilder, MenuView},
-    sound::{MixerEvent, SeismonSoundPlugin},
+    sound::{MixerMessage, SeismonSoundPlugin},
 };
 
 use std::{iter, net::ToSocketAddrs, ops::Range, path::PathBuf};
@@ -61,14 +41,16 @@ use beef::Cow;
 use bevy::{
     asset::AssetServer,
     ecs::{
-        event::{EventCursor, EventWriter},
+        entity_disabling::Disabled,
+        message::MessageCursor,
         system::{Res, ResMut},
     },
     prelude::*,
-    render::extract_resource::ExtractResource,
+    render::view::Hdr,
     time::{Time, Virtual},
     window::PrimaryWindow,
 };
+use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
 use chrono::Duration;
 use input::InputFocus;
 use menu::Menu;
@@ -117,10 +99,22 @@ impl SeismonClientPlugin {
     }
 }
 
-#[derive(Clone, Resource, ExtractResource)]
+#[derive(Clone, Resource)]
 pub struct SeismonGameSettings {
     pub base_dir: PathBuf,
     pub game: Option<String>,
+    pub camera_template: Entity,
+    default_camera_template: Entity,
+}
+
+fn default_camera() -> impl Bundle {
+    (
+        Camera3d::default(),
+        Camera::default(),
+        Hdr,
+        Transform::from_translation(Vec3::new(0.0, 0.0, 5.0)).looking_at(Vec3::default(), Vec3::Y),
+        Disabled,
+    )
 }
 
 impl<F> Plugin for SeismonClientPlugin<F>
@@ -131,17 +125,25 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
             app.insert_resource(menu);
         }
 
+        let camera_template = app.world_mut().spawn(default_camera()).id();
+
+        // HACK
+        #[cfg(feature = "dev_tools")]
+        app.world_mut().despawn(camera_template);
+
         let app = app
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
+                camera_template,
+                default_camera_template: camera_template,
             })
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
-            .add_event::<ServerMessage>()
-            .add_event::<ClientMessage>()
-            .add_event::<Impulse>()
+            .add_message::<ServerMessage>()
+            .add_message::<ClientMessage>()
+            .add_message::<Impulse>()
             .add_systems(
                 Main,
                 (
@@ -168,6 +170,7 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                     ),
             )
             .add_systems(Main, systems::lock_cursor)
+            .add_systems(Main, systems::spawn_pending_world_models)
             .add_systems(
                 Main,
                 systems::process_network_messages
@@ -181,7 +184,12 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
             )
             .add_plugins(SeismonConsolePlugin)
             .add_plugins(SeismonSoundPlugin)
-            .add_plugins(SeismonInputPlugin);
+            .add_plugins(SeismonInputPlugin)
+            .add_plugins(
+                TrenchBroomPlugins(Default::default())
+                    .build()
+                    .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
+            );
 
         cvars::register_cvars(app);
         commands::register_commands(app);
@@ -235,8 +243,6 @@ pub enum ClientError {
     Sound(#[from] SoundError),
     #[error("Virtual filesystem error: {0}")]
     Vfs(#[from] VfsError),
-    #[error("Sound decoding error: {0}")]
-    DecodeSound(#[from] symphonium::error::LoadError),
 }
 
 impl From<ConsoleError> for ClientError {
@@ -310,7 +316,7 @@ pub enum ConnectionStage {
     Connected,
 }
 
-#[derive(Event, Copy, Clone, Default)]
+#[derive(Message, Event, Copy, Clone, Default)]
 pub struct Connected(pub bool);
 
 /// Possible targets that a client can be connected to.
@@ -318,7 +324,7 @@ enum ConnectionTarget {
     /// A regular Quake server.
     Server {
         /// The socket used to communicate with the server.
-        reader: EventCursor<ServerMessage>,
+        reader: MessageCursor<ServerMessage>,
 
         /// The client's packet composition buffer.
         compose: Vec<u8>,
@@ -366,7 +372,7 @@ impl Default for ServerUpdate<'_> {
 impl ConnectionTarget {
     fn recv(
         &mut self,
-        events: &Events<ServerMessage>,
+        events: &Messages<ServerMessage>,
     ) -> Result<Option<ServerUpdate<'_>>, ClientError> {
         match self {
             Self::Server { reader, .. } => {
@@ -452,7 +458,6 @@ impl Connection {
     fn handle_signon(
         &mut self,
         new_stage: SignOnStage,
-        mut commands: Commands<'_, '_>,
         client_vars: &ClientVars,
     ) -> Result<(), ClientError> {
         use SignOnStage as S;
@@ -502,15 +507,7 @@ impl Connection {
             S::Prespawn | S::ClientInfo | S::Begin => ConnectionStage::SignOn(new_stage),
 
             // finished signing on, build world renderer
-            S::Done => {
-                if let Some(model) = self.client_state.models.first() {
-                    commands.spawn(SceneRoot(model.clone()));
-                } else {
-                    todo!("No worldmodel in precache")
-                }
-
-                ConnectionStage::Connected
-            }
+            S::Done => ConnectionStage::Connected,
         };
 
         Ok(())
@@ -620,34 +617,32 @@ where A: ToSocketAddrs {
     Ok((qsock, ConnectionStage::SignOn(SignOnStage::Prespawn)))
 }
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct Impulse(pub u8);
 
 mod systems {
 
-    use bevy::window::CursorGrabMode;
+    use bevy::window::{CursorGrabMode, CursorOptions};
     use common::net::MessageKind;
     use serde::Deserialize;
 
-    use crate::common::net::ButtonFlags;
+    use crate::{client::state::PendingSceneRoot, common::net::ButtonFlags};
 
     use self::common::console::Registry;
 
     use super::*;
 
     pub fn lock_cursor(
-        mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+        mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
         registry: Res<Registry>,
         focus: Res<InputFocus>,
     ) {
-        let mut primary_window = q_windows.single_mut().unwrap();
-
         if *focus == InputFocus::Game && registry.is_pressed("mlook") {
-            primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
-            primary_window.cursor_options.visible = false;
+            cursor_options.grab_mode = CursorGrabMode::Locked;
+            cursor_options.visible = false;
         } else {
-            primary_window.cursor_options.grab_mode = CursorGrabMode::None;
-            primary_window.cursor_options.visible = true;
+            cursor_options.grab_mode = CursorGrabMode::None;
+            cursor_options.visible = true;
         }
     }
 
@@ -656,8 +651,8 @@ mod systems {
         registry: ResMut<Registry>,
         mut conn: ResMut<Connection>,
         frame_time: Res<Time<Virtual>>,
-        mut client_events: EventWriter<ClientMessage>,
-        mut impulses: EventReader<Impulse>,
+        mut client_events: MessageWriter<ClientMessage>,
+        mut impulses: MessageReader<Impulse>,
     ) -> Result<(), ClientError> {
         fn handle_input(
             registry: &Registry,
@@ -777,8 +772,8 @@ mod systems {
     pub fn process_network_messages(
         state: Res<Connection>,
         mut qsock: ResMut<QSocket>,
-        mut server_events: EventWriter<ServerMessage>,
-        mut client_events: EventReader<ClientMessage>,
+        mut server_events: MessageWriter<ServerMessage>,
+        mut client_events: MessageReader<ClientMessage>,
     ) -> Result<(), NetError> {
         let blocking_mode = match &state.target {
             // if we're in the game, don't block waiting for messages
@@ -810,7 +805,7 @@ mod systems {
 
     pub fn send_connected_event(
         conn: Option<Res<Connection>>,
-        mut connected: EventWriter<Connected>,
+        mut connected: MessageWriter<Connected>,
         mut old_stage: Local<Option<ConnectionStage>>,
     ) {
         let Some(conn) = conn.as_ref() else {
@@ -830,23 +825,44 @@ mod systems {
         }
     }
 
+    // HACK: https://github.com/bevyengine/bevy/issues/12756
+    pub fn spawn_pending_world_models(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+        pending_world_models: Query<(Entity, &PendingSceneRoot)>,
+    ) {
+        for (entity, pending) in pending_world_models {
+            if let Some(loaded) = pending.try_resolve(&asset_server) {
+                commands.entity(entity).remove::<PendingSceneRoot>().insert(SceneRoot(loaded));
+            }
+        }
+    }
+
     pub mod frame {
+        use std::convert::identity;
+
+        use bevy::ecs::entity_disabling::Disabled;
+
+        use crate::client::state::ModelPrecache;
+
         use super::*;
 
-        pub enum FrameSystem {}
-
+        #[expect(clippy::too_many_arguments)]
         pub fn parse_server_msg(
-            mut commands: Commands<'_, '_>,
+            mut commands: Commands,
             mut conn: ResMut<Connection>,
+            settings: Res<SeismonGameSettings>,
             time: Res<Time<Virtual>>,
             asset_server: Res<AssetServer>,
             registry: Res<Registry>,
-            server_events: Res<Events<ServerMessage>>,
-            mut mixer_events: EventWriter<MixerEvent>,
-            mut console_commands: EventWriter<RunCmd<'static>>,
+            server_events: Res<Messages<ServerMessage>>,
+            mut mixer_events: MessageWriter<MixerMessage>,
+            mut console_commands: MessageWriter<RunCmd<'static>>,
             mut console_output: ResMut<ConsoleOutput>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
+
+            conn.client_state.try_resolve_all(&asset_server);
 
             let kick_vars: KickVars = registry.read_cvars()?;
             // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
@@ -881,6 +897,12 @@ mod systems {
             }
 
             let reader = &mut &message[..];
+
+            macro_rules! msg_todo {
+                ($cmd_name:expr) => {{
+                    // warn!("TODO: {}", $cmd_name)
+                }};
+            }
 
             loop {
                 let cmd = match ServerCmd::deserialize(reader) {
@@ -922,6 +944,14 @@ mod systems {
                         let _server_info =
                             ServerInfo { _max_clients: max_clients, _game_type: game_type };
 
+                        for (_, ent) in conn.client_state.server_entity_to_client_entity.drain() {
+                            let Ok(mut entity) = commands.get_entity(ent) else {
+                                continue;
+                            };
+
+                            entity.despawn();
+                        }
+
                         conn.client_state = ClientState::from_server_info(
                             &asset_server,
                             model_precache,
@@ -936,7 +966,7 @@ mod systems {
                     ServerCmd::NoOp => {}
 
                     ServerCmd::CdTrack { track, .. } => {
-                        mixer_events.write(MixerEvent::StartMusic(Some(
+                        mixer_events.write(MixerMessage::StartMusic(Some(
                             sound::MusicSource::TrackId(match track_override {
                                 Some(t) => t as usize,
                                 None => track as usize,
@@ -950,11 +980,11 @@ mod systems {
 
                     ServerCmd::PlayerData(player_data) => {
                         // conn.client_state.update_player(player_data);
-                        warn!("TODO: player data")
+                        msg_todo!("player data")
                     }
 
                     ServerCmd::Cutscene { text } => {
-                        warn!("TODO: cutscene")
+                        msg_todo!("cutscene")
                     }
 
                     ServerCmd::Damage { armor, blood, source } => {
@@ -970,9 +1000,9 @@ mod systems {
 
                     ServerCmd::FastUpdate(ent_update) => {
                         // first update signals the last sign-on stage
-                        conn.handle_signon(SignOnStage::Done, commands.reborrow(), &client_vars)?;
+                        conn.handle_signon(SignOnStage::Done, &client_vars)?;
 
-                        conn.client_state.update_entity(commands.reborrow(), &ent_update);
+                        commands.run_system_cached_with(ClientState::update_entity, ent_update);
 
                         // patch view angles in demos
                         // if let Some(angles) = demo_view_angles
@@ -982,34 +1012,70 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::Finale { .. } => warn!("TODO: intermission"),
-                    ServerCmd::FoundSecret => warn!("TODO: found secret"),
+                    ServerCmd::Finale { .. } => msg_todo!("intermission"),
+                    ServerCmd::FoundSecret => msg_todo!("found secret"),
                     ServerCmd::Intermission => {
-                        warn!("TODO: intermission");
+                        msg_todo!("intermission");
                     }
                     ServerCmd::KilledMonster => {
-                        warn!("TODO: killed monster")
+                        msg_todo!("killed monster")
                     }
 
                     ServerCmd::LightStyle { .. } => {
-                        warn!("TODO: lightstyle")
+                        msg_todo!("lightstyle")
                     }
 
                     ServerCmd::Particle { .. } => {
-                        warn!("TODO: particle")
+                        msg_todo!("particle")
                     }
 
                     ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
 
-                    ServerCmd::SetAngle { .. } => warn!("TODO: set angle"),
+                    ServerCmd::SetAngle { .. } => msg_todo!("set angle"),
 
-                    ServerCmd::SetView { .. } => {
-                        // TODO: Spawn camera as child of entity here
-                        warn!("TODO: set view");
+                    ServerCmd::SetView { ent_id } => {
+                        let ent =
+                            match conn.client_state.server_entity_to_client_entity.get(&ent_id) {
+                                Some(ent) => *ent,
+                                None => {
+                                    warn!("Server tried to set view on non-existent entity");
+                                    let entity = commands.spawn(Transform::default()).id();
+                                    conn.client_state
+                                        .server_entity_to_client_entity
+                                        .insert(ent_id, entity);
+                                    entity
+                                }
+                            };
+
+                        // commands.run_system_cached(
+                        //     // TODO: Assumes that `camera_template` contains `Camera3d`, and that
+                        //     // no other `Camera3d`s exist. Not good.
+                        //     |mut commands: Commands, cameras: Query<Entity, With<Camera3d>>| {
+                        //         for camera in cameras {
+                        //             commands.entity(camera).despawn();
+                        //         }
+                        //     },
+                        // );
+
+                        let mut entity = match commands.get_entity(settings.camera_template) {
+                            Ok(ent) => ent,
+                            Err(_) => {
+                                if let Ok(ent) =
+                                    commands.get_entity(settings.default_camera_template)
+                                {
+                                    ent
+                                } else {
+                                    warn!("No template");
+                                    continue;
+                                }
+                            }
+                        };
+
+                        entity.clone_and_spawn().insert(ChildOf(ent)).remove::<Disabled>();
                     }
 
                     ServerCmd::SignOnStage { stage } => {
-                        conn.handle_signon(stage, commands.reborrow(), &client_vars)?;
+                        conn.handle_signon(stage, &client_vars)?;
                     }
 
                     ServerCmd::Sound {
@@ -1040,7 +1106,7 @@ mod systems {
                         let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
                         let attenuation = attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
                         if let Some(sound) = conn.client_state.sounds.get(sound_id as usize) {
-                            mixer_events.write(MixerEvent::StartSound(StartSound {
+                            mixer_events.write(MixerMessage::StartSound(StartSound {
                                 src: sound.clone(),
                                 ent_id: Some(entity_id as usize),
                                 ent_channel: channel,
@@ -1076,18 +1142,33 @@ mod systems {
                     ),
 
                     ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
-                        commands.spawn((
-                            SceneRoot(conn.client_state.models[model_id as usize].clone()),
+                        let mut ent = commands.spawn(
                             Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
                                 Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                            ),
-                            // TODO: Handle the other fields
-                        ));
+                            ), // TODO: Handle the other fields
+                        );
+
+                        if let Some(model) = conn
+                            .client_state
+                            .models
+                            .get(model_id as usize)
+                            .cloned()
+                            .and_then(identity)
+                        {
+                            match model {
+                                ModelPrecache::WaitingOnWorld { pending } => {
+                                    ent.insert(pending);
+                                }
+                                ModelPrecache::Loaded { handle } => {
+                                    ent.insert(SceneRoot(handle));
+                                }
+                            }
+                        }
                     }
 
                     ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
                         if let Some(sound) = conn.client_state.sounds.get(sound_id as usize) {
-                            mixer_events.write(MixerEvent::StartStaticSound(StartStaticSound {
+                            mixer_events.write(MixerMessage::StartStaticSound(StartStaticSound {
                                 src: sound.clone(),
                                 origin,
                                 volume: volume as f32 / 255.0,
@@ -1097,7 +1178,7 @@ mod systems {
                     }
 
                     ServerCmd::TempEntity { temp_entity } => {
-                        error!("TODO: temp entity");
+                        msg_todo!("temp entity");
                     }
 
                     ServerCmd::StuffText { text } => match text.to_str().parse() {
@@ -1196,7 +1277,7 @@ mod systems {
                     ServerCmd::SetPause { .. } => {}
 
                     ServerCmd::StopSound { entity_id, channel } => {
-                        mixer_events.write(MixerEvent::StopSound(StopSound {
+                        mixer_events.write(MixerMessage::StopSound(StopSound {
                             ent_id: Some(entity_id as _),
                             ent_channel: channel,
                         }));
@@ -1211,7 +1292,7 @@ mod systems {
         pub fn advance_frame(
             In(status): In<Result<ConnectionStatus, ClientError>>,
             mut conn: ResMut<Connection>,
-            mut to_server: EventWriter<ClientMessage>,
+            mut to_server: MessageWriter<ClientMessage>,
         ) -> Result<ConnectionStatus, ClientError> {
             match status? {
                 ConnectionStatus::Maintain => {}
@@ -1308,13 +1389,11 @@ mod systems {
                 },
             };
 
-            // don't allow game focus when disconnected
-            new_conn.is_none();
-
             if let Some(new_conn) = new_conn {
                 commands.insert_resource(new_conn);
             } else {
                 commands.remove_resource::<Connection>();
+                // don't allow game focus when disconnected
                 *focus = InputFocus::Console;
             }
 

@@ -20,13 +20,10 @@
 
 mod item;
 
-use bevy::{
-    ecs::{
-        resource::Resource,
-        system::{Commands, IntoSystem, SystemId},
-        world::World,
-    },
-    render::extract_resource::ExtractResource,
+use bevy::ecs::{
+    resource::Resource,
+    system::{Commands, IntoSystem, SystemId},
+    world::World,
 };
 use failure::{Error, bail};
 
@@ -84,9 +81,9 @@ impl MenuView {
     }
 }
 
-#[derive(Default, Debug, Resource, ExtractResource, Clone)]
+#[derive(Default, Debug, Resource, Clone)]
 pub struct Menu {
-    items: im::Vector<NamedMenuItem>,
+    items: Vec<NamedMenuItem>,
     state: MenuState,
     view: MenuView,
 }
@@ -314,7 +311,7 @@ impl Menu {
 
 pub struct MenuBuilder<'a> {
     world: &'a mut World,
-    items: im::Vector<NamedMenuItem>,
+    items: Vec<NamedMenuItem>,
 }
 
 impl<'a> MenuBuilder<'a> {
@@ -346,7 +343,7 @@ impl<'a> MenuBuilder<'a> {
         S: Into<CName>,
     {
         let submenu = submenu(MenuBuilder::new(&mut *self.world))?;
-        self.items.push_back(NamedMenuItem::new(name, Item::Submenu(submenu)));
+        self.items.push(NamedMenuItem::new(name, Item::Submenu(submenu)));
         Ok(self)
     }
 
@@ -355,7 +352,7 @@ impl<'a> MenuBuilder<'a> {
         N: Into<CName>,
         S: IntoSystem<(), (), M> + 'static, {
         let action_id = self.world.register_system(action);
-        self.items.push_back(NamedMenuItem::new(name, Item::Action(action_id)));
+        self.items.push(NamedMenuItem::new(name, Item::Action(action_id)));
         self
     }
 
@@ -363,7 +360,7 @@ impl<'a> MenuBuilder<'a> {
     where
         N: Into<CName>,
         S: Into<CName>, {
-        self.items.push_back(NamedMenuItem::new(name, Item::Toggle(Toggle::new(init, cvar))));
+        self.items.push(NamedMenuItem::new(name, Item::Toggle(Toggle::new(init, cvar))));
         self
     }
 
@@ -372,7 +369,7 @@ impl<'a> MenuBuilder<'a> {
         S: Into<CName>,
         C: Into<CName>,
         E: FnOnce(EnumBuilder) -> Vec<EnumItem>, {
-        self.items.push_back(NamedMenuItem::new(
+        self.items.push(NamedMenuItem::new(
             name,
             Item::Enum(Enum::new(init, cvar, items(EnumBuilder::new()))),
         ));
@@ -392,7 +389,7 @@ impl<'a> MenuBuilder<'a> {
         N: Into<CName>,
         S: Into<CName>,
     {
-        self.items.push_back(NamedMenuItem::new(
+        self.items.push(NamedMenuItem::new(
             name,
             Item::Slider(Slider::new(min, max, steps, init, cvar.into())?),
         ));
@@ -411,7 +408,7 @@ impl<'a> MenuBuilder<'a> {
         D: Into<String>,
         S: Into<CName>,
     {
-        self.items.push_back(NamedMenuItem::new(
+        self.items.push(NamedMenuItem::new(
             name,
             Item::TextField(TextField::new(default, max_len, cvar)),
         ));

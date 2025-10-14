@@ -9,11 +9,11 @@ documentation = "https://docs.rs/bevy_mod_pakfile"
 description = "Load Bevy assets from Quake 1 .pak files, with support for loading multiple and overlaying them"
 
 [dependencies]
-bevy_asset.workspace = true
-bevy_app.workspace = true
-bevy_log.workspace = true
-bevy_tasks.workspace = true
-bevy_reflect.workspace = true
+bevy_asset = "0.17"
+bevy_app = "0.17"
+bevy_log = "0.17"
+bevy_tasks = "0.17"
+bevy_reflect = "0.17"
 byteorder.workspace = true
 futures.workspace = true
 memmap2.workspace = true

@@ -101,11 +101,17 @@ impl From<Vec<u8>> for QString {
     }
 }
 
-impl<'a> Deref for QStr<'a> {
+impl Deref for QStr<'_> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
         &self.raw
+    }
+}
+
+impl AsRef<[u8]> for QStr<'_> {
+    fn as_ref(&self) -> &[u8] {
+        self
     }
 }
 

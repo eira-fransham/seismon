@@ -24,16 +24,11 @@ use bevy::{
     app::{Main, Plugin},
     prelude::*,
 };
-use bevy_seedling::{prelude::*, sample::Sample};
-use firewheel::sample_resource::DecodedAudioF32;
+use bevy_seedling::prelude::*;
 
 pub use music::MusicPlayer;
-use symphonium::symphonia::core::probe::Hint;
 
-use std::{
-    io::{self, Cursor, Read as _},
-    path::Path,
-};
+use std::io;
 
 use crate::common::vfs::{Vfs, VfsError};
 
@@ -53,8 +48,6 @@ pub enum SoundError {
     Io(#[from] io::Error),
     #[error("Virtual filesystem error: {0}")]
     Vfs(#[from] VfsError),
-    #[error("Decoding error: {0}")]
-    DecodeError(#[from] symphonium::error::LoadError),
 }
 
 /// Data needed for sound spatialization.
@@ -94,41 +87,6 @@ impl Listener {
     }
 }
 
-pub fn load<S>(
-    sound_loader: &mut symphonium::SymphoniumLoader,
-    vfs: &Vfs,
-    name: S,
-) -> Result<Sample, SoundError>
-where
-    S: AsRef<str>,
-{
-    let name = name.as_ref();
-    let full_path = "sound/".to_owned() + name;
-    let mut file = vfs.open(&full_path)?;
-    let mut data = Vec::new();
-    file.read_to_end(&mut data)?;
-
-    let ext = Path::new(name).extension().map(|ext| ext.to_string_lossy());
-
-    let cursor = Cursor::new(data);
-
-    let mut decode_hint = Hint::new();
-
-    if let Some(ext) = ext.as_deref() {
-        decode_hint.with_extension(ext);
-    }
-
-    let decoded = sound_loader.load_f32_from_source(
-        Box::new(cursor),
-        Some(decode_hint),
-        None,
-        Default::default(),
-        None,
-    )?;
-
-    Ok(Sample::new(DecodedAudioF32::from(decoded)))
-}
-
 pub struct SeismonSoundPlugin;
 
 #[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
@@ -148,13 +106,11 @@ impl Plugin for SeismonSoundPlugin {
         let mut commands = app.world_mut().commands();
 
         commands
-            .spawn((VolumeNode { volume: Volume::Decibels(-40.) }, ReverbBus))
+            .spawn((VolumeNode { volume: Volume::Decibels(-40.), ..Default::default() }, ReverbBus))
             .chain_node(FreeverbNode::default())
             .connect(MasterOut);
 
         commands.spawn((VolumeNode::default(), MasterOut));
-
-        commands.spawn(SpatialListener3D);
 
         commands.spawn((SamplerPool(MusicPool), PoolSize(1..=1)));
         commands
@@ -170,7 +126,7 @@ impl Plugin for SeismonSoundPlugin {
 
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
-            .add_event::<MixerEvent>()
+            .add_message::<MixerMessage>()
             .add_systems(
                 Main,
                 (systems::update_entities, systems::update_mixer, systems::update_listener),
@@ -184,7 +140,7 @@ pub struct Sound;
 
 #[derive(Debug, Clone)]
 pub struct StartStaticSound {
-    pub src: Handle<Sample>,
+    pub src: Handle<AudioSample>,
     pub origin: Vec3,
     pub volume: f32,
     pub attenuation: f32,
@@ -209,7 +165,7 @@ pub struct EntityChannel {
 
 #[derive(Debug, Default, Clone)]
 pub struct StartSound {
-    pub src: Handle<Sample>,
+    pub src: Handle<AudioSample>,
     pub ent_id: Option<usize>,
     pub ent_channel: i8,
     pub volume: f32,
@@ -230,8 +186,8 @@ pub enum MusicSource {
     TrackId(usize),
 }
 
-#[derive(Event, Debug, Clone)]
-pub enum MixerEvent {
+#[derive(Message, Debug, Clone)]
+pub enum MixerMessage {
     StartSound(StartSound),
     StopSound(StopSound),
     StartStaticSound(StartStaticSound),
@@ -251,14 +207,14 @@ mod systems {
         vfs: Res<Vfs>,
         mut music_player: ResMut<MusicPlayer>,
         asset_server: Res<AssetServer>,
-        mut events: EventReader<MixerEvent>,
+        mut events: MessageReader<MixerMessage>,
         mut commands: Commands,
         mut all_sounds: Query<&mut SamplerNode>,
     ) {
         for event in events.read() {
             match *event {
-                MixerEvent::StartSound(StartSound { ent_id, ent_channel, .. })
-                | MixerEvent::StopSound(StopSound { ent_id, ent_channel }) => {
+                MixerMessage::StartSound(StartSound { ent_id, ent_channel, .. })
+                | MixerMessage::StopSound(StopSound { ent_id, ent_channel }) => {
                     for (e, chan, e_chan) in channels.iter() {
                         if chan.channel == ent_channel
                             && e_chan.map(|e| e.id) == ent_id
@@ -272,7 +228,7 @@ mod systems {
             }
 
             match event {
-                MixerEvent::StartSound(start) => {
+                MixerMessage::StartSound(start) => {
                     let attenuation =
                         if start.attenuation.is_finite() { start.attenuation } else { 1. };
                     // TODO: Entity channels should be children of the enitities they're spawned on.
@@ -297,10 +253,10 @@ mod systems {
                         new_sound.insert(EntityChannel { id });
                     }
                 }
-                MixerEvent::StopSound(StopSound { .. }) => {
+                MixerMessage::StopSound(StopSound { .. }) => {
                     // Handled by previous match
                 }
-                MixerEvent::StartStaticSound(static_sound) => {
+                MixerMessage::StartStaticSound(static_sound) => {
                     let attenuation = if static_sound.attenuation.is_finite() {
                         static_sound.attenuation
                     } else {
@@ -327,19 +283,19 @@ mod systems {
                         ],
                     ));
                 }
-                MixerEvent::StartMusic(Some(MusicSource::Named(named))) => {
+                MixerMessage::StartMusic(Some(MusicSource::Named(named))) => {
                     // TODO: Error handling
                     music_player
                         .play_named(&asset_server, &mut commands, MusicPool, named)
                         .unwrap();
                 }
-                MixerEvent::StartMusic(Some(MusicSource::TrackId(id))) => {
+                MixerMessage::StartMusic(Some(MusicSource::TrackId(id))) => {
                     // TODO: Error handling
                     music_player.play_track(&asset_server, &mut commands, MusicPool, *id).unwrap();
                 }
-                MixerEvent::StartMusic(None) => music_player.resume(&mut all_sounds),
-                MixerEvent::StopMusic => music_player.stop(&mut commands),
-                MixerEvent::PauseMusic => music_player.pause(&mut all_sounds),
+                MixerMessage::StartMusic(None) => music_player.resume(&mut all_sounds),
+                MixerMessage::StopMusic => music_player.stop(&mut commands),
+                MixerMessage::PauseMusic => music_player.pause(&mut all_sounds),
             }
         }
     }
