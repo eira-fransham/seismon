@@ -158,16 +158,12 @@ fn startup(
             }),
             Hdr,
             // TemporalAntiAliasing::default(),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
-                .looking_at(Vec3::default(), Vec3::Y),
+            Transform::from_translation(Vec3::new(0.0, 22.0, 0.0)),
             Exposure::INDOOR,
-            // In addition to the in-camera exposure, we add a post exposure grading
-            // in order to adjust the brightness on the UI elements.
-            ColorGrading { global: ColorGradingGlobal { exposure: 2., ..default() }, ..default() },
             Msaa::Off,
             Bloom::default(),
-            DepthPrepass,
-            NormalPrepass,
+            // DepthPrepass,
+            // NormalPrepass,
             SpatialListener3D,
             #[cfg(feature = "dev_tools")]
             dev::DebugCamera,

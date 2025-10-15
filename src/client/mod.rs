@@ -50,7 +50,10 @@ use bevy::{
     time::{Time, Virtual},
     window::PrimaryWindow,
 };
-use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
+use bevy_trenchbroom::{
+    TrenchBroomPlugins,
+    config::{TrenchBroomConfig, WriteTrenchBroomConfigOnStartPlugin},
+};
 use chrono::Duration;
 use input::InputFocus;
 use menu::Menu;
@@ -170,7 +173,6 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                     ),
             )
             .add_systems(Main, systems::lock_cursor)
-            .add_systems(Main, systems::spawn_pending_world_models)
             .add_systems(
                 Main,
                 systems::process_network_messages
@@ -186,7 +188,7 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
             .add_plugins(
-                TrenchBroomPlugins(Default::default())
+                TrenchBroomPlugins(TrenchBroomConfig { scale: 1., ..default() })
                     .build()
                     .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
             );
@@ -431,9 +433,9 @@ pub struct ClientVars<'a> {
 /// The exact nature of the connected server is specified by [`ConnectionKind`].
 #[derive(Resource)]
 pub struct Connection {
-    client_state: ClientState,
+    client_state: Option<ClientState>,
     target: ConnectionTarget,
-    last_msg_time: Time,
+    last_msg_time: Time<Virtual>,
 }
 
 impl Connection {
@@ -626,7 +628,7 @@ mod systems {
     use common::net::MessageKind;
     use serde::Deserialize;
 
-    use crate::{client::state::PendingSceneRoot, common::net::ButtonFlags};
+    use crate::common::net::ButtonFlags;
 
     use self::common::console::Registry;
 
@@ -825,21 +827,8 @@ mod systems {
         }
     }
 
-    // HACK: https://github.com/bevyengine/bevy/issues/12756
-    pub fn spawn_pending_world_models(
-        mut commands: Commands,
-        asset_server: Res<AssetServer>,
-        pending_world_models: Query<(Entity, &PendingSceneRoot)>,
-    ) {
-        for (entity, pending) in pending_world_models {
-            if let Some(loaded) = pending.try_resolve(&asset_server) {
-                commands.entity(entity).remove::<PendingSceneRoot>().insert(SceneRoot(loaded));
-            }
-        }
-    }
-
     pub mod frame {
-        use std::convert::identity;
+        use std::{cmp, convert::identity, time::Instant};
 
         use bevy::ecs::entity_disabling::Disabled;
 
@@ -852,7 +841,7 @@ mod systems {
             mut commands: Commands,
             mut conn: ResMut<Connection>,
             settings: Res<SeismonGameSettings>,
-            time: Res<Time<Virtual>>,
+            mut time: ResMut<Time<Virtual>>,
             asset_server: Res<AssetServer>,
             registry: Res<Registry>,
             server_events: Res<Messages<ServerMessage>>,
@@ -861,8 +850,6 @@ mod systems {
             mut console_output: ResMut<ConsoleOutput>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
-
-            conn.client_state.try_resolve_all(&asset_server);
 
             let kick_vars: KickVars = registry.read_cvars()?;
             // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
@@ -881,8 +868,15 @@ mod systems {
                 color: registry.read_cvar("_cl_color")?,
             };
 
+            // TODO: Calculate from server delta.
+            let expected_next_tick =
+                conn.last_msg_time.elapsed() + std::time::Duration::from_millis(50);
+
             if time.elapsed() < conn.last_msg_time.elapsed() {
                 return Ok(S::Maintain);
+            } else if time.elapsed() > expected_next_tick {
+                *time = Time::default();
+                time.advance_by(expected_next_tick);
             }
 
             let Some(server_update) = conn.target.recv(&server_events)? else {
@@ -918,7 +912,11 @@ mod systems {
                     &cmd,
                     ServerCmd::FastUpdate(..) | ServerCmd::Time { .. } | ServerCmd::PlayerData(..)
                 ) {
-                    debug!("CMD: {cmd:?}");
+                    if matches!(&cmd, ServerCmd::SpawnBaseline { .. } | ServerCmd::SetView { .. }) {
+                        info!("Cmd: {cmd:?}");
+                    } else {
+                        debug!("CMD: {cmd:?}");
+                    }
                 } else {
                     trace!("CMD: {cmd:?}");
                 }
@@ -944,19 +942,19 @@ mod systems {
                         let _server_info =
                             ServerInfo { _max_clients: max_clients, _game_type: game_type };
 
-                        for (_, ent) in conn.client_state.server_entity_to_client_entity.drain() {
-                            let Ok(mut entity) = commands.get_entity(ent) else {
-                                continue;
-                            };
-
-                            entity.despawn();
+                        if let Some(state) = conn.client_state.as_ref() {
+                            commands.entity(state.worldspawn).despawn();
                         }
 
-                        conn.client_state = ClientState::from_server_info(
+                        let new_worldspawn =
+                            commands.spawn((Transform::default(), Visibility::Visible)).id();
+
+                        conn.client_state = Some(ClientState::from_server_info(
+                            new_worldspawn,
                             &asset_server,
                             model_precache,
                             sound_precache,
-                        )?;
+                        )?);
                     }
 
                     ServerCmd::Bad => {
@@ -988,7 +986,9 @@ mod systems {
                     }
 
                     ServerCmd::Damage { armor, blood, source } => {
-                        conn.client_state.handle_damage(armor, blood, source, kick_vars)
+                        if let Some(state) = conn.client_state.as_mut() {
+                            state.handle_damage(armor, blood, source, kick_vars)
+                        }
                     }
 
                     ServerCmd::Disconnect => {
@@ -1034,44 +1034,47 @@ mod systems {
                     ServerCmd::SetAngle { .. } => msg_todo!("set angle"),
 
                     ServerCmd::SetView { ent_id } => {
-                        let ent =
-                            match conn.client_state.server_entity_to_client_entity.get(&ent_id) {
+                        if let Some(state) = conn.client_state.as_mut() {
+                            let ent = match state.server_entity_to_client_entity.get(&ent_id) {
                                 Some(ent) => *ent,
                                 None => {
                                     warn!("Server tried to set view on non-existent entity");
-                                    let entity = commands.spawn(Transform::default()).id();
-                                    conn.client_state
-                                        .server_entity_to_client_entity
-                                        .insert(ent_id, entity);
+                                    let entity = commands
+                                        .spawn((Transform::default(), Visibility::Inherited))
+                                        .id();
+                                    state.server_entity_to_client_entity.insert(ent_id, entity);
                                     entity
                                 }
                             };
 
-                        // commands.run_system_cached(
-                        //     // TODO: Assumes that `camera_template` contains `Camera3d`, and that
-                        //     // no other `Camera3d`s exist. Not good.
-                        //     |mut commands: Commands, cameras: Query<Entity, With<Camera3d>>| {
-                        //         for camera in cameras {
-                        //             commands.entity(camera).despawn();
-                        //         }
-                        //     },
-                        // );
+                            #[cfg(not(feature = "dev_tools"))]
+                            commands.run_system_cached(
+                                // TODO: Assumes that `camera_template` contains `Camera3d`, and
+                                // that no other `Camera3d`s exist.
+                                // Not good.
+                                |mut commands: Commands, cameras: Query<Entity, With<Camera3d>>| {
+                                    for camera in cameras {
+                                        commands.entity(camera).despawn();
+                                    }
+                                },
+                            );
 
-                        let mut entity = match commands.get_entity(settings.camera_template) {
-                            Ok(ent) => ent,
-                            Err(_) => {
-                                if let Ok(ent) =
-                                    commands.get_entity(settings.default_camera_template)
-                                {
-                                    ent
-                                } else {
-                                    warn!("No template");
-                                    continue;
+                            let mut entity = match commands.get_entity(settings.camera_template) {
+                                Ok(ent) => ent,
+                                Err(_) => {
+                                    if let Ok(ent) =
+                                        commands.get_entity(settings.default_camera_template)
+                                    {
+                                        ent
+                                    } else {
+                                        warn!("No template");
+                                        continue;
+                                    }
                                 }
-                            }
-                        };
+                            };
 
-                        entity.clone_and_spawn().insert(ChildOf(ent)).remove::<Disabled>();
+                            entity.clone_and_spawn().insert(ChildOf(ent)).remove::<Disabled>();
+                        }
                     }
 
                     ServerCmd::SignOnStage { stage } => {
@@ -1086,34 +1089,33 @@ mod systems {
                         sound_id,
                         position,
                     } => {
-                        trace!(
-                            "starting sound with id {} on entity {} channel {}",
-                            sound_id, entity_id, channel
-                        );
-
-                        if !conn
-                            .client_state
-                            .server_entity_to_client_entity
-                            .contains_key(&entity_id)
-                        {
-                            error!(
-                                "server tried to start sound on nonexistent entity {}",
-                                entity_id
+                        if let Some(state) = conn.client_state.as_ref() {
+                            trace!(
+                                "starting sound with id {} on entity {} channel {}",
+                                sound_id, entity_id, channel
                             );
-                            continue;
-                        }
 
-                        let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
-                        let attenuation = attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                        if let Some(sound) = conn.client_state.sounds.get(sound_id as usize) {
-                            mixer_events.write(MixerMessage::StartSound(StartSound {
-                                src: sound.clone(),
-                                ent_id: Some(entity_id as usize),
-                                ent_channel: channel,
-                                volume: volume as f32 / 255.0,
-                                attenuation,
-                                origin: position.into(),
-                            }));
+                            if !state.server_entity_to_client_entity.contains_key(&entity_id) {
+                                error!(
+                                    "server tried to start sound on nonexistent entity {}",
+                                    entity_id
+                                );
+                                continue;
+                            }
+
+                            let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
+                            let attenuation =
+                                attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
+                            if let Some(sound) = state.sounds.get(sound_id as usize) {
+                                mixer_events.write(MixerMessage::StartSound(StartSound {
+                                    src: sound.clone(),
+                                    ent_id: Some(entity_id as usize),
+                                    ent_channel: channel,
+                                    volume: volume as f32 / 255.0,
+                                    attenuation,
+                                    origin: position.into(),
+                                }));
+                            }
                         }
                     }
 
@@ -1125,49 +1127,50 @@ mod systems {
                         skin_id,
                         origin,
                         angles,
-                    } => conn.client_state.spawn_entities(
-                        commands.reborrow(),
-                        ent_id,
-                        EntityState {
-                            origin,
-                            angles,
-                            model_id: model_id.into(),
+                    } => {
+                        if let Some(state) = conn.client_state.as_mut() {
+                            state.spawn_entities(
+                                commands.reborrow(),
+                                ent_id,
+                                EntityState {
+                                    origin,
+                                    angles,
+                                    model_id: model_id.into(),
 
-                            // TODO
-                            frame_id: frame_id.into(),
-                            colormap,
-                            skin_id: skin_id.into(),
-                            effects: Default::default(),
-                        },
-                    ),
+                                    // TODO
+                                    frame_id: frame_id.into(),
+                                    colormap,
+                                    skin_id: skin_id.into(),
+                                    effects: Default::default(),
+                                },
+                            );
+                        }
+                    }
 
                     ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
-                        let mut ent = commands.spawn(
-                            Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                                Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                            ), // TODO: Handle the other fields
-                        );
+                        if let Some(state) = conn.client_state.as_mut() {
+                            let mut ent = commands.spawn((
+                                Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                                    Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
+                                ), // TODO: Handle the other fields
+                                Visibility::Inherited,
+                                ChildOf(state.worldspawn),
+                            ));
 
-                        if let Some(model) = conn
-                            .client_state
-                            .models
-                            .get(model_id as usize)
-                            .cloned()
-                            .and_then(identity)
-                        {
-                            match model {
-                                ModelPrecache::WaitingOnWorld { pending } => {
-                                    ent.insert(pending);
-                                }
-                                ModelPrecache::Loaded { handle } => {
-                                    ent.insert(SceneRoot(handle));
-                                }
+                            if let Some(model) =
+                                state.models.get(model_id as usize).cloned().and_then(identity)
+                            {
+                                ent.insert(SceneRoot(model));
                             }
                         }
                     }
 
                     ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
-                        if let Some(sound) = conn.client_state.sounds.get(sound_id as usize) {
+                        if let Some(sound) = conn
+                            .client_state
+                            .as_ref()
+                            .and_then(|state| state.sounds.get(sound_id as usize))
+                        {
                             mixer_events.write(MixerMessage::StartStaticSound(StartStaticSound {
                                 src: sound.clone(),
                                 origin,
@@ -1189,7 +1192,8 @@ mod systems {
                     },
 
                     ServerCmd::Time { time } => {
-                        conn.last_msg_time = Time::from_seconds(time as f64).as_generic();
+                        conn.last_msg_time = Time::default();
+                        conn.last_msg_time.advance_by(std::time::Duration::from_secs_f32(time));
                     }
 
                     ServerCmd::UpdateColors { player_id, new_colors } => {
@@ -1372,7 +1376,7 @@ mod systems {
                             break demo_file.as_mut().and_then(|df| match DemoServer::new(df) {
                                 Ok(d) => Some(Connection {
                                     target: ConnectionTarget::Demo(d),
-                                    client_state: ClientState::new(),
+                                    client_state: None,
                                     last_msg_time: Time::default(),
                                 }),
                                 Err(e) => {

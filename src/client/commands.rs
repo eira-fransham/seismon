@@ -157,7 +157,7 @@ pub fn register_commands(app: &mut App) {
         |In(PlayDemo { demo }),
          mut commands: Commands,
          vfs: Res<Vfs>,
-         time: Res<Time>,
+         mut time: ResMut<Time<Virtual>>,
          mut focus: ResMut<InputFocus>| {
             let mut demo_file = match vfs.open(format!("{demo}.dem")) {
                 Ok(f) => f,
@@ -166,13 +166,15 @@ pub fn register_commands(app: &mut App) {
                 }
             };
 
+            *time = Time::default();
+
             match DemoServer::new(&mut demo_file) {
                 Ok(d) => {
                     *focus = InputFocus::Game;
 
                     commands.insert_resource(Connection {
                         target: ConnectionTarget::Demo(d),
-                        client_state: ClientState::new(),
+                        client_state: None,
                         last_msg_time: *time,
                     });
                 }
@@ -195,7 +197,7 @@ pub fn register_commands(app: &mut App) {
         |In(StartDemos { demos }),
          mut commands: Commands,
          vfs: Res<Vfs>,
-         time: Res<Time>,
+         mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
          mut focus: ResMut<InputFocus>,
          server: Option<Res<Session>>| {
@@ -204,6 +206,8 @@ pub fn register_commands(app: &mut App) {
             } else {
                 demo_queue.reset();
             }
+
+            *time = Time::default();
 
             // Only actually start playing the demos if we aren't already running a server
             // (this appears to be Quake's expected behaviour?)
@@ -224,7 +228,7 @@ pub fn register_commands(app: &mut App) {
                         match DemoServer::new(&mut demo_file) {
                             Ok(d) => Connection {
                                 target: ConnectionTarget::Demo(d),
-                                client_state: ClientState::new(),
+                                client_state: None,
                                 last_msg_time: *time,
                             },
                             Err(e) => {
