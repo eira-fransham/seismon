@@ -17,7 +17,6 @@ use super::{
     demo::DemoServer,
     input::InputFocus,
     sound::{MixerMessage, MusicSource},
-    state::ClientState,
 };
 
 pub fn register_commands(app: &mut App) {

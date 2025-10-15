@@ -179,7 +179,9 @@ impl Pak {
         };
 
         let table_size = match reader.read_i32::<LittleEndian>()? {
-            s if s <= 0 || !(s as usize).is_multiple_of(PAK_ENTRY_SIZE) => Err(PakError::InvalidTableSize(s))?,
+            s if s <= 0 || !(s as usize).is_multiple_of(PAK_ENTRY_SIZE) => {
+                Err(PakError::InvalidTableSize(s))?
+            }
             s => s as u32,
         };
 

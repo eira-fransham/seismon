@@ -121,15 +121,11 @@ impl ClientState {
                         asset_server
                             .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
                     )
-                } else if let Some(model_idx) = model_name.strip_prefix('*') {
-                    Some(
-                        asset_server
-                            .load(worldspawn_path.clone().with_label(format!("Model{model_idx}"))),
-                    )
                 } else {
-                    // TODO: `asset-importer`
-                    // model_name.into()
-                    None
+                    model_name.strip_prefix('*').map(|model_idx| {
+                        asset_server
+                            .load(worldspawn_path.clone().with_label(format!("Model{model_idx}")))
+                    })
                 }
             }))
             .collect();

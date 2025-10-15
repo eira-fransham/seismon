@@ -828,11 +828,9 @@ mod systems {
     }
 
     pub mod frame {
-        use std::{cmp, convert::identity, time::Instant};
+        use std::convert::identity;
 
         use bevy::ecs::entity_disabling::Disabled;
-
-        use crate::client::state::ModelPrecache;
 
         use super::*;
 

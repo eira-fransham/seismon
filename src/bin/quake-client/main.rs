@@ -9,16 +9,11 @@ use std::{path::PathBuf, process::ExitCode};
 use bevy::{
     audio::AudioPlugin,
     camera::Exposure,
-    core_pipeline::{
-        // experimental::taa::TemporalAntiAliasing,
-        prepass::{DepthPrepass, NormalPrepass},
-        tonemapping::Tonemapping,
-    },
+    core_pipeline::tonemapping::Tonemapping,
     ecs::entity_disabling::Disabled,
-    pbr::DefaultOpaqueRendererMethod,
     post_process::bloom::Bloom,
     prelude::*,
-    render::view::{ColorGrading, ColorGradingGlobal, Hdr},
+    render::view::{ColorGrading, Hdr},
     window::{PresentMode, PrimaryWindow},
 };
 #[cfg(feature = "capture")]
