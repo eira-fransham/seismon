@@ -1,10 +1,11 @@
 use std::{borrow::Cow, ffi::OsStr, ops::Deref, sync::LazyLock};
 
-use asset_importer::{Texel, TextureData, postprocess::PostProcessSteps};
+use asset_importer::{Texel, TextureData, TextureType, postprocess::PostProcessSteps};
 use bevy_asset::{AssetLoader, Handle, LoadContext, RenderAssetUsages};
 use bevy_color::{Color, Srgba};
 use bevy_ecs::world::World;
 use bevy_image::Image;
+use bevy_log::info;
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
 use bevy_render::render_resource::{Extent3d, TextureFormat};
@@ -86,8 +87,13 @@ impl Default for AssimpSettings {
 static SUPPORTED_EXTENSIONS: LazyLock<Vec<String>> =
     LazyLock::new(asset_importer::get_import_extensions);
 
-static SUPPORTED_EXTENSIONS_STRS: LazyLock<Vec<&str>> =
-    LazyLock::new(|| SUPPORTED_EXTENSIONS.iter().map(Deref::deref).collect());
+static SUPPORTED_EXTENSIONS_STRS: LazyLock<Vec<&str>> = LazyLock::new(|| {
+    SUPPORTED_EXTENSIONS
+        .iter()
+        .map(Deref::deref)
+        .map(|ext| ext.strip_prefix('.').unwrap_or(ext))
+        .collect()
+});
 
 impl AssetLoader for AssimpLoader {
     type Asset = Scene;
@@ -124,6 +130,29 @@ impl AssetLoader for AssimpLoader {
                 })
                 .await?;
 
+            // #[derive(Debug)]
+            // struct SceneCounts {
+            //     num_meshes: usize,
+            //     num_materials: usize,
+            //     num_animations: usize,
+            //     num_cameras: usize,
+            //     num_lights: usize,
+            //     num_textures: usize,
+            // }
+
+            // info!(
+            //     "{:?}: {:#?}",
+            //     load_context.path(),
+            //     SceneCounts {
+            //         num_meshes: scene.num_meshes(),
+            //         num_materials: scene.num_materials(),
+            //         num_animations: scene.num_animations(),
+            //         num_cameras: scene.num_cameras(),
+            //         num_lights: scene.num_lights(),
+            //         num_textures: scene.num_textures(),
+            //     }
+            // );
+
             let mut paths_to_textures = HashMap::<String, Handle<Image>>::new();
 
             let default_material = StandardMaterial::default();
@@ -131,14 +160,24 @@ impl AssetLoader for AssimpLoader {
             let materials = scene
                 .materials()
                 .map(|mat| {
-                    let albedo = mat.albedo_texture(0);
+                    // let has_tex_kind = (0..=27)
+                    //     .filter_map(|t| TextureType::from_u32(t))
+                    //     .map(|t| (t, mat.texture_count(t)))
+                    //     .collect::<Vec<_>>();
 
-                    let tex_handle = albedo.map(|tex| {
+                    // info!("mat {:?} has {:?}", mat.name(), has_tex_kind);
+
+                    let tex_handle = mat.texture(TextureType::Diffuse, 0).map(|tex| {
                         paths_to_textures
                             .entry(tex.path.clone())
                             .or_insert_with(|| {
-                                if let Some(embedded) = scene.find_texture_by_filename(&tex.path) {
-                                    assert_eq!(embedded.format_hint(), "rgba8888");
+                                if let Some(embedded) = tex
+                                    .path
+                                    .strip_prefix('*')
+                                    .and_then(|index| scene.texture(index.parse().ok()?))
+                                    .or_else(|| scene.find_texture_by_filename(&tex.path))
+                                {
+                                    // assert_eq!(embedded.format_hint(), "rgba8888");
                                     let TextureData::Texels(uncompressed) =
                                         embedded.data().unwrap()
                                     else {
@@ -211,6 +250,20 @@ impl AssetLoader for AssimpLoader {
                     mesh.compute_normals();
                 }
 
+                if let Some(uvs) = assimp_mesh.texture_coords(0) {
+                    mesh.insert_attribute(
+                        Mesh::ATTRIBUTE_UV_0,
+                        uvs.into_iter()
+                            .map(|v3| {
+                                let (x, y, _z) = v3.into();
+                                [x, y]
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                } else {
+                    mesh.compute_normals();
+                }
+
                 let mesh_handle = load_context.add_labeled_asset(assimp_mesh.name(), mesh);
 
                 out_scene.spawn((
@@ -225,6 +278,6 @@ impl AssetLoader for AssimpLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &SUPPORTED_EXTENSIONS_STRS
+        &*SUPPORTED_EXTENSIONS_STRS
     }
 }

@@ -24,6 +24,7 @@ repository = "https://github.com/eira-fransham/seismon"
 [workspace.dependencies]
 seismon-utils = { path = "crates/seismon-utils" }
 bevy_mod_mdl = { path = "crates/bevy_mod_mdl" }
+bevy_mod_assimp = { path = "crates/bevy_mod_assimp" }
 
 bevy = { version = "0.17"}
 bevy_asset = { version = "0.17" }
@@ -71,6 +72,7 @@ lined = { path = "crates/lined" }
 seismon-utils.workspace = true
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
 bevy_mod_mdl.workspace = true
+bevy_mod_assimp.workspace = true
 bevy_trenchbroom = { path = "../bevy_trenchbroom", features = ["bsp"] }
 
 bevy.workspace = true

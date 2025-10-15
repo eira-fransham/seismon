@@ -155,7 +155,7 @@ fn startup(
             // TemporalAntiAliasing::default(),
             Transform::from_translation(Vec3::new(0.0, 22.0, 0.0)),
             Exposure::INDOOR,
-            Msaa::Off,
+            Msaa::Sample2,
             Bloom::default(),
             // DepthPrepass,
             // NormalPrepass,
@@ -245,6 +245,7 @@ fn main() -> ExitCode {
         // TODO: Use `BEVY_ASSET_ROOT`
         .add_plugins(PakfilePlugin::from_paths([std::env::current_dir().unwrap().join("id1")]))
         .add_plugins(default_plugins)
+        .register_asset_loader(bevy_mod_assimp::AssimpLoader)
         .add_plugins(SeismonClientPlugin{
             base_dir: opt.base_dir.clone(),
             game: opt.game.clone(),

@@ -13,6 +13,7 @@ bevy_asset.workspace = true
 bevy_color.workspace = true
 bevy_ecs.workspace = true
 bevy_image.workspace = true
+bevy_log.workspace = true
 bevy_tasks.workspace = true
 bevy_scene.workspace = true
 bevy_transform.workspace = true

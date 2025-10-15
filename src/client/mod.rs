@@ -891,9 +891,7 @@ mod systems {
             let reader = &mut &message[..];
 
             macro_rules! msg_todo {
-                ($cmd_name:expr) => {{
-                    // warn!("TODO: {}", $cmd_name)
-                }};
+                ($cmd_name:expr) => {{ debug!("TODO: {}", $cmd_name) }};
             }
 
             loop {
@@ -910,11 +908,7 @@ mod systems {
                     &cmd,
                     ServerCmd::FastUpdate(..) | ServerCmd::Time { .. } | ServerCmd::PlayerData(..)
                 ) {
-                    if matches!(&cmd, ServerCmd::SpawnBaseline { .. } | ServerCmd::SetView { .. }) {
-                        info!("Cmd: {cmd:?}");
-                    } else {
-                        debug!("CMD: {cmd:?}");
-                    }
+                    debug!("CMD: {cmd:?}");
                 } else {
                     trace!("CMD: {cmd:?}");
                 }

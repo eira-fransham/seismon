@@ -114,20 +114,29 @@ impl ClientState {
         // TODO: validate submodel names
         let models = [None, Some(asset_server.load(worldspawn_path.clone()))]
             .into_iter()
-            .chain(model_precache.map(|model_name| {
-                if model_name.ends_with(".bsp") {
-                    // TODO: We want the worldspawn to be `Model0` but other BSPs to be all models
-                    Some(
-                        asset_server
-                            .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
-                    )
-                } else {
-                    model_name.strip_prefix('*').map(|model_idx| {
-                        asset_server
-                            .load(worldspawn_path.clone().with_label(format!("Model{model_idx}")))
+            .chain(
+                model_precache
+                    .map(|model_name| {
+                        if model_name.ends_with(".bsp") {
+                            // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
+                            // models
+
+                            asset_server.load(
+                                AssetPath::parse(&model_name).into_owned().with_label("Model0"),
+                            )
+                        } else {
+                            let path = model_name
+                                .strip_prefix('*')
+                                .map(|model_idx| {
+                                    worldspawn_path.clone().with_label(format!("Model{model_idx}"))
+                                })
+                                .unwrap_or(model_name.into());
+
+                            asset_server.load(path)
+                        }
                     })
-                }
-            }))
+                    .map(Some),
+            )
             .collect();
 
         let sounds = iter::once("misc/null.wav")
