@@ -1089,6 +1089,47 @@ pub enum ServerCmd {
 }
 
 impl ServerCmd {
+    /// If the command refers to an entity, return it.
+    pub fn entity(&self) -> Option<u16> {
+        match self {
+            ServerCmd::SpawnBaseline { ent_id, .. }
+            | ServerCmd::FastUpdate(EntityUpdate { ent_id, .. }) => Some(*ent_id),
+            ServerCmd::Bad
+            | ServerCmd::NoOp
+            | ServerCmd::Disconnect
+            | ServerCmd::UpdateStat { .. }
+            | ServerCmd::Version { .. }
+            | ServerCmd::SetView { .. }
+            | ServerCmd::Sound { .. }
+            | ServerCmd::Time { .. }
+            | ServerCmd::Print { .. }
+            | ServerCmd::StuffText { .. }
+            | ServerCmd::SetAngle { .. }
+            | ServerCmd::ServerInfo { .. }
+            | ServerCmd::LightStyle { .. }
+            | ServerCmd::UpdateName { .. }
+            | ServerCmd::UpdateFrags { .. }
+            | ServerCmd::PlayerData(_)
+            | ServerCmd::StopSound { .. }
+            | ServerCmd::UpdateColors { .. }
+            | ServerCmd::Particle { .. }
+            | ServerCmd::Damage { .. }
+            | ServerCmd::SpawnStatic { .. }
+            | ServerCmd::TempEntity { .. }
+            | ServerCmd::SetPause { .. }
+            | ServerCmd::SignOnStage { .. }
+            | ServerCmd::CenterPrint { .. }
+            | ServerCmd::KilledMonster
+            | ServerCmd::FoundSecret
+            | ServerCmd::SpawnStaticSound { .. }
+            | ServerCmd::Intermission
+            | ServerCmd::Finale { .. }
+            | ServerCmd::CdTrack { .. }
+            | ServerCmd::SellScreen
+            | ServerCmd::Cutscene { .. } => None,
+        }
+    }
+
     pub fn code(&self) -> ServerCmdCode {
         match self {
             ServerCmd::Bad => ServerCmdCode::Basic(BasicServerCmdCode::Bad),
@@ -2387,12 +2428,12 @@ where W: Write {
 
 fn read_angle<R>(reader: &mut R) -> io::Result<f32>
 where R: Read {
-    Ok(reader.read_i8()? as f32 * (360.0 / 256.0))
+    Ok(reader.read_i8()? as i32 as f32 * (360.0 / 256.0))
 }
 
 fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
 where W: Write {
-    writer.write_u8(((angle as i32 * 256 / 360) & 0xFF) as u8)?;
+    writer.write_i8(((angle as i32 * 256 / 360) & 0xFF) as i8)?;
     Ok(())
 }
 

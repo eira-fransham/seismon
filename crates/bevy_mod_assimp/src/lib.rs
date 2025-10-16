@@ -1,15 +1,34 @@
-use std::{borrow::Cow, ffi::OsStr, ops::Deref, sync::LazyLock};
+use std::{
+    borrow::Cow,
+    ffi::OsStr,
+    ops::Deref,
+    sync::{Arc, LazyLock},
+};
 
 use asset_importer::{
     Matrix4x4, Texel, TextureData, TextureType, node::Node, postprocess::PostProcessSteps,
 };
-use bevy_asset::{AssetLoader, Handle, LoadContext, RenderAssetUsages};
+use bevy_animation::{
+    AnimationClip, AnimationPlayer, AnimationTargetId, animated_field,
+    animation_curves::{AnimatableCurve, AnimatedField},
+};
+use bevy_asset::{Asset, AssetLoader, AssetServer, Assets, Handle, LoadContext, RenderAssetUsages};
 use bevy_camera::visibility::Visibility;
 use bevy_color::{Color, Srgba};
-use bevy_ecs::{entity::Entity, hierarchy::ChildOf, world::World};
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    component::Component,
+    entity::Entity,
+    hierarchy::ChildOf,
+    name::Name,
+    system::{Query, Res, SystemChangeTick},
+    world::{Mut, Ref, World},
+};
 use bevy_image::Image;
+use bevy_math::curve::{ConstantCurve, CurveExt, Interval, LinearCurve, UnevenSampleCurve};
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
+use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureFormat};
 use bevy_scene::Scene;
 use bevy_tasks::{AsyncComputeTaskPool, ConditionalSendFuture, TaskPool};
@@ -17,6 +36,49 @@ use bevy_transform::components::Transform;
 use enumflags2::{BitFlags, bitflags};
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
+
+// ------ TODO: Split into module ------
+
+#[derive(Asset, Reflect, Clone)]
+pub struct AssimpAnimMeshes {
+    pub frames: Arc<[Handle<Mesh>]>,
+}
+
+#[derive(Component, Reflect, Clone)]
+pub struct AssimpMeshAnimation {
+    pub anim_meshes: Handle<AssimpAnimMeshes>,
+    /// The current point in the animation, in frames.
+    pub frame: f64,
+    /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
+    last_index: usize,
+}
+
+pub fn animate_mesh_animations(
+    anim_meshes: Res<Assets<AssimpAnimMeshes>>,
+    entities: Query<(&mut Mesh3d, Mut<AssimpMeshAnimation>)>,
+    ticks: SystemChangeTick,
+) {
+    for (mut mesh, mut anim) in entities {
+        if !anim.last_changed().is_newer_than(ticks.last_run(), ticks.this_run()) {
+            continue;
+        }
+
+        let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
+            continue;
+        };
+
+        let cur_index = anim.frame.clamp(0., anim_mesh_frames.frames.len() as f64 - 1.) as usize;
+
+        if anim.last_index == cur_index {
+            continue;
+        }
+
+        mesh.0 = anim_mesh_frames.frames[cur_index].clone();
+        anim.last_index = cur_index;
+    }
+}
+
+// ------ END ------
 
 #[derive(Default)]
 pub struct AssimpLoader;
@@ -229,12 +291,155 @@ impl AssetLoader for AssimpLoader {
                 })
                 .collect::<Vec<_>>();
 
+            let meshes = scene
+                .meshes()
+                .enumerate()
+                .map(|(index, assimp_mesh)| {
+                    if !assimp_mesh.has_triangles() {
+                        return Err(anyhow::Error::msg("Mesh wasn't triangulated (TODO)"));
+                    }
+
+                    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, settings.usages);
+
+                    mesh.insert_indices(Indices::U32(
+                        assimp_mesh
+                            .faces()
+                            .flat_map(|face| {
+                                <[u32; 3]>::try_from(face.indices()).expect(
+                                    "TODO: Assimp mesh has both triangles and other kinds of faces",
+                                )
+                            })
+                            .collect(),
+                    ));
+
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, assimp_mesh.vertices());
+                    if let Some(normals) = assimp_mesh.normals() {
+                        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                    } else {
+                        mesh.compute_normals();
+                    }
+
+                    if let Some(uvs) = assimp_mesh.texture_coords(0) {
+                        mesh.insert_attribute(
+                            Mesh::ATTRIBUTE_UV_0,
+                            uvs.into_iter()
+                                .map(|v3| {
+                                    let (x, y, _z) = v3.into();
+                                    [x, y]
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+
+                    let mesh_name = assimp_mesh.name();
+                    let name = if mesh_name.is_empty() { format!("{index}") } else { mesh_name };
+
+                    let mesh_label = format!("Mesh.{name}");
+
+                    let anim_meshes = assimp_mesh
+                        .anim_meshes()
+                        .map(|assimp_anim_mesh| {
+                            let mut anim_mesh = mesh.clone();
+
+                            let opt_positions = assimp_anim_mesh.vertices();
+                            let has_positions = opt_positions.is_some();
+
+                            if let Some(positions) = opt_positions {
+                                anim_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+                            }
+                            if let Some(normals) = assimp_anim_mesh.normals() {
+                                anim_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                            } else if has_positions {
+                                anim_mesh.compute_normals()
+                            }
+
+                            if let Some(tex_coords) = assimp_anim_mesh.texture_coords(0) {
+                                anim_mesh.insert_attribute(
+                                    Mesh::ATTRIBUTE_UV_0,
+                                    tex_coords
+                                        .into_iter()
+                                        .map(|v3| {
+                                            let (x, y, _z) = v3.into();
+                                            [x, y]
+                                        })
+                                        .collect::<Vec<_>>(),
+                                );
+                            }
+
+                            let mesh_name = assimp_anim_mesh.name();
+                            let name =
+                                if mesh_name.is_empty() { format!("{index}") } else { mesh_name };
+
+                            load_context
+                                .add_labeled_asset(format!("{mesh_label}.Frame.{name}"), anim_mesh)
+                        })
+                        .collect::<Vec<_>>();
+
+                    Ok((load_context.add_labeled_asset(mesh_label, mesh), anim_meshes))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            // TODO: Add animations to the scene
+            let _animations = scene
+                .animations()
+                .enumerate()
+                .map(|(i, animation)| {
+                    fn step_interp(a: &f64, b: &f64, factor: f32) -> f64 {
+                        *[a, b][factor.rem_euclid(2.) as usize]
+                    }
+
+                    let duration = animation.duration_in_seconds() as f32;
+
+                    let anim_name = animation.name();
+                    let anim_name = if anim_name.is_empty() { format!("{i}") } else { anim_name };
+
+                    let mut anim_clip = AnimationClip::default();
+
+                    for mesh_anim in animation.mesh_channels() {
+                        let target = AnimationTargetId::from_name(&Name::new(format!(
+                            "AnimTarget.{anim_name}"
+                        )));
+
+                        if mesh_anim.num_keys() > 0 {
+                            let sample_points = mesh_anim
+                                .keys()
+                                .iter()
+                                .map(|key| (key.time as f32, key.value as f64))
+                                .chain(
+                                    mesh_anim.keys().last().map(|key| (duration, key.value as f64)),
+                                );
+
+                            anim_clip.add_curve_to_target(
+                                target,
+                                AnimatableCurve::new(
+                                    animated_field!(AssimpMeshAnimation::frame),
+                                    UnevenSampleCurve::new(sample_points, step_interp)?,
+                                ),
+                            );
+                        } else {
+                            anim_clip.add_curve_to_target(
+                                target,
+                                AnimatableCurve::new(
+                                    animated_field!(AssimpMeshAnimation::frame),
+                                    ConstantCurve::new(
+                                        Interval::new(0., animation.duration_in_seconds() as f32)?,
+                                        0.,
+                                    ),
+                                ),
+                            );
+                        }
+                    }
+
+                    Ok(load_context.add_labeled_asset(format!("Anim.{anim_name}"), anim_clip))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
             let mut out_scene = World::new();
 
             if let Some(node) = scene.root_node() {
                 add_node_to_scene(
-                    load_context,
                     &materials,
+                    &meshes,
                     settings,
                     &mut out_scene,
                     node,
@@ -252,9 +457,10 @@ impl AssetLoader for AssimpLoader {
     }
 }
 
+// TODO: Make a struct for this.
 fn add_node_to_scene(
-    load_context: &mut LoadContext,
     materials: &[Handle<StandardMaterial>],
+    meshes: &[(Handle<Mesh>, Vec<Handle<Mesh>>)],
     settings: &AssimpSettings,
     scene: &mut World,
     node: Node,
@@ -274,50 +480,11 @@ fn add_node_to_scene(
 
     // TODO: This creates the same mesh multiple times! Should create all meshes first
     // as labelled and then access them via path.
-    for (index, assimp_mesh) in
-        node.mesh_indices().filter_map(|i| assimp_scene.mesh(i).map(|m| (i, m)))
-    {
-        if !assimp_mesh.has_triangles() {
-            return Err(anyhow::Error::msg("Mesh wasn't triangulated (TODO)"));
-        }
-
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, settings.usages);
-
-        mesh.insert_indices(Indices::U32(
-            assimp_mesh
-                .faces()
-                .flat_map(|face| {
-                    <[u32; 3]>::try_from(face.indices())
-                        .expect("TODO: Assimp mesh has both triangles and other kinds of faces")
-                })
-                .collect(),
-        ));
-
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, assimp_mesh.vertices());
-        if let Some(normals) = assimp_mesh.normals() {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-        } else {
-            mesh.compute_normals();
-        }
-
-        if let Some(uvs) = assimp_mesh.texture_coords(0) {
-            mesh.insert_attribute(
-                Mesh::ATTRIBUTE_UV_0,
-                uvs.into_iter()
-                    .map(|v3| {
-                        let (x, y, _z) = v3.into();
-                        [x, y]
-                    })
-                    .collect::<Vec<_>>(),
-            );
-        } else {
-            mesh.compute_normals();
-        }
-
-        let mesh_name = assimp_mesh.name();
-        let name = if mesh_name.is_empty() { format!("Mesh{index}") } else { mesh_name };
-
-        let mesh_handle = load_context.add_labeled_asset(name, mesh);
+    for i in node.mesh_indices() {
+        let Some(assimp_mesh) = assimp_scene.mesh(i) else {
+            continue;
+        };
+        let mesh_handle = meshes[i].0.clone();
 
         scene.spawn((
             Mesh3d(mesh_handle),
@@ -329,15 +496,7 @@ fn add_node_to_scene(
     }
 
     for node in node.children() {
-        add_node_to_scene(
-            load_context,
-            materials,
-            settings,
-            scene,
-            node,
-            Some(node_ent),
-            assimp_scene,
-        )?;
+        add_node_to_scene(materials, meshes, settings, scene, node, Some(node_ent), assimp_scene)?;
     }
 
     Ok(())

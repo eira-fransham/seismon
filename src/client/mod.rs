@@ -15,7 +15,7 @@ use self::{
     sound::{MixerMessage, SeismonSoundPlugin},
 };
 
-use std::{iter, net::ToSocketAddrs, ops::Range, path::PathBuf};
+use std::{iter, net::ToSocketAddrs, ops::Range, path::PathBuf, time::Duration};
 
 use crate::{
     client::{
@@ -54,7 +54,6 @@ use bevy_trenchbroom::{
     TrenchBroomPlugins,
     config::{TrenchBroomConfig, WriteTrenchBroomConfigOnStartPlugin},
 };
-use chrono::Duration;
 use input::InputFocus;
 use menu::Menu;
 use num_derive::FromPrimitive;
@@ -167,10 +166,7 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                     }),
                 )
                     // TODO: Use bevy's state system
-                    .run_if(
-                        resource_exists::<Connection>
-                            .and(|conn: Res<Connection>| conn.is_connected()),
-                    ),
+                    .run_if(resource_exists::<Connection>),
             )
             .add_systems(Main, systems::lock_cursor)
             .add_systems(
@@ -435,26 +431,37 @@ pub struct ClientVars<'a> {
 pub struct Connection {
     client_state: Option<ClientState>,
     target: ConnectionTarget,
-    last_msg_time: Time<Virtual>,
+    last_msg_time: Duration,
+    connected: bool,
 }
 
 impl Connection {
     pub fn new_server(connection_state: ConnectionStage) -> Self {
         Self {
-            client_state: default(),
             target: ConnectionTarget::Server {
                 reader: default(),
                 compose: default(),
                 stage: connection_state,
             },
-            last_msg_time: Time::default(),
+            client_state: default(),
+            last_msg_time: Duration::ZERO,
+            connected: false,
+        }
+    }
+
+    pub fn new_demo(demo: DemoServer) -> Self {
+        Self {
+            target: ConnectionTarget::Demo(demo),
+            client_state: default(),
+            last_msg_time: Duration::ZERO,
+            connected: false,
         }
     }
 }
 
 impl Connection {
     pub fn is_connected(&self) -> bool {
-        !matches!(self.target, ConnectionTarget::Server { stage: ConnectionStage::SignOn(_), .. })
+        self.connected
     }
 
     fn handle_signon(
@@ -463,6 +470,10 @@ impl Connection {
         client_vars: &ClientVars,
     ) -> Result<(), ClientError> {
         use SignOnStage as S;
+
+        if new_stage == S::Done {
+            self.connected = true;
+        }
 
         let ConnectionTarget::Server { compose, stage: stage @ ConnectionStage::SignOn(_), .. } =
             &mut self.target
@@ -565,7 +576,9 @@ where A: ToSocketAddrs {
         )?;
 
         // TODO: get rid of magic constant (2.5 seconds wait time for response)
-        match con_sock.recv_response(Some(Duration::try_milliseconds(2500).unwrap())) {
+        match con_sock
+            .recv_response(Some(chrono::Duration::from_std(Duration::from_millis(2500)).unwrap()))
+        {
             Err(err) => {
                 match err {
                     // if the message is invalid, log it but don't quit
@@ -713,7 +726,7 @@ mod systems {
             let delta_time = frame_time;
 
             Some(ClientCmd::Move {
-                delta_time,
+                delta_time: chrono::Duration::from_std(delta_time).unwrap(),
                 angles: Vec3::ZERO,
                 fwd_move: forwardmove as i16,
                 side_move: sidemove as i16,
@@ -743,7 +756,7 @@ mod systems {
 
         let Some(move_cmd) = handle_input(
             &registry,
-            Duration::from_std(frame_time.delta()).unwrap(),
+            frame_time.delta(),
             move_vars,
             // mouse_vars,
             impulse,
@@ -786,7 +799,7 @@ mod systems {
             // otherwise, give the server some time to respond
             // TODO: might make sense to make this a future or something
             ConnectionTarget::Server { stage: ConnectionStage::SignOn(_), .. } => {
-                BlockingMode::Timeout(Duration::try_seconds(5).unwrap())
+                BlockingMode::Timeout(chrono::Duration::try_seconds(5).unwrap())
             }
 
             _ => return Ok(()),
@@ -867,14 +880,13 @@ mod systems {
             };
 
             // TODO: Calculate from server delta.
-            let expected_next_tick =
-                conn.last_msg_time.elapsed() + std::time::Duration::from_millis(50);
+            let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
 
-            if time.elapsed() < conn.last_msg_time.elapsed() {
+            if time.elapsed() < conn.last_msg_time {
                 return Ok(S::Maintain);
             } else if time.elapsed() > expected_next_tick {
                 *time = Time::default();
-                time.advance_by(expected_next_tick);
+                time.advance_to(expected_next_tick);
             }
 
             let Some(server_update) = conn.target.recv(&server_events)? else {
@@ -913,6 +925,15 @@ mod systems {
                     trace!("CMD: {cmd:?}");
                 }
 
+                if let Some(ent_id) = cmd.entity()
+                    && let Some(state) = &mut conn.client_state
+                {
+                    state.mark_entity_alive(ent_id);
+                    if let Some(entity) = state.server_entity_to_client_entity.get(&ent_id) {
+                        commands.entity(*entity).remove_recursive::<Children, Disabled>();
+                    }
+                }
+
                 match cmd {
                     ServerCmd::ServerInfo {
                         protocol_version,
@@ -931,8 +952,8 @@ mod systems {
                         console_output.println_alert(message.raw, &time);
                         console_output.println_alert(CONSOLE_DIVIDER, &time);
 
-                        let _server_info =
-                            ServerInfo { _max_clients: max_clients, _game_type: game_type };
+                        // let _server_info =
+                        ServerInfo { _max_clients: max_clients, _game_type: game_type };
 
                         if let Some(state) = conn.client_state.as_ref() {
                             commands.entity(state.worldspawn).despawn();
@@ -1186,8 +1207,20 @@ mod systems {
                     },
 
                     ServerCmd::Time { time } => {
-                        conn.last_msg_time = Time::default();
-                        conn.last_msg_time.advance_by(std::time::Duration::from_secs_f32(time));
+                        let last_msg_time = conn.last_msg_time;
+                        if conn.is_connected()
+                            && let Some(state) = &mut conn.client_state
+                        {
+                            if !last_msg_time.is_zero() {
+                                for entity in state.dead_entities() {
+                                    // Quake doesn't actually _delete_ dead entities
+                                    // it just stops displaying and updating them.
+                                    commands.entity(entity).insert_recursive::<Children>(Disabled);
+                                }
+                            }
+
+                            conn.last_msg_time = Duration::from_secs_f32(time);
+                        }
                     }
 
                     ServerCmd::UpdateColors { player_id, new_colors } => {
@@ -1284,12 +1317,6 @@ mod systems {
                 }
             }
 
-            if let Some(state) = &mut conn.client_state {
-                for ent in state.drain_entities_without_keepalive() {
-                    commands.entity(ent).despawn();
-                }
-            }
-
             Ok(S::Maintain)
         }
 
@@ -1374,11 +1401,7 @@ mod systems {
                             };
 
                             break demo_file.as_mut().and_then(|df| match DemoServer::new(df) {
-                                Ok(d) => Some(Connection {
-                                    target: ConnectionTarget::Demo(d),
-                                    client_state: None,
-                                    last_msg_time: Time::default(),
-                                }),
+                                Ok(d) => Some(Connection::new_demo(d)),
                                 Err(e) => {
                                     console.println(format!("{e}"), &time);
                                     demo_queue.reset();

@@ -18,7 +18,7 @@ use bevy::{
         system::{Commands, In, Query, ResMut},
     },
     log::*,
-    math::{Mat4, Quat, Vec3, Vec4},
+    math::{Mat4, Quat, Vec3},
     scene::{Scene, SceneRoot},
     transform::components::Transform,
     utils::default,
@@ -121,17 +121,27 @@ impl ClientState {
             .chain(
                 model_precache
                     .map(|model_name| {
-                        let path = if model_name.ends_with(".bsp") {
+                        if model_name.ends_with(".bsp") {
                             // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
                             // models
 
-                            AssetPath::parse(&model_name).into_owned().with_label("Model0")
+                            asset_server.load(
+                                AssetPath::parse(&model_name).into_owned().with_label("Model0"),
+                            )
                         } else if let Some(model_idx) = model_name.strip_prefix('*') {
-                            worldspawn_path.clone().with_label(format!("Model{model_idx}"))
+                            asset_server.load(
+                                worldspawn_path.clone().with_label(format!("Model{model_idx}")),
+                            )
                         } else {
-                            model_name.into()
-                        };
-                        asset_server.load(path)
+                            asset_server.load_with_settings(
+                                model_name,
+                                |settings: &mut bevy_mod_assimp::AssimpSettings| {
+                                    // Assimp seems to rotate the models compared to what we expect.
+                                    settings.transform =
+                                        Mat4::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
+                                },
+                            )
+                        }
                     })
                     .map(Some),
             )
@@ -162,16 +172,18 @@ impl ClientState {
         })
     }
 
-    pub fn drain_entities_without_keepalive(&mut self) -> impl Iterator<Item = Entity> {
-        // let keepalive = mem::take(&mut self.frame_keepalive);
-        // self.server_entity_to_client_entity
-        //     .extract_if(move |k, _| !*keepalive.get(*k as usize).as_deref().unwrap_or(&false))
-        //     .map(|(_, v)| v)
+    pub fn dead_entities(&mut self) -> impl Iterator<Item = Entity> {
+        let keepalive = mem::take(&mut self.frame_keepalive);
+
+        self.server_entity_to_client_entity.iter().filter_map(move |(k, v)| {
+            if *keepalive.get(*k as usize).as_deref().unwrap_or(&false) { None } else { Some(*v) }
+        })
+
         // TODO: This logic is currently incorrect.
-        iter::empty()
+        // iter::empty()
     }
 
-    fn mark_entity_alive(&mut self, ent_id: u16) {
+    pub fn mark_entity_alive(&mut self, ent_id: u16) {
         self.frame_keepalive.resize(self.frame_keepalive.len().max(ent_id as usize + 1), false);
         self.frame_keepalive.set(ent_id as usize, true);
     }
@@ -245,9 +257,6 @@ impl ClientState {
 
     /// Spawn an entity with the given ID, also spawning any uninitialized
     /// entities between the former last entity and the new one.
-    // TODO: skipping entities indicates that the entities have been freed by
-    // the server. it may make more sense to use a HashMap to store entities by
-    // ID since the lookup table is relatively sparse.
     pub fn spawn_entities(
         &mut self,
         mut commands: Commands<'_, '_>,
@@ -288,7 +297,11 @@ impl ClientState {
             let entity =
                 commands.spawn((transform, Visibility::Inherited, ChildOf(self.worldspawn)));
 
-            self.server_entity_to_client_entity.insert(id, entity.id());
+            // Special-case: worldspawn is spawned with `SpawnBaseline` (not `SpawnStatic`) but
+            // not handled via the regular update loop.
+            if id != 0 {
+                self.server_entity_to_client_entity.insert(id, entity.id());
+            }
 
             entity
         };
@@ -296,8 +309,6 @@ impl ClientState {
         if let Some(model) = model {
             ent.insert(SceneRoot(model));
         }
-
-        self.mark_entity_alive(id);
     }
 
     pub fn update_entity(
@@ -309,8 +320,6 @@ impl ClientState {
         let Some(state) = conn.client_state.as_mut() else {
             return;
         };
-
-        state.mark_entity_alive(update.ent_id);
 
         if let Some(entity) = state.server_entity_to_client_entity.get(&update.ent_id) {
             let Ok(mut ent) = commands.get_entity(*entity) else {

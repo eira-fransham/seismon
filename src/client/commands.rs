@@ -171,11 +171,7 @@ pub fn register_commands(app: &mut App) {
                 Ok(d) => {
                     *focus = InputFocus::Game;
 
-                    commands.insert_resource(Connection {
-                        target: ConnectionTarget::Demo(d),
-                        client_state: None,
-                        last_msg_time: *time,
-                    });
+                    commands.insert_resource(Connection::new_demo(d));
                 }
                 Err(e) => {
                     return e.to_string().into();
@@ -225,11 +221,7 @@ pub fn register_commands(app: &mut App) {
                         };
 
                         match DemoServer::new(&mut demo_file) {
-                            Ok(d) => Connection {
-                                target: ConnectionTarget::Demo(d),
-                                client_state: None,
-                                last_msg_time: *time,
-                            },
+                            Ok(d) => Connection::new_demo(d),
                             Err(e) => {
                                 return e.to_string().into();
                             }
