@@ -1,4 +1,4 @@
-use std::{convert::identity, iter};
+use std::{convert::identity, iter, mem};
 
 use super::view::BobVars;
 use crate::{
@@ -18,13 +18,14 @@ use bevy::{
         system::{Commands, In, Query, ResMut},
     },
     log::*,
-    math::{Quat, Vec3},
+    math::{Mat4, Quat, Vec3, Vec4},
     scene::{Scene, SceneRoot},
     transform::components::Transform,
     utils::default,
 };
 use bevy_seedling::sample::AudioSample;
 use bevy_trenchbroom::util::BevyTrenchbroomCoordinateConversions;
+use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::QString;
 
@@ -80,10 +81,13 @@ impl PendingSceneRoot {
 pub struct ClientState {
     pub worldspawn: Entity,
 
-    // Model precache.
+    /// Quake 1 deletes any entities that haven't received new messages on a given frame.
+    pub frame_keepalive: BitVec,
+
+    /// Model precache.
     pub models: Box<[Option<Handle<Scene>>]>,
 
-    // Sound precache.
+    /// Sound precache.
     pub sounds: Box<[Handle<AudioSample>]>,
 
     /// Sounds that are always needed, even if not in precache.
@@ -117,23 +121,17 @@ impl ClientState {
             .chain(
                 model_precache
                     .map(|model_name| {
-                        if model_name.ends_with(".bsp") {
+                        let path = if model_name.ends_with(".bsp") {
                             // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
                             // models
 
-                            asset_server.load(
-                                AssetPath::parse(&model_name).into_owned().with_label("Model0"),
-                            )
+                            AssetPath::parse(&model_name).into_owned().with_label("Model0")
+                        } else if let Some(model_idx) = model_name.strip_prefix('*') {
+                            worldspawn_path.clone().with_label(format!("Model{model_idx}"))
                         } else {
-                            let path = model_name
-                                .strip_prefix('*')
-                                .map(|model_idx| {
-                                    worldspawn_path.clone().with_label(format!("Model{model_idx}"))
-                                })
-                                .unwrap_or(model_name.into());
-
-                            asset_server.load(path)
-                        }
+                            model_name.into()
+                        };
+                        asset_server.load(path)
                     })
                     .map(Some),
             )
@@ -157,10 +155,25 @@ impl ClientState {
         Ok(ClientState {
             worldspawn,
             models,
+            frame_keepalive: default(),
             sounds: sounds.collect(),
             _cached_sounds: cached_sounds,
             server_entity_to_client_entity: Default::default(),
         })
+    }
+
+    pub fn drain_entities_without_keepalive(&mut self) -> impl Iterator<Item = Entity> {
+        // let keepalive = mem::take(&mut self.frame_keepalive);
+        // self.server_entity_to_client_entity
+        //     .extract_if(move |k, _| !*keepalive.get(*k as usize).as_deref().unwrap_or(&false))
+        //     .map(|(_, v)| v)
+        // TODO: This logic is currently incorrect.
+        iter::empty()
+    }
+
+    fn mark_entity_alive(&mut self, ent_id: u16) {
+        self.frame_keepalive.resize(self.frame_keepalive.len().max(ent_id as usize + 1), false);
+        self.frame_keepalive.set(ent_id as usize, true);
     }
 
     pub fn handle_damage(&mut self, armor: u8, health: u8, source: Vec3, kick_vars: KickVars) {
@@ -283,6 +296,8 @@ impl ClientState {
         if let Some(model) = model {
             ent.insert(SceneRoot(model));
         }
+
+        self.mark_entity_alive(id);
     }
 
     pub fn update_entity(
@@ -294,6 +309,8 @@ impl ClientState {
         let Some(state) = conn.client_state.as_mut() else {
             return;
         };
+
+        state.mark_entity_alive(update.ent_id);
 
         if let Some(entity) = state.server_entity_to_client_entity.get(&update.ent_id) {
             let Ok(mut ent) = commands.get_entity(*entity) else {

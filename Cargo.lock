@@ -1270,6 +1270,7 @@ dependencies = [
  "anyhow",
  "asset-importer",
  "bevy_asset",
+ "bevy_camera",
  "bevy_color",
  "bevy_ecs",
  "bevy_image",

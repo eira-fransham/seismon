@@ -29,6 +29,7 @@ bevy_mod_assimp = { path = "crates/bevy_mod_assimp" }
 bevy = { version = "0.17"}
 bevy_asset = { version = "0.17" }
 bevy_app = { version = "0.17" }
+bevy_camera = { version = "0.17" }
 bevy_color = { version = "0.17" }
 bevy_ecs = { version = "0.17" }
 bevy_image = { version = "0.17" }

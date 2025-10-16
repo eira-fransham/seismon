@@ -1051,6 +1051,8 @@ mod systems {
                                 },
                             );
 
+                            commands.entity(ent).insert(Visibility::Hidden);
+
                             let mut entity = match commands.get_entity(settings.camera_template) {
                                 Ok(ent) => ent,
                                 Err(_) => {
@@ -1282,6 +1284,12 @@ mod systems {
                 }
             }
 
+            if let Some(state) = &mut conn.client_state {
+                for ent in state.drain_entities_without_keepalive() {
+                    commands.entity(ent).despawn();
+                }
+            }
+
             Ok(S::Maintain)
         }
 
@@ -1337,14 +1345,14 @@ mod systems {
             mut demo_queue: ResMut<DemoQueue>,
             mut focus: ResMut<InputFocus>,
         ) -> Result<(), ClientError> {
-            use ConnectionStatus::*;
+            use ConnectionStatus as S;
             let new_conn = match status? {
-                Maintain => return Ok(()),
+                S::Maintain => return Ok(()),
                 // if client is already disconnected, this is a no-op
-                Disconnect => None,
+                S::Disconnect => None,
 
                 // get the next demo from the queue
-                NextDemo => loop {
+                S::NextDemo => loop {
                     match demo_queue.next_demo() {
                         Some(demo) => {
                             // TODO: Extract this to a separate function so we don't duplicate the

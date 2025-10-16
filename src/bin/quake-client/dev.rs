@@ -3,7 +3,7 @@ use clap::Parser;
 use seismon::common::console::ExecResult;
 
 pub const SENSITIVITY: f32 = 0.0007;
-pub const BASE_MOVEMENT_SPEED: f32 = 4.;
+pub const BASE_MOVEMENT_SPEED: f32 = 160.;
 
 #[derive(Parser)]
 #[command(name = "dev_toggle_freecam", about = "Switch to freecam mode")]

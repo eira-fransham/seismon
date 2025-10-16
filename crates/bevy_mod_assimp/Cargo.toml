@@ -10,6 +10,7 @@ repository.workspace = true
 asset-importer.workspace = true
 anyhow.workspace = true
 bevy_asset.workspace = true
+bevy_camera.workspace = true
 bevy_color.workspace = true
 bevy_ecs.workspace = true
 bevy_image.workspace = true

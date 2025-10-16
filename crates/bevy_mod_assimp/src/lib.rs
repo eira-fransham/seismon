@@ -1,11 +1,13 @@
 use std::{borrow::Cow, ffi::OsStr, ops::Deref, sync::LazyLock};
 
-use asset_importer::{Texel, TextureData, TextureType, postprocess::PostProcessSteps};
+use asset_importer::{
+    Matrix4x4, Texel, TextureData, TextureType, node::Node, postprocess::PostProcessSteps,
+};
 use bevy_asset::{AssetLoader, Handle, LoadContext, RenderAssetUsages};
+use bevy_camera::visibility::Visibility;
 use bevy_color::{Color, Srgba};
-use bevy_ecs::world::World;
+use bevy_ecs::{entity::Entity, hierarchy::ChildOf, world::World};
 use bevy_image::Image;
-use bevy_log::info;
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
 use bevy_render::render_resource::{Extent3d, TextureFormat};
@@ -72,14 +74,19 @@ pub struct AssimpSettings {
     pub post_process: PostProcessSteps,
     pub animations: BitFlags<AnimationKind>,
     pub usages: RenderAssetUsages,
+    pub transform: Matrix4x4,
 }
 
 impl Default for AssimpSettings {
     fn default() -> Self {
         AssimpSettings {
-            post_process: PostProcessSteps::REALTIME,
+            post_process: PostProcessSteps::TRIANGULATE
+                | PostProcessSteps::FLIP_UVS
+                | PostProcessSteps::GEN_SMOOTH_NORMALS
+                | PostProcessSteps::CALC_TANGENT_SPACE, // PostProcessSteps::REALTIME,
             animations: BitFlags::<AnimationKind>::all(),
             usages: RenderAssetUsages::RENDER_WORLD,
+            transform: Matrix4x4::IDENTITY,
         }
     }
 }
@@ -159,14 +166,8 @@ impl AssetLoader for AssimpLoader {
 
             let materials = scene
                 .materials()
-                .map(|mat| {
-                    // let has_tex_kind = (0..=27)
-                    //     .filter_map(|t| TextureType::from_u32(t))
-                    //     .map(|t| (t, mat.texture_count(t)))
-                    //     .collect::<Vec<_>>();
-
-                    // info!("mat {:?} has {:?}", mat.name(), has_tex_kind);
-
+                .enumerate()
+                .map(|(index, mat)| {
                     let tex_handle = mat.texture(TextureType::Diffuse, 0).map(|tex| {
                         paths_to_textures
                             .entry(tex.path.clone())
@@ -177,7 +178,7 @@ impl AssetLoader for AssimpLoader {
                                     .and_then(|index| scene.texture(index.parse().ok()?))
                                     .or_else(|| scene.find_texture_by_filename(&tex.path))
                                 {
-                                    // assert_eq!(embedded.format_hint(), "rgba8888");
+                                    assert!(["", "rgba8888"].contains(&&*embedded.format_hint()));
                                     let TextureData::Texels(uncompressed) =
                                         embedded.data().unwrap()
                                     else {
@@ -206,8 +207,11 @@ impl AssetLoader for AssimpLoader {
                             .clone()
                     });
 
+                    let mat_name = mat.name();
+                    let name = if mat_name.is_empty() { format!("Mat{index}") } else { mat_name };
+
                     load_context.add_labeled_asset(
-                        mat.name(),
+                        name,
                         StandardMaterial {
                             base_color: mat
                                 .base_color()
@@ -217,6 +221,8 @@ impl AssetLoader for AssimpLoader {
                                 })
                                 .unwrap_or(default_material.base_color),
                             base_color_texture: tex_handle,
+                            // TODO
+                            unlit: true,
                             ..default_material.clone()
                         },
                     )
@@ -225,52 +231,16 @@ impl AssetLoader for AssimpLoader {
 
             let mut out_scene = World::new();
 
-            for assimp_mesh in scene.meshes() {
-                if !assimp_mesh.has_triangles() {
-                    return Err(anyhow::Error::msg("Mesh wasn't triangulated (TODO)"));
-                }
-
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, settings.usages);
-
-                mesh.insert_indices(Indices::U32(
-                    assimp_mesh
-                        .faces()
-                        .flat_map(|face| {
-                            <[u32; 3]>::try_from(face.indices()).expect(
-                                "TODO: Assimp mesh has both triangles and other kinds of faces",
-                            )
-                        })
-                        .collect(),
-                ));
-
-                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, assimp_mesh.vertices());
-                if let Some(normals) = assimp_mesh.normals() {
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-                } else {
-                    mesh.compute_normals();
-                }
-
-                if let Some(uvs) = assimp_mesh.texture_coords(0) {
-                    mesh.insert_attribute(
-                        Mesh::ATTRIBUTE_UV_0,
-                        uvs.into_iter()
-                            .map(|v3| {
-                                let (x, y, _z) = v3.into();
-                                [x, y]
-                            })
-                            .collect::<Vec<_>>(),
-                    );
-                } else {
-                    mesh.compute_normals();
-                }
-
-                let mesh_handle = load_context.add_labeled_asset(assimp_mesh.name(), mesh);
-
-                out_scene.spawn((
-                    Mesh3d(mesh_handle),
-                    MeshMaterial3d(materials[assimp_mesh.material_index()].clone()),
-                    Transform::default(),
-                ));
+            if let Some(node) = scene.root_node() {
+                add_node_to_scene(
+                    load_context,
+                    &materials,
+                    settings,
+                    &mut out_scene,
+                    node,
+                    None,
+                    &scene,
+                )?;
             }
 
             Ok(Scene { world: out_scene })
@@ -278,6 +248,97 @@ impl AssetLoader for AssimpLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &*SUPPORTED_EXTENSIONS_STRS
+        &SUPPORTED_EXTENSIONS_STRS
     }
+}
+
+fn add_node_to_scene(
+    load_context: &mut LoadContext,
+    materials: &[Handle<StandardMaterial>],
+    settings: &AssimpSettings,
+    scene: &mut World,
+    node: Node,
+    parent: Option<Entity>,
+    assimp_scene: &asset_importer::Scene,
+) -> anyhow::Result<()> {
+    let transformation = node.transformation();
+
+    let mut node_ent = scene.spawn(Visibility::Inherited);
+    if let Some(ent) = parent {
+        node_ent.insert((ChildOf(ent), Transform::from_matrix(transformation)));
+    } else {
+        node_ent.insert(Transform::from_matrix(settings.transform * transformation));
+    }
+
+    let node_ent = node_ent.id();
+
+    // TODO: This creates the same mesh multiple times! Should create all meshes first
+    // as labelled and then access them via path.
+    for (index, assimp_mesh) in
+        node.mesh_indices().filter_map(|i| assimp_scene.mesh(i).map(|m| (i, m)))
+    {
+        if !assimp_mesh.has_triangles() {
+            return Err(anyhow::Error::msg("Mesh wasn't triangulated (TODO)"));
+        }
+
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, settings.usages);
+
+        mesh.insert_indices(Indices::U32(
+            assimp_mesh
+                .faces()
+                .flat_map(|face| {
+                    <[u32; 3]>::try_from(face.indices())
+                        .expect("TODO: Assimp mesh has both triangles and other kinds of faces")
+                })
+                .collect(),
+        ));
+
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, assimp_mesh.vertices());
+        if let Some(normals) = assimp_mesh.normals() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        } else {
+            mesh.compute_normals();
+        }
+
+        if let Some(uvs) = assimp_mesh.texture_coords(0) {
+            mesh.insert_attribute(
+                Mesh::ATTRIBUTE_UV_0,
+                uvs.into_iter()
+                    .map(|v3| {
+                        let (x, y, _z) = v3.into();
+                        [x, y]
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        } else {
+            mesh.compute_normals();
+        }
+
+        let mesh_name = assimp_mesh.name();
+        let name = if mesh_name.is_empty() { format!("Mesh{index}") } else { mesh_name };
+
+        let mesh_handle = load_context.add_labeled_asset(name, mesh);
+
+        scene.spawn((
+            Mesh3d(mesh_handle),
+            MeshMaterial3d(materials[assimp_mesh.material_index()].clone()),
+            Transform::default(),
+            Visibility::Inherited,
+            ChildOf(node_ent),
+        ));
+    }
+
+    for node in node.children() {
+        add_node_to_scene(
+            load_context,
+            materials,
+            settings,
+            scene,
+            node,
+            Some(node_ent),
+            assimp_scene,
+        )?;
+    }
+
+    Ok(())
 }

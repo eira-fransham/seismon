@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 #[cfg(feature = "dev_tools")]
 mod dev;
 mod menu;
