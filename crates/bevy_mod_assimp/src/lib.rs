@@ -25,6 +25,7 @@ use bevy_ecs::{
     world::{Mut, Ref, World},
 };
 use bevy_image::Image;
+use bevy_log::info;
 use bevy_math::curve::{ConstantCurve, CurveExt, Interval, LinearCurve, UnevenSampleCurve};
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
@@ -36,49 +37,6 @@ use bevy_transform::components::Transform;
 use enumflags2::{BitFlags, bitflags};
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-
-// ------ TODO: Split into module ------
-
-#[derive(Asset, Reflect, Clone)]
-pub struct AssimpAnimMeshes {
-    pub frames: Arc<[Handle<Mesh>]>,
-}
-
-#[derive(Component, Reflect, Clone)]
-pub struct AssimpMeshAnimation {
-    pub anim_meshes: Handle<AssimpAnimMeshes>,
-    /// The current point in the animation, in frames.
-    pub frame: f64,
-    /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
-    last_index: usize,
-}
-
-pub fn animate_mesh_animations(
-    anim_meshes: Res<Assets<AssimpAnimMeshes>>,
-    entities: Query<(&mut Mesh3d, Mut<AssimpMeshAnimation>)>,
-    ticks: SystemChangeTick,
-) {
-    for (mut mesh, mut anim) in entities {
-        if !anim.last_changed().is_newer_than(ticks.last_run(), ticks.this_run()) {
-            continue;
-        }
-
-        let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
-            continue;
-        };
-
-        let cur_index = anim.frame.clamp(0., anim_mesh_frames.frames.len() as f64 - 1.) as usize;
-
-        if anim.last_index == cur_index {
-            continue;
-        }
-
-        mesh.0 = anim_mesh_frames.frames[cur_index].clone();
-        anim.last_index = cur_index;
-    }
-}
-
-// ------ END ------
 
 #[derive(Default)]
 pub struct AssimpLoader;
@@ -199,28 +157,28 @@ impl AssetLoader for AssimpLoader {
                 })
                 .await?;
 
-            // #[derive(Debug)]
-            // struct SceneCounts {
-            //     num_meshes: usize,
-            //     num_materials: usize,
-            //     num_animations: usize,
-            //     num_cameras: usize,
-            //     num_lights: usize,
-            //     num_textures: usize,
-            // }
+            #[derive(Debug)]
+            struct SceneCounts {
+                num_meshes: usize,
+                num_materials: usize,
+                num_animations: usize,
+                num_cameras: usize,
+                num_lights: usize,
+                num_textures: usize,
+            }
 
-            // info!(
-            //     "{:?}: {:#?}",
-            //     load_context.path(),
-            //     SceneCounts {
-            //         num_meshes: scene.num_meshes(),
-            //         num_materials: scene.num_materials(),
-            //         num_animations: scene.num_animations(),
-            //         num_cameras: scene.num_cameras(),
-            //         num_lights: scene.num_lights(),
-            //         num_textures: scene.num_textures(),
-            //     }
-            // );
+            info!(
+                "{:?}: {:#?}",
+                load_context.path(),
+                SceneCounts {
+                    num_meshes: scene.num_meshes(),
+                    num_materials: scene.num_materials(),
+                    num_animations: scene.num_animations(),
+                    num_cameras: scene.num_cameras(),
+                    num_lights: scene.num_lights(),
+                    num_textures: scene.num_textures(),
+                }
+            );
 
             let mut paths_to_textures = HashMap::<String, Handle<Image>>::new();
 
@@ -295,6 +253,14 @@ impl AssetLoader for AssimpLoader {
                 .meshes()
                 .enumerate()
                 .map(|(index, assimp_mesh)| {
+                    #[derive(Debug)]
+                    struct MeshCounts {
+                        num_anim_meshes: usize,
+                        num_bones: usize,
+                        num_faces: usize,
+                        num_vertices: usize,
+                    }
+
                     if !assimp_mesh.has_triangles() {
                         return Err(anyhow::Error::msg("Mesh wasn't triangulated (TODO)"));
                     }
@@ -335,6 +301,17 @@ impl AssetLoader for AssimpLoader {
                     let name = if mesh_name.is_empty() { format!("{index}") } else { mesh_name };
 
                     let mesh_label = format!("Mesh.{name}");
+
+                    info!(
+                        "{:?}: {:#?}",
+                        format!("{}#{}", load_context.path().display(), mesh_label),
+                        MeshCounts {
+                            num_anim_meshes: assimp_mesh.num_anim_meshes(),
+                            num_bones: assimp_mesh.num_bones(),
+                            num_faces: assimp_mesh.num_faces(),
+                            num_vertices: assimp_mesh.num_vertices(),
+                        }
+                    );
 
                     let anim_meshes = assimp_mesh
                         .anim_meshes()

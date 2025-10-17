@@ -4,10 +4,27 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-byteorder.workspace = true
-chrono.workspace = true
-thiserror.workspace = true
-bevy_math.workspace = true
+bevy_asset.workspace = true
+bevy_animation.workspace = true
+bevy_camera.workspace = true
+bevy_color.workspace = true
+bevy_ecs.workspace = true
+bevy_image.workspace = true
 bevy_log.workspace = true
+bevy_tasks.workspace = true
+bevy_scene.workspace = true
+bevy_transform.workspace = true
+bevy_math.workspace = true
+bevy_mesh.workspace = true
+bevy_render.workspace = true
+bevy_reflect.workspace = true
+bevy_pbr.workspace = true
+
+anyhow.workspace = true
+byteorder.workspace = true
+bevy_materialize.workspace = true
+thiserror.workspace = true
 seismon-utils.workspace = true
+serde.workspace = true
 num-traits.workspace = true
+qbsp.workspace = true

@@ -16,7 +16,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bevy::{log::debug, math::Vec3};
-use bevy_mod_mdl::{AliasModel, MdlFileError};
+use bevy_mod_mdl::{MdlFileError, RawMdl};
 use seismon_utils::model::{ModelFlags, SyncType};
 use thiserror::Error;
 

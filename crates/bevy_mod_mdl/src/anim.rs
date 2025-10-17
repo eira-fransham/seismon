@@ -1,0 +1,52 @@
+use std::sync::Arc;
+
+use bevy_animation::AnimationPlayer;
+use bevy_asset::{Asset, Assets, Handle};
+use bevy_ecs::{
+    change_detection::DetectChanges as _,
+    component::Component,
+    system::{Query, Res, SystemChangeTick},
+    world::Mut,
+};
+use bevy_mesh::{Mesh, Mesh3d};
+use bevy_reflect::Reflect;
+
+#[derive(Asset, Reflect, Clone)]
+pub struct AssimpAnimMeshes {
+    pub frames: Arc<[Handle<Mesh>]>,
+}
+
+#[derive(Component, Reflect, Clone)]
+#[require(AnimationPlayer)]
+pub struct AssimpMeshAnimation {
+    pub anim_meshes: Handle<AssimpAnimMeshes>,
+    /// The current point in the animation, in frames.
+    pub frame: f64,
+    /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
+    last_index: usize,
+}
+
+pub fn animate_mesh_animations(
+    anim_meshes: Res<Assets<AssimpAnimMeshes>>,
+    entities: Query<(&mut Mesh3d, Mut<AssimpMeshAnimation>)>,
+    ticks: SystemChangeTick,
+) {
+    for (mut mesh, mut anim) in entities {
+        if !anim.last_changed().is_newer_than(ticks.last_run(), ticks.this_run()) {
+            continue;
+        }
+
+        let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
+            continue;
+        };
+
+        let cur_index = anim.frame.clamp(0., anim_mesh_frames.frames.len() as f64 - 1.) as usize;
+
+        if anim.last_index == cur_index {
+            continue;
+        }
+
+        mesh.0 = anim_mesh_frames.frames[cur_index].clone();
+        anim.last_index = cur_index;
+    }
+}

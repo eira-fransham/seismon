@@ -49,6 +49,7 @@ bevy_scene = { version = "0.17" }
 anyhow = "1.0"
 asset-importer = { version = "0.4", features = ["build-assimp"] }
 beef = "0.5"
+bevy_materialize = "0.8"
 bitflags = "2.4"
 byteorder = "1.3"
 chrono = "0.4"
@@ -70,6 +71,7 @@ termion = "4.0"
 thiserror = "1.0"
 tokio = "1.47"
 unicode-width = "0.2"
+qbsp = "0.6"
 
 [dependencies]
 seismon-utils.workspace = true
@@ -97,10 +99,11 @@ serde-lexpr.workspace = true
 serde.workspace = true
 snafu.workspace = true
 thiserror.workspace = true
+qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
 bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
-bevy_seedling = { version = "0.6.0-rc.1", git = "https://github.com/CorvusPrudens/bevy_seedling.git", rev = "5e11f13" }
+bevy_seedling = "0.6.0-rc.1"
 bevy-inspector-egui = "0.34"
 bitvec = "1.0"
 bumpalo = "3.4"
@@ -115,7 +118,6 @@ indexmap = "2.9"
 parking_lot = "0.12"
 pest = "2.8"
 pest_derive = "2.8"
-qbsp = { version = "0.6", features = ["bevy_reflect", "serde"] }
 rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
 slab = "0.4"
 smol_str = "0.2"

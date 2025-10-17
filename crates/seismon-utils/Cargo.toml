@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 beef.workspace = true
 bitflags.workspace = true
+bevy_reflect.workspace = true
 byteorder.workspace = true
 chrono.workspace = true
 nom.workspace = true
