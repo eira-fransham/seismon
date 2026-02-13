@@ -10,6 +10,7 @@ use bevy_mesh::Mesh;
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy_scene::Scene;
 use bevy_tasks::ConditionalSendFuture;
 use seismon_utils::model::ModelFlags;
 use serde::{Deserialize, Serialize};
@@ -347,6 +348,17 @@ async fn load_mdl(
             })
             .collect(),
     })
+}
+
+#[expect(dead_code, reason = "TODO")]
+async fn load_mdl_scene(
+    _loader: &MdlLoader,
+    _reader: &mut dyn bevy_asset::io::Reader,
+    _settings: &MdlLoaderSettings,
+    _load_context: &mut bevy_asset::LoadContext<'_>,
+) -> Result<Scene, MdlFileError> {
+    // Add the various components for e.g. mesh animation
+    todo!()
 }
 
 impl AssetLoader for MdlLoader {
