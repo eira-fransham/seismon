@@ -15,27 +15,28 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{
-    io::{self, BufReader, Read, Seek, SeekFrom},
-    time::Duration,
-};
+use std::{io, time::Duration};
 
+use futures::AsyncReadExt;
+use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num_traits::FromPrimitive as _;
 use seismon_utils::{
     model::{ModelFlags, SyncType},
-    read_f32_3,
+    read_f32_3_async,
 };
 
 use bevy_log as log;
 use bevy_math::Vec3;
-
-use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::MdlFileError;
 
 pub const MAGIC: i32 = i32::from_le_bytes(*b"IDPO");
 pub const VERSION: i32 = 6;
 
+#[expect(
+    dead_code,
+    reason = "TODO: For error reporting, but we can't use this as Bevy asset readers don't implement seek"
+)]
 const HEADER_SIZE: u64 = 84;
 
 #[derive(Clone, Debug)]
@@ -260,7 +261,7 @@ impl RawMdl {
         self.tris.iter()
     }
 
-    pub fn keyframes(&self) -> impl Iterator<Item = &Animation> {
+    pub fn animations(&self) -> impl Iterator<Item = &Animation> {
         self.animations.iter()
     }
 
@@ -287,21 +288,24 @@ impl From<MdlResult> for Result<RawMdl, MdlFileError> {
     }
 }
 
-pub fn load<R>(data: R) -> MdlResult
-where R: Read + Seek {
-    let mut reader = BufReader::new(data);
-    let mut errors = Vec::<MdlFileError>::new();
+pub async fn load<R>(mut reader: &mut R) -> MdlResult
+where R: bevy_asset::io::Reader + ?Sized {
+    let mut reader = AsyncReadBytes::new(&mut reader);
+    let mut error_set = Vec::<MdlFileError>::new();
 
     macro_rules! nonfatal {
         ($errval:expr) => {
-            errors.push($errval.into());
+            nonfatal!(error_set, $errval);
+        };
+        ($errors:expr, $errval:expr) => {
+            $errors.push($errval.into());
         };
     }
 
     macro_rules! fatal {
         ($errval:expr) => {{
             nonfatal!($errval);
-            return MdlResult { value: None, errors };
+            return MdlResult { value: None, errors: error_set };
         }};
     }
 
@@ -333,45 +337,45 @@ where R: Read + Seek {
     //     flags_bits: i32,
     // }
 
-    let magic = try_!(reader.read_i32::<LittleEndian>());
+    let magic = try_!(reader.read_i32::<LittleEndian>().await);
     if magic != MAGIC {
         fatal!(MdlFileError::InvalidMagicNumber(magic));
     }
 
-    let version = try_!(reader.read_i32::<LittleEndian>());
+    let version = try_!(reader.read_i32::<LittleEndian>().await);
     if version != VERSION {
         fatal!(MdlFileError::UnrecognizedVersion(version));
     }
 
-    let scale: Vec3 = try_!(read_f32_3(&mut reader)).into();
-    let origin: Vec3 = try_!(read_f32_3(&mut reader)).into();
-    let radius = try_!(reader.read_f32::<LittleEndian>());
-    let _eye_position: Vec3 = try_!(read_f32_3(&mut reader)).into();
-    let texture_count = try_!(reader.read_i32::<LittleEndian>());
-    let texture_width = try_!(reader.read_i32::<LittleEndian>());
+    let scale: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
+    let origin: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
+    let radius = try_!(reader.read_f32::<LittleEndian>().await);
+    let _eye_position: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
+    let texture_count = try_!(reader.read_i32::<LittleEndian>().await);
+    let texture_width = try_!(reader.read_i32::<LittleEndian>().await);
     if texture_width <= 0 {
         fatal!(MdlFileError::InvalidTextureWidth(texture_width));
     }
-    let texture_height = try_!(reader.read_i32::<LittleEndian>());
+    let texture_height = try_!(reader.read_i32::<LittleEndian>().await);
     if texture_height <= 0 {
         fatal!(MdlFileError::InvalidTextureHeight(texture_height));
     }
-    let vertex_count = try_!(reader.read_i32::<LittleEndian>());
+    let vertex_count = try_!(reader.read_i32::<LittleEndian>().await);
     if vertex_count <= 0 {
         fatal!(MdlFileError::InvalidVertexCount(vertex_count));
     }
-    let poly_count = try_!(reader.read_i32::<LittleEndian>());
+    let poly_count = try_!(reader.read_i32::<LittleEndian>().await);
     if poly_count <= 0 {
         fatal!(MdlFileError::InvalidPolygonCount(poly_count));
     }
-    let keyframe_count = try_!(reader.read_i32::<LittleEndian>());
+    let keyframe_count = try_!(reader.read_i32::<LittleEndian>().await);
     if keyframe_count <= 0 {
         fatal!(MdlFileError::InvalidKeyframeCount(keyframe_count));
     }
 
-    let _sync_type = SyncType::from_i32(try_!(reader.read_i32::<LittleEndian>()));
+    let _sync_type = SyncType::from_i32(try_!(reader.read_i32::<LittleEndian>().await));
 
-    let mut flags_bits = try_!(reader.read_i32::<LittleEndian>());
+    let mut flags_bits = try_!(reader.read_i32::<LittleEndian>().await);
     if flags_bits < 0 || flags_bits > u8::MAX as i32 {
         nonfatal!(MdlFileError::InvalidFlags(flags_bits));
         flags_bits = flags_bits as u8 as i32;
@@ -385,213 +389,236 @@ where R: Read + Seek {
     };
 
     // unused
-    let _size = try_!(reader.read_i32::<LittleEndian>());
+    let _size = try_!(reader.read_i32::<LittleEndian>().await);
 
-    assert_eq!(
-        try_!(reader.stream_position()),
-        try_!(reader.seek(SeekFrom::Start(HEADER_SIZE))),
-        "Misaligned read on MDL header"
-    );
+    // Cannot seek with bevy reader
+    // assert_eq!(
+    //     try_!(reader.stream_position()),
+    //     try_!(reader.seek(SeekFrom::Start(HEADER_SIZE))),
+    //     "Misaligned read on MDL header"
+    // );
 
-    let textures = try_!(
-        (0..texture_count)
-            .map(|_| {
-                // TODO: add a TextureKind type
-                let texture = match reader.read_i32::<LittleEndian>()? {
-                    // Static
-                    0 => {
+    let textures = {
+        let mut out = Vec::with_capacity(texture_count as usize);
+
+        for _ in 0..texture_count {
+            // TODO: add a TextureKind type
+            let texture = match try_!(reader.read_i32::<LittleEndian>().await) {
+                // Static
+                0 => {
+                    let mut indices: Vec<u8> =
+                        Vec::with_capacity((texture_width * texture_height) as usize);
+                    try_!(
+                        (&mut *reader)
+                            .take((texture_width * texture_height) as u64)
+                            .read_to_end(&mut indices)
+                            .await
+                    );
+                    Texture::Static(StaticTexture { indices })
+                }
+
+                // Animated
+                1 => {
+                    // TODO: sanity check this value
+                    let texture_frame_count =
+                        try_!(reader.read_i32::<LittleEndian>().await) as usize;
+
+                    let mut durations = Vec::with_capacity(texture_frame_count);
+                    for _ in 0..texture_frame_count {
+                        durations.push(seismon_utils::duration_from_f32(try_!(
+                            reader.read_f32::<LittleEndian>().await
+                        )));
+                    }
+
+                    let mut frames = Vec::with_capacity(texture_frame_count);
+                    for duration in durations {
                         let mut indices: Vec<u8> =
                             Vec::with_capacity((texture_width * texture_height) as usize);
-                        (&mut reader)
-                            .take((texture_width * texture_height) as u64)
-                            .read_to_end(&mut indices)?;
-                        Texture::Static(StaticTexture { indices })
-                    }
-
-                    // Animated
-                    1 => {
-                        // TODO: sanity check this value
-                        let texture_frame_count = reader.read_i32::<LittleEndian>()? as usize;
-
-                        let mut durations = Vec::with_capacity(texture_frame_count);
-                        for _ in 0..texture_frame_count {
-                            durations.push(seismon_utils::duration_from_f32(
-                                reader.read_f32::<LittleEndian>()?,
-                            ));
-                        }
-
-                        let mut frames = Vec::with_capacity(texture_frame_count);
-                        for duration in durations {
-                            let mut indices: Vec<u8> =
-                                Vec::with_capacity((texture_width * texture_height) as usize);
-                            (&mut reader)
+                        try_!(
+                            (&mut *reader)
                                 .take((texture_width * texture_height) as u64)
-                                .read_to_end(&mut indices)?;
-                            frames.push(AnimatedTextureFrame { duration, indices });
-                        }
-
-                        Texture::Animated(AnimatedTexture { frames })
+                                .read_to_end(&mut indices)
+                                .await
+                        );
+                        frames.push(AnimatedTextureFrame { duration, indices });
                     }
 
-                    k => {
-                        return Err(MdlFileError::InvalidTextureKind(k));
+                    Texture::Animated(AnimatedTexture { frames })
+                }
+
+                k => {
+                    fatal!(MdlFileError::InvalidTextureKind(k));
+                }
+            };
+
+            out.push(texture);
+        }
+
+        out
+    };
+
+    let texcoords = {
+        let mut out = Vec::with_capacity(texture_count as usize);
+
+        for _ in 0..vertex_count {
+            let is_on_seam = match try_!(reader.read_i32::<LittleEndian>().await) {
+                0 => false,
+                0x20 => true,
+                x => {
+                    // TODO: Messes up lifetimes
+                    nonfatal!(MdlFileError::InvalidSeamFlag(x));
+                    false
+                }
+            };
+
+            let s = try_!(reader.read_i32::<LittleEndian>().await);
+            let t = try_!(reader.read_i32::<LittleEndian>().await);
+            let (s, t) = if s < 0 || t < 0 {
+                nonfatal!(MdlFileError::InvalidTexcoord([s, t]));
+                (0, 0)
+            } else {
+                (s as u32, t as u32)
+            };
+
+            out.push(Texcoord { is_on_seam, s, t });
+        }
+
+        out
+    };
+
+    let polygons = {
+        let mut out = Vec::with_capacity(poly_count as usize);
+        for _ in 0..poly_count {
+            let faces_front = match try_!(reader.read_i32::<LittleEndian>().await) {
+                0 => false,
+                1 => true,
+                // Some models in MALICE have this set to `9`, we report the error
+                // and assume x != 0 means front-facing.
+                x => {
+                    nonfatal!(MdlFileError::InvalidFrontFacing(x));
+                    true
+                }
+            };
+
+            let indices = [
+                try_!(reader.read_i32::<LittleEndian>().await),
+                try_!(reader.read_i32::<LittleEndian>().await),
+                try_!(reader.read_i32::<LittleEndian>().await),
+            ]
+            .map(|v| v as u32);
+
+            out.push(TriFace { faces_front, indices });
+        }
+
+        out
+    };
+
+    let keyframes = {
+        let mut out = Vec::with_capacity(keyframe_count as usize);
+
+        for _ in 0..keyframe_count {
+            match try_!(reader.read_i32::<LittleEndian>().await) {
+                0 => {
+                    let min = try_!(read_vertex(&mut reader, scale, origin).await);
+                    try_!(reader.read_u8().await); // discard vertex normal
+                    let max = try_!(read_vertex(&mut reader, scale, origin).await);
+                    try_!(reader.read_u8().await); // discard vertex normal
+
+                    let name = {
+                        let mut bytes: [u8; 16] = [0; 16];
+                        try_!(reader.read_exact(&mut bytes).await);
+                        let len = try_!(
+                            bytes
+                                .iter()
+                                .position(|b| *b == 0)
+                                .ok_or(MdlFileError::KeyframeNameTooLong(bytes))
+                        );
+                        try_!(String::from_utf8(bytes[0..(len + 1)].to_vec()))
+                    };
+
+                    log::debug!("Keyframe name: {}", name);
+
+                    let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
+                    for _ in 0..vertex_count {
+                        vertices.push(try_!(read_vertex(&mut reader, scale, origin).await));
+                        try_!(reader.read_u8().await); // discard vertex normal
                     }
-                };
 
-                Ok(texture)
-            })
-            .collect::<Result<_, MdlFileError>>()
-    );
+                    out.push(Animation::Static(Mesh { name, min, max, vertices }));
+                }
 
-    let texcoords = try_!(
-        (0..vertex_count)
-            .map(|_| {
-                let is_on_seam = match reader.read_i32::<LittleEndian>()? {
-                    0 => false,
-                    0x20 => true,
-                    x => {
-                        nonfatal!(MdlFileError::InvalidSeamFlag(x));
-                        false
+                1 => {
+                    let subframe_count = match try_!(reader.read_i32::<LittleEndian>().await) {
+                        s if s <= 0 => panic!("Invalid subframe count: {s}"),
+                        s => s,
+                    };
+
+                    let abs_min = try_!(read_vertex(&mut reader, scale, origin).await);
+                    try_!(reader.read_u8().await); // discard vertex normal
+                    let abs_max = try_!(read_vertex(&mut reader, scale, origin).await);
+                    try_!(reader.read_u8().await); // discard vertex normal
+
+                    let mut durations = Vec::new();
+                    for _ in 0..subframe_count {
+                        durations.push(seismon_utils::duration_from_f32(try_!(
+                            reader.read_f32::<LittleEndian>().await
+                        )));
                     }
-                };
 
-                let s = reader.read_i32::<LittleEndian>()?;
-                let t = reader.read_i32::<LittleEndian>()?;
-                let (s, t) = if s < 0 || t < 0 {
-                    nonfatal!(MdlFileError::InvalidTexcoord([s, t]));
-                    (0, 0)
-                } else {
-                    (s as u32, t as u32)
-                };
-
-                Ok(Texcoord { is_on_seam, s, t })
-            })
-            .collect::<Result<_, MdlFileError>>()
-    );
-
-    let polygons = try_!(
-        (0..poly_count)
-            .map(|_| {
-                let faces_front = match reader.read_i32::<LittleEndian>()? {
-                    0 => false,
-                    1 => true,
-                    // Some models in MALICE have this set to `9`, we report the error
-                    // and assume x != 0 means front-facing.
-                    x => {
-                        nonfatal!(MdlFileError::InvalidFrontFacing(x));
-                        true
-                    }
-                };
-
-                // TODO: Use `try_from_fn` when it's stabilised.
-                let [x, y, z] = std::array::from_fn(|_| reader.read_i32::<LittleEndian>());
-
-                let indices = [x?, y?, z?].map(|v| v as u32);
-
-                Ok(TriFace { faces_front, indices })
-            })
-            .collect::<Result<_, MdlFileError>>()
-    );
-
-    let keyframes = try_!(
-        (0..keyframe_count)
-            .map(|_| {
-                Ok(match reader.read_i32::<LittleEndian>()? {
-                    0 => {
-                        let min = read_vertex(&mut reader, scale, origin)?;
-                        reader.read_u8()?; // discard vertex normal
-                        let max = read_vertex(&mut reader, scale, origin)?;
-                        reader.read_u8()?; // discard vertex normal
+                    let mut subframes = Vec::new();
+                    for subframe_id in 0..subframe_count {
+                        let min = try_!(read_vertex(&mut reader, scale, origin).await);
+                        try_!(reader.read_u8().await); // discard vertex normal
+                        let max = try_!(read_vertex(&mut reader, scale, origin).await);
+                        try_!(reader.read_u8().await); // discard vertex normal
 
                         let name = {
                             let mut bytes: [u8; 16] = [0; 16];
-                            reader.read_exact(&mut bytes)?;
-                            let len = bytes
-                                .iter()
-                                .position(|b| *b == 0)
-                                .ok_or(MdlFileError::KeyframeNameTooLong(bytes))?;
-                            String::from_utf8(bytes[0..(len + 1)].to_vec())?
+                            try_!(reader.read_exact(&mut bytes).await);
+                            let len = try_!(
+                                bytes
+                                    .iter()
+                                    .position(|b| *b == 0)
+                                    .ok_or(MdlFileError::KeyframeNameTooLong(bytes))
+                            );
+                            try_!(String::from_utf8(bytes[0..(len + 1)].to_vec()))
                         };
 
-                        log::debug!("Keyframe name: {}", name);
+                        log::debug!("Frame name: {}", name);
 
                         let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
                         for _ in 0..vertex_count {
-                            vertices.push(read_vertex(&mut reader, scale, origin)?);
-                            reader.read_u8()?; // discard vertex normal
+                            vertices.push(try_!(read_vertex(&mut reader, scale, origin).await));
+                            try_!(reader.read_u8().await); // discard vertex normal
                         }
 
-                        Animation::Static(Mesh { name, min, max, vertices })
-                    }
-
-                    1 => {
-                        let subframe_count = match reader.read_i32::<LittleEndian>()? {
-                            s if s <= 0 => panic!("Invalid subframe count: {s}"),
-                            s => s,
-                        };
-
-                        let abs_min = read_vertex(&mut reader, scale, origin)?;
-                        reader.read_u8()?; // discard vertex normal
-                        let abs_max = read_vertex(&mut reader, scale, origin)?;
-                        reader.read_u8()?; // discard vertex normal
-
-                        let mut durations = Vec::new();
-                        for _ in 0..subframe_count {
-                            durations.push(seismon_utils::duration_from_f32(
-                                reader.read_f32::<LittleEndian>()?,
-                            ));
-                        }
-
-                        let mut subframes = Vec::new();
-                        for subframe_id in 0..subframe_count {
-                            let min = read_vertex(&mut reader, scale, origin)?;
-                            reader.read_u8()?; // discard vertex normal
-                            let max = read_vertex(&mut reader, scale, origin)?;
-                            reader.read_u8()?; // discard vertex normal
-
-                            let name = {
-                                let mut bytes: [u8; 16] = [0; 16];
-                                reader.read_exact(&mut bytes)?;
-                                let len = bytes
-                                    .iter()
-                                    .position(|b| *b == 0)
-                                    .ok_or(MdlFileError::KeyframeNameTooLong(bytes))?;
-                                String::from_utf8(bytes[0..(len + 1)].to_vec())?
-                            };
-
-                            log::debug!("Frame name: {}", name);
-
-                            let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
-                            for _ in 0..vertex_count {
-                                vertices.push(read_vertex(&mut reader, scale, origin)?);
-                                reader.read_u8()?; // discard vertex normal
-                            }
-
-                            subframes.push(AnimatedMeshFrame {
-                                min,
-                                max,
-                                name,
-                                duration: durations[subframe_id as usize],
-                                vertices,
-                            })
-                        }
-
-                        Animation::Animated(AnimatedMesh {
-                            min: abs_min,
-                            max: abs_max,
-                            frames: subframes,
+                        subframes.push(AnimatedMeshFrame {
+                            min,
+                            max,
+                            name,
+                            duration: durations[subframe_id as usize],
+                            vertices,
                         })
                     }
 
-                    x => panic!("Bad frame kind value: {x}"),
-                })
-            })
-            .collect::<Result<_, MdlFileError>>()
-    );
+                    out.push(Animation::Animated(AnimatedMesh {
+                        min: abs_min,
+                        max: abs_max,
+                        frames: subframes,
+                    }));
+                }
 
-    if try_!(reader.stream_position()) != try_!(reader.seek(SeekFrom::End(0))) {
-        nonfatal!(MdlFileError::Misaligned);
-    }
+                x => panic!("Bad frame kind value: {x}"),
+            }
+        }
+
+        out
+    };
+
+    // TODO: Not possible to seek bevy asset data streams
+    // if try_!(reader.stream_position()) != try_!(reader.seek(SeekFrom::End(0))) {
+    //     nonfatal!(MdlFileError::Misaligned);
+    // }
 
     MdlResult {
         value: Some(RawMdl {
@@ -605,12 +632,22 @@ where R: Read + Seek {
             animations: keyframes,
             flags,
         }),
-        errors,
+        errors: error_set,
     }
 }
 
-fn read_vertex<R>(reader: &mut R, scale: Vec3, translate: Vec3) -> Result<Vec3, io::Error>
-where R: ReadBytesExt {
-    Ok(Vec3::new(reader.read_u8()? as f32, reader.read_u8()? as f32, reader.read_u8()? as f32)
-        .mul_add(scale, translate))
+async fn read_vertex<R>(
+    reader: &mut AsyncReadBytes<'_, R>,
+    scale: Vec3,
+    translate: Vec3,
+) -> Result<Vec3, io::Error>
+where
+    R: AsyncReadExt + Unpin,
+{
+    Ok(Vec3::new(
+        reader.read_u8().await? as f32,
+        reader.read_u8().await? as f32,
+        reader.read_u8().await? as f32,
+    )
+    .mul_add(scale, translate))
 }

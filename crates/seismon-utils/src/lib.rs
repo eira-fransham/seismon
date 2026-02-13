@@ -25,6 +25,8 @@ use std::{
 
 use beef::Cow;
 use byteorder::{LittleEndian, ReadBytesExt};
+use futures::AsyncReadExt;
+use futures_byteorder::AsyncReadBytes;
 use nom::AsBytes;
 
 pub mod model;
@@ -216,6 +218,41 @@ where R: BufRead {
     let mut bytes: Vec<u8> = Vec::new();
     loop {
         let next_byte = src.read_u8()?;
+        if next_byte == 0 {
+            break;
+        } else {
+            bytes.push(next_byte);
+        }
+    }
+
+    Ok(QStr { raw: Cow::owned(bytes) })
+}
+
+/// Read a `[f32; 3]` in little-endian byte order.
+pub async fn read_f32_3_async<R>(
+    reader: &mut AsyncReadBytes<'_, R>,
+) -> Result<[f32; 3], std::io::Error>
+where R: AsyncReadExt + Unpin {
+    Ok([
+        reader.read_f32::<futures_byteorder::LittleEndian>().await?,
+        reader.read_f32::<futures_byteorder::LittleEndian>().await?,
+        reader.read_f32::<futures_byteorder::LittleEndian>().await?,
+    ])
+}
+
+/// Read a null-terminated sequence of bytes and convert it into a `String`.
+///
+/// The zero byte is consumed.
+///
+/// ## Panics
+/// - If the end of the input is reached before a zero byte is found.
+pub async fn read_cstring_async<R>(src: &mut AsyncReadBytes<'_, R>) -> io::Result<QString>
+// QStringOwned
+where R: AsyncReadExt + Unpin {
+    // TODO: `BufRead` would be better here
+    let mut bytes: Vec<u8> = Vec::new();
+    loop {
+        let next_byte = src.read_u8().await?;
         if next_byte == 0 {
             break;
         } else {

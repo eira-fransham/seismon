@@ -21,7 +21,8 @@ bevy_reflect.workspace = true
 bevy_pbr.workspace = true
 
 anyhow.workspace = true
-byteorder.workspace = true
+futures.workspace = true
+futures-byteorder.workspace = true
 bevy_materialize.workspace = true
 thiserror.workspace = true
 seismon-utils.workspace = true

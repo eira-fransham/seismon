@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bevy_animation::AnimationPlayer;
 use bevy_asset::{Asset, Assets, Handle};
 use bevy_ecs::{
@@ -12,14 +10,14 @@ use bevy_mesh::{Mesh, Mesh3d};
 use bevy_reflect::Reflect;
 
 #[derive(Asset, Reflect, Clone)]
-pub struct AssimpAnimMeshes {
-    pub frames: Arc<[Handle<Mesh>]>,
+pub struct AnimMeshes {
+    pub frames: Vec<Handle<Mesh>>,
 }
 
 #[derive(Component, Reflect, Clone)]
 #[require(AnimationPlayer)]
-pub struct AssimpMeshAnimation {
-    pub anim_meshes: Handle<AssimpAnimMeshes>,
+pub struct MeshAnimation {
+    pub anim_meshes: Handle<AnimMeshes>,
     /// The current point in the animation, in frames.
     pub frame: f64,
     /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
@@ -27,8 +25,8 @@ pub struct AssimpMeshAnimation {
 }
 
 pub fn animate_mesh_animations(
-    anim_meshes: Res<Assets<AssimpAnimMeshes>>,
-    entities: Query<(&mut Mesh3d, Mut<AssimpMeshAnimation>)>,
+    anim_meshes: Res<Assets<AnimMeshes>>,
+    entities: Query<(&mut Mesh3d, Mut<MeshAnimation>)>,
     ticks: SystemChangeTick,
 ) {
     for (mut mesh, mut anim) in entities {
