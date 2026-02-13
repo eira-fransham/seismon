@@ -18,7 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use chrono::{DateTime, Duration, Utc};
+use std::time::{Duration, Instant};
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopWindowTarget},
@@ -39,8 +40,8 @@ pub struct Host<P>
 where P: Program {
     program: P,
 
-    init_time: DateTime<Utc>,
-    prev_frame_time: DateTime<Utc>,
+    init_time: Instant,
+    prev_frame_time: Instant,
 }
 
 pub enum Control {
@@ -114,6 +115,6 @@ where P: Program
     // }
 
     pub fn uptime(&self) -> Duration {
-        self.prev_frame_time.signed_duration_since(self.init_time)
+        self.init_time - self.prev_frame_time
     }
 }

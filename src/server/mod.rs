@@ -27,6 +27,7 @@ use std::{
     fmt::{self},
     io::{Read, Write},
     ops::{Bound, RangeBounds as _},
+    time::Duration,
 };
 
 use crate::{
@@ -34,6 +35,7 @@ use crate::{
         bsp::BspLeafContents,
         console::{Registry, RunCmd, SeismonConsoleCorePlugin},
         math::{CollisionResult, Hyperplane},
+        model::Model,
         net::{
             ClientMessage, EntityState, InMemoryMessagingClient, InMemoryMessagingServer,
             ServerCmd, ServerMessage, in_memory_messaging,
@@ -73,10 +75,8 @@ use bevy::{
     prelude::*,
     time::TimePlugin,
 };
-use bevy_mod_mdl::AliasModel;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt as _};
-use chrono::Duration;
 use failure::bail;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
@@ -84,18 +84,6 @@ use num::FromPrimitive;
 use seismon_utils::{QStr, QString, duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
-
-/// We don't need to store the model on the server.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DummyAliasModel;
-
-impl From<AliasModel> for DummyAliasModel {
-    fn from(_: AliasModel) -> Self {
-        DummyAliasModel
-    }
-}
-
-type Model = crate::common::model::Model<DummyAliasModel>;
 
 /// The destination of a message in the `Write*` family of QuakeC fns
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
@@ -785,7 +773,7 @@ impl LevelState {
             model_precache,
             frame_client_messages: default(),
             lightstyles: [StringId(0); MAX_LIGHTSTYLES],
-            time: Duration::try_seconds(1).unwrap(),
+            time: Duration::from_secs(1),
             new_entities: default(),
             cx,
             globals,
@@ -1973,12 +1961,12 @@ impl LevelState {
         let new_local_time = old_local_time + frame_time;
 
         let move_time = if next_think < new_local_time {
-            (next_think - old_local_time).max(Duration::zero())
+            (next_think - old_local_time).max(Duration::ZERO)
         } else {
             frame_time
         };
 
-        if move_time > Duration::zero() {
+        if move_time > Duration::ZERO {
             self.move_push(ent_id, move_time, registry.reborrow(), vfs)?;
         }
 
@@ -4081,8 +4069,7 @@ pub mod systems {
             let server = &mut *server;
             server.level.physics(
                 &server.persist.client_slots,
-                Duration::from_std(time.delta())
-                    .map_err(|e| ProgsError::with_msg(format!("{e}")))?,
+                time.delta(),
                 registry.reborrow(),
                 &vfs,
             )?;
@@ -4146,12 +4133,8 @@ pub mod systems {
 
         let send_diff = match &mut *server {
             Session { persist, state: SessionState::Active, level } => {
-                match level.physics(
-                    &persist.client_slots,
-                    Duration::from_std(time.delta()).unwrap(),
-                    registry.reborrow(),
-                    &vfs,
-                ) {
+                match level.physics(&persist.client_slots, time.delta(), registry.reborrow(), &vfs)
+                {
                     Ok(map) => {
                         for (ent, err) in map {
                             error!("Failed running frame for {ent}: {}", Report::from_error(err));

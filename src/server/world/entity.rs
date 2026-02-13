@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{error::Error, fmt, ops};
+use std::{error::Error, fmt, ops, time::Duration};
 
 use crate::{
     common::net::{ButtonFlags, EntityEffects, EntityState},
@@ -29,7 +29,6 @@ use arrayvec::ArrayString;
 use bevy::{math::bounding::Aabb3d, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use chrono::Duration;
 use im::vector::{Focus, FocusMut};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

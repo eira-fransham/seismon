@@ -28,13 +28,13 @@ use std::{
     mem,
     net::{SocketAddr, UdpSocket},
     sync::{Arc, mpsc},
+    time::Duration,
 };
 
 use beef::Cow;
 use bevy::{platform::cell::SyncCell, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use seismon_utils::QString;
@@ -2266,7 +2266,7 @@ impl QSocket {
 
             BlockingMode::Timeout(d) => {
                 self.socket.set_nonblocking(false)?;
-                self.socket.set_read_timeout(Some(d.to_std().unwrap()))?;
+                self.socket.set_read_timeout(Some(d))?;
             }
         }
 
@@ -2685,7 +2685,7 @@ mod test {
     #[test]
     fn test_client_cmd_move_read_write_eq() {
         let src = ClientCmd::Move {
-            delta_time: Duration::try_milliseconds(1234).unwrap(),
+            delta_time: Duration::from_millis(1234),
             // have to use angles that won't lose precision from write_angle
             angles: Vec3::new(90.0, -90.0, 0.0),
             fwd_move: 27,

@@ -20,12 +20,11 @@
 
 pub mod particle;
 
-use std::mem;
+use std::{mem, time::Duration};
 
 use crate::common::net::{EntityEffects, EntityState, EntityUpdate};
 
 use bevy::prelude::*;
-use chrono::Duration;
 
 // if this is changed, it must also be changed in deferred.frag
 pub const MAX_LIGHTS: usize = 32;
@@ -72,7 +71,7 @@ impl ClientEntity {
             id,
             force_link: false,
             baseline: baseline.clone(),
-            msg_time: Duration::zero(),
+            msg_time: Duration::ZERO,
             msg_origins: default(),
             origin: baseline.origin,
             msg_angles: default(),
@@ -82,7 +81,7 @@ impl ClientEntity {
             frame_id: baseline.frame_id,
             skin_id: baseline.skin_id,
             colormap: Some(baseline.colormap),
-            sync_base: Duration::zero(),
+            sync_base: Duration::ZERO,
             effects: baseline.effects,
             light_id: None,
         }
@@ -93,7 +92,7 @@ impl ClientEntity {
             id,
             force_link: false,
             baseline: EntityState::uninitialized(),
-            msg_time: Duration::zero(),
+            msg_time: Duration::ZERO,
             msg_origins: default(),
             origin: default(),
             msg_angles: default(),
@@ -103,7 +102,7 @@ impl ClientEntity {
             frame_id: 0,
             skin_id: 0,
             colormap: None,
-            sync_base: Duration::zero(),
+            sync_base: Duration::ZERO,
             effects: EntityEffects::empty(),
             light_id: None,
         }

@@ -1,20 +1,16 @@
 use bevy_asset::{Asset, AssetLoader, Handle};
-use bevy_ecs::{
-    component::Component,
-    system::{EntityCommand, EntityCommands},
-    world::EntityWorldMut,
-};
+use bevy_ecs::{component::Component, system::EntityCommand, world::EntityWorldMut};
 use bevy_materialize::prelude::GenericMaterial;
 use bevy_math::Vec3;
 use bevy_reflect::Reflect;
 use bevy_tasks::ConditionalSendFuture;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io};
 use thiserror::Error;
 
 pub use qbsp::Palette;
 
-use crate::{anim::AssimpAnimMeshes, read::RawMdl};
+use crate::anim::AssimpAnimMeshes;
 
 pub mod anim;
 pub mod read;
@@ -112,12 +108,12 @@ pub struct Mdl {
     flags: HashSet<MdlFlag>,
 }
 
-#[derive(Default)]
+#[derive(Reflect, Default)]
 pub struct MdlLoader {
     pub default_palette: Palette,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct MdlLoaderSettings {
     pub override_palette: Option<Palette>,
 }
@@ -129,10 +125,10 @@ impl AssetLoader for MdlLoader {
 
     fn load(
         &self,
-        reader: &mut dyn bevy_asset::io::Reader,
-        settings: &Self::Settings,
-        load_context: &mut bevy_asset::LoadContext,
+        _reader: &mut dyn bevy_asset::io::Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut bevy_asset::LoadContext,
     ) -> impl ConditionalSendFuture<Output = anyhow::Result<Self::Asset>> {
-        todo!()
+        async { todo!() }
     }
 }

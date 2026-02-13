@@ -22,12 +22,12 @@ use std::{
     io::{BufReader, Cursor, ErrorKind},
     mem::size_of,
     net::{SocketAddr, ToSocketAddrs, UdpSocket},
+    time::Duration,
 };
 
 use crate::common::net::{MAX_MESSAGE, NetError, QSocket};
 
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
-use chrono::Duration;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use seismon_utils::QString;
@@ -607,7 +607,7 @@ impl ConnectSocket {
         let mut recv_buf = [0u8; MAX_MESSAGE];
 
         // if a timeout was specified, apply it for this recv
-        self.socket.set_read_timeout(timeout.map(|d| d.to_std().unwrap()))?;
+        self.socket.set_read_timeout(timeout)?;
         let (len, remote) = match self.socket.recv_from(&mut recv_buf) {
             Err(e) => match e.kind() {
                 ErrorKind::WouldBlock | ErrorKind::TimedOut => return Ok(None),

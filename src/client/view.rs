@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use crate::common::{
     console::Registry,
@@ -10,7 +10,6 @@ use bevy::{
     log::error,
     math::{Vec2, Vec3},
 };
-use chrono::Duration;
 use seismon_utils::{duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 

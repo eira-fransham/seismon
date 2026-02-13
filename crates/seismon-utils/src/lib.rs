@@ -20,25 +20,24 @@ use std::{
     io::{self, BufRead},
     mem,
     ops::{Deref, Not},
+    time::Duration,
 };
 
 use beef::Cow;
 use byteorder::{LittleEndian, ReadBytesExt};
 use nom::AsBytes;
 
-use chrono::Duration;
-
 pub mod model;
 
 // TODO: handle this unwrap? i64 can handle ~200,000 years in microseconds
 #[inline]
 pub fn duration_to_f32(d: Duration) -> f32 {
-    d.num_microseconds().unwrap() as f32 / 1_000_000.0
+    d.as_micros() as f32 / 1_000_000.0
 }
 
 #[inline]
 pub fn duration_from_f32(f: f32) -> Duration {
-    Duration::microseconds((f * 1_000_000.0) as i64)
+    Duration::from_micros((f * 1_000_000.) as u64)
 }
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Hash)]

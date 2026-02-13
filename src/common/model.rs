@@ -16,14 +16,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use bevy::{log::debug, math::Vec3};
-use bevy_mod_mdl::{MdlFileError, RawMdl};
+use bevy_mod_mdl::MdlFileError;
 use seismon_utils::model::{ModelFlags, SyncType};
 use thiserror::Error;
 
 use crate::common::{
     bsp::{BspFileError, BspModel},
-    sprite::{self, SpriteModel},
-    vfs::{Vfs, VfsError},
+    sprite::SpriteModel,
 };
 
 #[derive(Error, Debug)]
@@ -34,9 +33,10 @@ pub enum ModelError {
     MdlFile(#[from] MdlFileError),
     #[error("SPR file error")]
     SprFile,
-    #[error("Virtual filesystem error: {0}")]
-    Vfs(#[from] VfsError),
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct AliasModel;
 
 #[derive(Default, Debug, Clone)]
 pub struct Model<A = AliasModel, S = SpriteModel> {
@@ -92,21 +92,6 @@ impl Model {
         Model { name: path.into(), kind: ModelKind::None, flags: ModelFlags::empty() }
     }
 
-    pub fn load<Str>(vfs: &Vfs, name: Str) -> Result<Model, ModelError>
-    where Str: AsRef<str> {
-        let name = name.as_ref().trim();
-        // TODO: original engine uses the magic numbers of each format instead of the extension.
-        if name.ends_with(".bsp") {
-            panic!("BSP files may contain multiple models, use bsp::load for this");
-        } else if name.ends_with(".mdl") {
-            Ok(Self::from_alias_model(name, bevy_mod_mdl::load(vfs.open(name)?).into_result()?))
-        } else if name.ends_with(".spr") {
-            Ok(Model::from_sprite_model(name, sprite::load(vfs.open(name)?)))
-        } else {
-            panic!("Unrecognized model type: {name}");
-        }
-    }
-
     /// Construct a new generic model from a brush model.
     pub fn from_brush_model<Str>(name: Str, brush_model: BspModel) -> Model
     where Str: AsRef<str> {
@@ -118,11 +103,12 @@ impl Model {
     }
 
     /// Construct a new generic model from an alias model.
-    pub fn from_alias_model<Str>(name: Str, alias_model: AliasModel) -> Model
+    pub fn from_alias_model<Str>(_name: Str, _alias_model: AliasModel) -> Model
     where Str: AsRef<str> {
-        let flags = alias_model.flags();
+        todo!()
+        // let flags = alias_model.flags();
 
-        Model { name: name.as_ref().into(), kind: ModelKind::Alias(alias_model), flags }
+        // Model { name: name.as_ref().into(), kind: ModelKind::Alias(alias_model), flags }
     }
 
     /// Construct a new generic model from a sprite model.

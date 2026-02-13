@@ -578,9 +578,7 @@ where A: ToSocketAddrs {
         )?;
 
         // TODO: get rid of magic constant (2.5 seconds wait time for response)
-        match con_sock
-            .recv_response(Some(chrono::Duration::from_std(Duration::from_millis(2500)).unwrap()))
-        {
+        match con_sock.recv_response(Some(Duration::from_millis(2500))) {
             Err(err) => {
                 match err {
                     // if the message is invalid, log it but don't quit
@@ -723,10 +721,8 @@ mod systems {
                 // TODO: IN_Move (mouse / joystick / gamepad)
             }
 
-            let delta_time = frame_time;
-
             Some(ClientCmd::Move {
-                delta_time: chrono::Duration::from_std(delta_time).unwrap(),
+                delta_time: frame_time,
                 angles: Vec3::ZERO,
                 fwd_move: forwardmove as i16,
                 side_move: sidemove as i16,
@@ -800,7 +796,7 @@ mod systems {
             // otherwise, give the server some time to respond
             // TODO: might make sense to make this a future or something
             ConnectionTarget::Server { stage: ConnectionStage::SignOn(_), .. } => {
-                BlockingMode::Timeout(chrono::Duration::try_seconds(5).unwrap())
+                BlockingMode::Timeout(Duration::from_secs(5))
             }
 
             _ => return Ok(()),

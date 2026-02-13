@@ -24,7 +24,7 @@ use bevy_ecs::{
 };
 use bevy_image::Image;
 use bevy_log::info;
-use bevy_math::curve::{ConstantCurve, CurveExt, Interval, LinearCurve, UnevenSampleCurve};
+use bevy_math::curve::{ConstantCurve, Interval, UnevenSampleCurve};
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
 use bevy_reflect::Reflect;
@@ -197,6 +197,7 @@ impl AssetLoader for AssimpLoader {
                 .await?;
 
             #[derive(Debug)]
+            #[expect(dead_code, reason = "Only used in debug impl")]
             struct SceneCounts {
                 num_meshes: usize,
                 num_materials: usize,
@@ -293,6 +294,7 @@ impl AssetLoader for AssimpLoader {
                 .enumerate()
                 .map(|(index, assimp_mesh)| {
                     #[derive(Debug)]
+                    #[expect(dead_code, reason = "Only used in debug impl")]
                     struct MeshCounts {
                         num_anim_meshes: usize,
                         num_bones: usize,
@@ -343,7 +345,7 @@ impl AssetLoader for AssimpLoader {
 
                     info!(
                         "{:?}: {:#?}",
-                        format!("{}#{}", load_context.path().display(), mesh_label),
+                        format!("{}#{}", load_context.path(), mesh_label),
                         MeshCounts {
                             num_anim_meshes: assimp_mesh.num_anim_meshes(),
                             num_bones: assimp_mesh.num_bones(),

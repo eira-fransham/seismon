@@ -119,7 +119,7 @@
 mod load;
 mod model;
 
-use std::{collections::HashSet, error::Error, fmt, sync::Arc};
+use std::{collections::HashSet, error::Error, fmt, sync::Arc, time::Duration};
 
 use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 
@@ -129,7 +129,6 @@ use crate::server::world::phys::TraceEndBoundary;
 use crate::server::world::{Trace, TraceEnd, TraceEndKind};
 
 use bevy::prelude::*;
-use chrono::Duration;
 use num_derive::FromPrimitive;
 
 pub use self::load::{BspFileError, load};
@@ -143,7 +142,7 @@ pub const MAX_SOUNDS: usize = 4;
 pub const MIPLEVELS: usize = 4;
 
 pub fn frame_duration() -> Duration {
-    Duration::try_milliseconds(200).unwrap()
+    Duration::from_millis(200)
 }
 
 #[derive(Debug)]

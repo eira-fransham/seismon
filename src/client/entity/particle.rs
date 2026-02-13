@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::{mem, ops::RangeInclusive, sync::LazyLock};
+use std::{mem, ops::RangeInclusive, sync::LazyLock, time::Duration};
 
 use crate::{
     client::ClientEntity,
@@ -26,7 +26,6 @@ use crate::{
 };
 
 use bevy::math::Vec3;
-use chrono::Duration;
 use rand::{
     SeedableRng as _,
     distr::{Distribution as _, Uniform},
@@ -325,7 +324,7 @@ impl Particles {
             let cos_pitch = angles[1].cos();
 
             let forward = Vec3::new(cos_pitch * cos_yaw, cos_pitch * sin_yaw, -sin_pitch);
-            let ttl = Duration::try_milliseconds(10).unwrap();
+            let ttl = Duration::from_millis(10);
 
             let origin = entity.origin + dist * math::VERTEX_NORMALS[i] + beam_length * forward;
 
@@ -395,7 +394,7 @@ impl Particles {
                 ramp.ramp[frame_skip]..=ramp.ramp[frame_skip],
                 ParticleKind::Explosion { ramp, frame_skip },
                 time,
-                Duration::try_seconds(5).unwrap(),
+                Duration::from_secs(5),
                 origin,
                 &EXPLOSION_SCATTER_DISTRIBUTION,
                 &EXPLOSION_VELOCITY_DISTRIBUTION,
@@ -415,7 +414,7 @@ impl Particles {
             colors,
             ParticleKind::Blob { has_z_velocity: true },
             time,
-            Duration::try_milliseconds(300).unwrap(),
+            Duration::from_millis(300),
             origin,
             &EXPLOSION_SCATTER_DISTRIBUTION,
             &EXPLOSION_VELOCITY_DISTRIBUTION,
@@ -428,7 +427,7 @@ impl Particles {
         // which gives a value of either 1 or 1.4 seconds.
         // (it's possible it was supposed to be 1 + (rand() & 7) * 0.05, which
         // would yield between 1 and 1.35 seconds in increments of 50ms.)
-        let ttls = [Duration::try_seconds(1).unwrap(), Duration::try_milliseconds(1400).unwrap()];
+        let ttls = [Duration::from_secs(1), Duration::from_millis(1400)];
 
         for ttl in ttls.iter().cloned() {
             self.create_random_cloud(
@@ -472,7 +471,7 @@ impl Particles {
             LazyLock::new(|| Uniform::new(0, 8).unwrap());
 
         // ttl between 0.1 and 0.5 seconds
-        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
+        static TTL_DISTRIBUTION: LazyLock<Uniform<u64>> =
             LazyLock::new(|| Uniform::new(100, 500).unwrap());
 
         for _ in 0..count {
@@ -482,7 +481,7 @@ impl Particles {
             // e.g., if the color argument is 17, picks randomly in [16, 23]
             let color = (color & !7) + COLOR_DISTRIBUTION.sample(&mut self.rng);
 
-            let ttl = Duration::try_milliseconds(TTL_DISTRIBUTION.sample(&mut self.rng)).unwrap();
+            let ttl = Duration::from_millis(TTL_DISTRIBUTION.sample(&mut self.rng));
 
             self.insert(Particle {
                 kind: ParticleKind::Grav,
@@ -498,7 +497,7 @@ impl Particles {
     /// Creates a lava splash effect.
     pub fn create_lava_splash(&mut self, time: Duration, origin: Vec3) {
         // ttl between 2 and 2.64 seconds
-        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
+        static TTL_DISTRIBUTION: LazyLock<Uniform<u64>> =
             LazyLock::new(|| Uniform::new(2000, 2640).unwrap());
 
         // any color on row 14
@@ -529,8 +528,7 @@ impl Particles {
                 let velocity = VELOCITY_DISTRIBUTION.sample(&mut self.rng);
 
                 let color = COLOR_DISTRIBUTION.sample(&mut self.rng);
-                let ttl =
-                    Duration::try_milliseconds(TTL_DISTRIBUTION.sample(&mut self.rng)).unwrap();
+                let ttl = Duration::from_millis(TTL_DISTRIBUTION.sample(&mut self.rng));
 
                 self.insert(Particle {
                     kind: ParticleKind::Grav,
@@ -547,7 +545,7 @@ impl Particles {
     /// Creates a teleporter warp effect.
     pub fn create_teleporter_warp(&mut self, time: Duration, origin: Vec3) {
         // ttl between 0.2 and 0.34 seconds
-        static TTL_DISTRIBUTION: LazyLock<Uniform<i64>> =
+        static TTL_DISTRIBUTION: LazyLock<Uniform<u64>> =
             LazyLock::new(|| Uniform::new(200, 340).unwrap());
 
         // random grey particles
@@ -567,8 +565,7 @@ impl Particles {
                         + self.random_vector3(&SCATTER_DISTRIBUTION);
                     let velocity = VELOCITY_DISTRIBUTION.sample(&mut self.rng);
                     let color = COLOR_DISTRIBUTION.sample(&mut self.rng);
-                    let ttl =
-                        Duration::try_milliseconds(TTL_DISTRIBUTION.sample(&mut self.rng)).unwrap();
+                    let ttl = Duration::from_millis(TTL_DISTRIBUTION.sample(&mut self.rng));
 
                     self.insert(Particle {
                         kind: ParticleKind::Grav,
@@ -616,7 +613,7 @@ impl Particles {
                 _ => 0.0,
             };
 
-        let ttl = Duration::try_seconds(2).unwrap();
+        let ttl = Duration::from_secs(2);
 
         for step in 0..(distance / interval) as i32 {
             let frame_skip = FRAME_SKIP_DISTRIBUTION.sample(&mut self.rng);
@@ -689,8 +686,8 @@ mod tests {
                 origin: Vec3::ZERO,
                 velocity: Vec3::ZERO,
                 color: 0,
-                spawned: Duration::zero(),
-                expire: Duration::try_seconds(*exp).unwrap(),
+                spawned: Duration::ZERO,
+                expire: Duration::from_secs(*exp),
             });
         }
 
@@ -702,16 +699,12 @@ mod tests {
                 origin: Vec3::ZERO,
                 velocity: Vec3::ZERO,
                 color: 0,
-                spawned: Duration::zero(),
-                expire: Duration::try_seconds(*t).unwrap(),
+                spawned: Duration::ZERO,
+                expire: Duration::from_secs(*t),
             })
             .collect();
         let after_update: Vec<Particle> = Vec::new();
-        list.update(
-            Duration::try_seconds(5).unwrap(),
-            Duration::try_milliseconds(17).unwrap(),
-            10.0,
-        );
+        list.update(Duration::from_secs(5), Duration::from_millis(17), 10.0);
         after_update.iter().zip(expected.iter()).for_each(|(p1, p2)| assert!(particles_eq(p1, p2)));
     }
 }

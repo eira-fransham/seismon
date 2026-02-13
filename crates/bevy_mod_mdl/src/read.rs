@@ -405,7 +405,7 @@ where R: Read + Seek {
                         (&mut reader)
                             .take((texture_width * texture_height) as u64)
                             .read_to_end(&mut indices)?;
-                        Texture::Static(StaticTexture { indices: indices.into_boxed_slice() })
+                        Texture::Static(StaticTexture { indices })
                     }
 
                     // Animated
@@ -427,13 +427,10 @@ where R: Read + Seek {
                             (&mut reader)
                                 .take((texture_width * texture_height) as u64)
                                 .read_to_end(&mut indices)?;
-                            frames.push(AnimatedTextureFrame {
-                                duration,
-                                indices: indices.into_boxed_slice(),
-                            });
+                            frames.push(AnimatedTextureFrame { duration, indices });
                         }
 
-                        Texture::Animated(AnimatedTexture { frames: frames.into_boxed_slice() })
+                        Texture::Animated(AnimatedTexture { frames })
                     }
 
                     k => {
@@ -524,12 +521,7 @@ where R: Read + Seek {
                             reader.read_u8()?; // discard vertex normal
                         }
 
-                        Animation::Static(Mesh {
-                            name,
-                            min,
-                            max,
-                            vertices: vertices.into_boxed_slice(),
-                        })
+                        Animation::Static(Mesh { name, min, max, vertices })
                     }
 
                     1 => {
@@ -580,14 +572,14 @@ where R: Read + Seek {
                                 max,
                                 name,
                                 duration: durations[subframe_id as usize],
-                                vertices: vertices.into_boxed_slice(),
+                                vertices,
                             })
                         }
 
                         Animation::Animated(AnimatedMesh {
                             min: abs_min,
                             max: abs_max,
-                            frames: subframes.into_boxed_slice(),
+                            frames: subframes,
                         })
                     }
 
