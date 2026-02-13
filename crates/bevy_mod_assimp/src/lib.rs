@@ -1,6 +1,4 @@
 use std::{
-    borrow::Cow,
-    ffi::OsStr,
     ops::Deref,
     sync::{Arc, LazyLock},
 };
@@ -9,10 +7,10 @@ use asset_importer::{
     Matrix4x4, Texel, TextureData, TextureType, node::Node, postprocess::PostProcessSteps,
 };
 use bevy_animation::{
-    AnimationClip, AnimationPlayer, AnimationTargetId, animated_field,
+    AnimationClip, AnimationTargetId, animated_field,
     animation_curves::{AnimatableCurve, AnimatedField},
 };
-use bevy_asset::{Asset, AssetLoader, AssetServer, Assets, Handle, LoadContext, RenderAssetUsages};
+use bevy_asset::{Asset, AssetLoader, Assets, Handle, LoadContext, RenderAssetUsages};
 use bevy_camera::visibility::Visibility;
 use bevy_color::{Color, Srgba};
 use bevy_ecs::{
@@ -22,7 +20,7 @@ use bevy_ecs::{
     hierarchy::ChildOf,
     name::Name,
     system::{Query, Res, SystemChangeTick},
-    world::{Mut, Ref, World},
+    world::{Mut, World},
 };
 use bevy_image::Image;
 use bevy_log::info;
@@ -38,7 +36,49 @@ use enumflags2::{BitFlags, bitflags};
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
+// ------ TODO: Split into module ------
+#[derive(Asset, Reflect, Clone)]
+pub struct AssimpAnimMeshes {
+    pub frames: Arc<[Handle<Mesh>]>,
+}
+
+#[derive(Component, Reflect, Clone)]
+pub struct AssimpMeshAnimation {
+    pub anim_meshes: Handle<AssimpAnimMeshes>,
+    /// The current point in the animation, in frames.
+    pub frame: f64,
+    /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
+    last_index: usize,
+}
+
+pub fn animate_mesh_animations(
+    anim_meshes: Res<Assets<AssimpAnimMeshes>>,
+    entities: Query<(&mut Mesh3d, Mut<AssimpMeshAnimation>)>,
+    ticks: SystemChangeTick,
+) {
+    for (mut mesh, mut anim) in entities {
+        if !anim.last_changed().is_newer_than(ticks.last_run(), ticks.this_run()) {
+            continue;
+        }
+
+        let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
+            continue;
+        };
+
+        let cur_index = anim.frame.clamp(0., anim_mesh_frames.frames.len() as f64 - 1.) as usize;
+
+        if anim.last_index == cur_index {
+            continue;
+        }
+
+        mesh.0 = anim_mesh_frames.frames[cur_index].clone();
+        anim.last_index = cur_index;
+    }
+}
+
+// ------ END ------
+
+#[derive(Default, Reflect)]
 pub struct AssimpLoader;
 
 #[bitflags]
@@ -138,8 +178,7 @@ impl AssetLoader for AssimpLoader {
 
             reader.read_to_end(&mut in_memory_bytes).await?;
 
-            let extension =
-                load_context.path().extension().map(OsStr::to_string_lossy).map(Cow::into_owned);
+            let extension = load_context.path().get_full_extension();
 
             let post_process_settings = settings.post_process | PostProcessSteps::TRIANGULATE;
 

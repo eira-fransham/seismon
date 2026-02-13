@@ -10,16 +10,6 @@ pub struct TestTty {
     stdout: Vec<u8>,
 }
 
-pub enum NoStdin {}
-
-impl Iterator for NoStdin {
-    type Item = io::Result<termion::event::Key>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unreachable!()
-    }
-}
-
 impl Tty for TestTty {
     fn next_key(&mut self) -> Option<io::Result<Key>> {
         None

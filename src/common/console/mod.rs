@@ -1697,35 +1697,35 @@ mod gfx {
         }
     }
 
-    pub struct FullbrightData {
-        pub fullbright: Vec<u8>,
-    }
+    // pub struct FullbrightData {
+    //     pub fullbright: Vec<u8>,
+    // }
 
-    impl From<Vec<u8>> for FullbrightData {
-        fn from(value: Vec<u8>) -> Self {
-            Self { fullbright: value }
-        }
-    }
+    // impl From<Vec<u8>> for FullbrightData {
+    //     fn from(value: Vec<u8>) -> Self {
+    //         Self { fullbright: value }
+    //     }
+    // }
 
     pub struct Palette {
         pub rgb: [[u8; 3]; 256],
     }
 
     impl Palette {
-        pub fn new(data: &[u8]) -> Palette {
-            if data.len() != 768 {
-                panic!("Bad len for rgb data");
-            }
+        // pub fn new(data: &[u8]) -> Palette {
+        //     if data.len() != 768 {
+        //         panic!("Bad len for rgb data");
+        //     }
 
-            let mut rgb = [[0; 3]; 256];
-            for color in 0..256 {
-                for component in 0..3 {
-                    rgb[color][component] = data[color * 3 + component];
-                }
-            }
+        //     let mut rgb = [[0; 3]; 256];
+        //     for color in 0..256 {
+        //         for component in 0..3 {
+        //             rgb[color][component] = data[color * 3 + component];
+        //         }
+        //     }
 
-            Palette { rgb }
-        }
+        //     Palette { rgb }
+        // }
 
         pub fn load<S>(vfs: &Vfs, path: S) -> Palette
         where S: AsRef<str> {
@@ -1740,31 +1740,21 @@ mod gfx {
 
         // TODO: this will not render console characters correctly, as they use index 0 (black) to
         // indicate transparency.
-        /// Translates a set of indices into a list of RGBA values and a list of fullbright values.
-        pub fn translate(&self, indices: &[u8]) -> (DiffuseData, FullbrightData) {
-            let mut rgba = Vec::with_capacity(indices.len() * 4);
-            let mut fullbright = Vec::with_capacity(indices.len());
-
-            for index in indices {
-                match *index {
-                    0xFF => {
-                        for _ in 0..4 {
-                            rgba.push(0);
-                            fullbright.push(0);
+        /// Translates a set of indices into a list of RGBA values and a list of fullbright
+        /// values.
+        pub fn translate(&self, indices: &[u8]) -> DiffuseData {
+            DiffuseData {
+                rgba: indices
+                    .iter()
+                    .flat_map(|i| match *i {
+                        0xFF => [0; 4],
+                        i => {
+                            let [r, g, b] = self.rgb[i as usize];
+                            [r, g, b, 0xff]
                         }
-                    }
-
-                    i => {
-                        for component in 0..3 {
-                            rgba.push(self.rgb[*index as usize][component]);
-                        }
-                        rgba.push(0xFF);
-                        fullbright.push(if i > 223 { 0xFF } else { 0 });
-                    }
-                }
+                    })
+                    .collect(),
             }
-
-            (DiffuseData { rgba }, FullbrightData { fullbright })
         }
     }
 
@@ -1779,7 +1769,6 @@ mod gfx {
     pub struct Gfx {
         pub palette: Palette,
         pub conchars: Conchars,
-        pub wad: Wad,
     }
 
     impl FromWorld for Gfx {
@@ -1816,7 +1805,7 @@ mod gfx {
             ));
 
             let image = {
-                let (diffuse_data, _) = palette.translate(&indices);
+                let diffuse_data = palette.translate(&indices);
 
                 assets
                     .add(Image::new(
@@ -1840,7 +1829,7 @@ mod gfx {
                 glyph_size: (Val::Px(GLYPH_WIDTH as _) * SCALE, Val::Px(GLYPH_HEIGHT as _) * SCALE),
             };
 
-            Self { palette, wad, conchars }
+            Self { palette, conchars }
         }
     }
 }
@@ -1993,7 +1982,7 @@ mod systems {
 
             // TODO: validate conchars dimensions
 
-            let (diffuse_data, _) = gfx.palette.translate(conback.indices());
+            let diffuse_data = gfx.palette.translate(conback.indices());
 
             let image = assets.add(Image::new(
                 Extent3d {

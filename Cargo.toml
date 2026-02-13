@@ -28,23 +28,23 @@ bevy_mod_assimp = { path = "crates/bevy_mod_assimp" }
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
 lined = { path = "crates/lined" }
 
-bevy = { version = "0.17"}
-bevy_asset = { version = "0.17" }
-bevy_animation = { version = "0.17" }
-bevy_app = { version = "0.17" }
-bevy_camera = { version = "0.17" }
-bevy_color = { version = "0.17" }
-bevy_ecs = { version = "0.17" }
-bevy_image = { version = "0.17" }
-bevy_log = { version = "0.17" }
-bevy_tasks = { version = "0.17" }
-bevy_transform = { version = "0.17" }
-bevy_math = { version = "0.17", features = ["serialize", "bevy_reflect"] }
-bevy_mesh = { version = "0.17" }
-bevy_reflect = { version = "0.17", features = ["glam"] }
-bevy_render = { version = "0.17" }
-bevy_pbr = { version = "0.17" }
-bevy_scene = { version = "0.17" }
+bevy = { version = "0.18"}
+bevy_asset = { version = "0.18" }
+bevy_animation = { version = "0.18" }
+bevy_app = { version = "0.18" }
+bevy_camera = { version = "0.18" }
+bevy_color = { version = "0.18" }
+bevy_ecs = { version = "0.18" }
+bevy_image = { version = "0.18" }
+bevy_log = { version = "0.18" }
+bevy_tasks = { version = "0.18" }
+bevy_transform = { version = "0.18" }
+bevy_math = { version = "0.18", features = ["serialize", "bevy_reflect"] }
+bevy_mesh = { version = "0.18" }
+bevy_reflect = { version = "0.18", features = ["glam"] }
+bevy_render = { version = "0.18" }
+bevy_pbr = { version = "0.18" }
+bevy_scene = { version = "0.18" }
 
 anyhow = "1.0"
 asset-importer = { version = "0.4", features = ["build-assimp"] }
@@ -65,19 +65,19 @@ num-derive = "0.4"
 num-traits = "0.2"
 serde-lexpr = { git = "https://github.com/eira-fransham/lexpr-rs.git" }
 serde = { version = "1.0", features = ["derive"] }
-snafu = { version = "0.8", features = ["unstable-provider-api"] }
+snafu = { version = "0.8" }
 strip-ansi-escapes = "0.2"
 termion = "4.0"
 thiserror = "1.0"
 tokio = "1.47"
 unicode-width = "0.2"
-qbsp = "0.6"
+qbsp = { version = "0.14", features = ["bevy_reflect", "serde"] }
 
 [dependencies]
 seismon-utils.workspace = true
 bevy_mod_mdl.workspace = true
 bevy_mod_assimp.workspace = true
-bevy_trenchbroom = { git = "https://github.com/eira-fransham/bevy_trenchbroom.git", branch = "each-model-separate-sub-asset", features = ["bsp"] }
+bevy_trenchbroom = { git = "https://github.com/eira-fransham/bevy_trenchbroom.git", branch = "each-model-separate-sub-asset-bevy-0.18", features = ["bsp"] }
 bevy_mod_pakfile.workspace = true
 lined.workspace = true
 
@@ -103,8 +103,8 @@ qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
 bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
-bevy_seedling = "0.6.0-rc.1"
-bevy-inspector-egui = "0.34"
+bevy_seedling = { version = "0.7" }
+bevy-inspector-egui = "0.36"
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
@@ -118,14 +118,14 @@ indexmap = "2.9"
 parking_lot = "0.12"
 pest = "2.8"
 pest_derive = "2.8"
-rand = { version = "0.9", features = ["small_rng", "thread_rng"] }
+rand = { version = "0.9", features = ["thread_rng"] }
 slab = "0.4"
 smol_str = "0.2"
 strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
-wgpu = { version = "26.0", features = ["spirv", "vulkan-portability"] }
+wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
 [features]
@@ -145,61 +145,61 @@ opt-level = 1
 opt-level = 3
 
 [patch.crates-io]
-bevy = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
+bevy = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
 
-bevy_a11y = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_android = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_animation = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_animation_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_anti_alias = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_app = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_asset = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_asset_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_audio = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_camera = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_color = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_core_pipeline = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_dev_tools = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_diagnostic = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_dylib = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_ecs = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_ecs_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_encase_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_gilrs = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_gizmos = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_gizmos_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_gltf = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_image = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_input = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_input_focus = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_internal = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_light = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_log = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_macro_utils = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_math = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_mesh = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_pbr = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_picking = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_platform = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_post_process = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_ptr = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_reflect = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_reflect_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_render_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_scene = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_shader = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_sprite = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_sprite_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_state = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_state_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_tasks = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_text = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_time = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_transform = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_ui = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_ui_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_utils = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_window = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
-bevy_winit = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork" }
+bevy_a11y = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_android = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_animation = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_animation_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_anti_alias = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_app = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_asset = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_asset_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_audio = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_camera = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_color = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_core_pipeline = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_dev_tools = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_diagnostic = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_dylib = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_ecs = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_ecs_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_encase_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_gilrs = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_gizmos = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_gizmos_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_gltf = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_image = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_input = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_input_focus = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_internal = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_light = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_log = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_macro_utils = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_math = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_mesh = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_pbr = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_picking = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_platform = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_post_process = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_ptr = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_reflect = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_reflect_derive = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_render_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_scene = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_shader = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_sprite = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_sprite_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_state = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_state_macros = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_tasks = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_text = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_time = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_transform = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_ui = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_ui_render = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_utils = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_window = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }
+bevy_winit = { git = "https://github.com/eira-fransham/bevy.git", branch = "patched-fork-0.18" }

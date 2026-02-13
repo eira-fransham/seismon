@@ -721,9 +721,7 @@ fn angle_mod(quake_angle: f32) -> f32 {
     const PRECISION: f32 = 65536.;
     let quake_angle = quake_angle.rem_euclid(360.);
 
-    360f32
-        .algebraic_div(PRECISION)
-        .algebraic_mul(quake_angle.algebraic_mul(PRECISION.algebraic_div(360.0)).floor())
+    (360f32 / PRECISION) * (quake_angle * PRECISION / 360.0).floor()
 }
 
 // TODO: This can definitely be done better, but for now we directly take the implementation from

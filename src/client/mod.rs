@@ -23,7 +23,7 @@ use crate::{
         entity::ClientEntity,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
         state::ClientState,
-        view::{KickVars, MouseVars},
+        view::KickVars,
     },
     common::{
         self,
@@ -56,7 +56,6 @@ use bevy_trenchbroom::{
 };
 use input::InputFocus;
 use menu::Menu;
-use num_derive::FromPrimitive;
 use seismon_utils::QString;
 use serde::Deserialize;
 use sound::SoundError;
@@ -65,7 +64,8 @@ use thiserror::Error;
 // connections are tried 3 times, see
 // https://github.com/id-Software/Quake/blob/master/WinQuake/net_dgrm.c#L1248
 const MAX_CONNECT_ATTEMPTS: usize = 3;
-const MAX_STATS: usize = 32;
+// TODO
+// const MAX_STATS: usize = 32;
 
 const DEFAULT_SOUND_PACKET_VOLUME: u8 = 255;
 const DEFAULT_SOUND_PACKET_ATTENUATION: f32 = 1.0;
@@ -251,12 +251,13 @@ impl From<ConsoleError> for ClientError {
 
 #[derive(Deserialize, Copy, Clone, Debug)]
 pub struct MoveVars {
-    #[serde(rename(deserialize = "cl_anglespeedkey"))]
-    cl_anglespeedkey: f32,
-    #[serde(rename(deserialize = "cl_pitchspeed"))]
-    cl_pitchspeed: f32,
-    #[serde(rename(deserialize = "cl_yawspeed"))]
-    cl_yawspeed: f32,
+    // TODO
+    // #[serde(rename(deserialize = "cl_anglespeedkey"))]
+    // cl_anglespeedkey: f32,
+    // #[serde(rename(deserialize = "cl_pitchspeed"))]
+    // cl_pitchspeed: f32,
+    // #[serde(rename(deserialize = "cl_yawspeed"))]
+    // cl_yawspeed: f32,
     #[serde(rename(deserialize = "cl_sidespeed"))]
     cl_sidespeed: f32,
     #[serde(rename(deserialize = "cl_upspeed"))]
@@ -269,15 +270,16 @@ pub struct MoveVars {
     cl_movespeedkey: f32,
 }
 
-#[derive(Debug, FromPrimitive)]
-enum ColorShiftCode {
-    Contents = 0,
-    Damage = 1,
-    Bonus = 2,
-    Powerup = 3,
-    // For `v_cshift`
-    Custom = 4,
-}
+// TODO
+// #[derive(Debug, FromPrimitive)]
+// enum ColorShiftCode {
+//     Contents = 0,
+//     Damage = 1,
+//     Bonus = 2,
+//     Powerup = 3,
+//     // For `v_cshift`
+//     Custom = 4,
+// }
 
 struct ServerInfo {
     _max_clients: u8,
@@ -335,14 +337,14 @@ enum ConnectionTarget {
     Demo(DemoServer),
 }
 
-impl ConnectionTarget {
-    pub fn stage(&self) -> ConnectionStage {
-        match self {
-            ConnectionTarget::Server { stage, .. } => *stage,
-            ConnectionTarget::Demo(_) => ConnectionStage::Connected,
-        }
-    }
-}
+// impl ConnectionTarget {
+//     pub fn stage(&self) -> ConnectionStage {
+//         match self {
+//             ConnectionTarget::Server { stage, .. } => *stage,
+//             ConnectionTarget::Demo(_) => ConnectionStage::Connected,
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 struct ServerUpdate<'a> {
@@ -636,10 +638,8 @@ where A: ToSocketAddrs {
 pub struct Impulse(pub u8);
 
 mod systems {
-
     use bevy::window::{CursorGrabMode, CursorOptions};
     use common::net::MessageKind;
-    use serde::Deserialize;
 
     use crate::common::net::ButtonFlags;
 
@@ -738,7 +738,7 @@ mod systems {
         }
 
         let Connection {
-            client_state: state,
+            client_state: _,
             target: ConnectionTarget::Server { stage: ConnectionStage::Connected, .. },
             ..
         } = &mut *conn
@@ -748,7 +748,8 @@ mod systems {
 
         // TODO: Error handling
         let move_vars: MoveVars = registry.read_cvars().unwrap();
-        let mouse_vars: MouseVars = registry.read_cvars().unwrap();
+        // TODO: Reimplement
+        // let mouse_vars: MouseVars = registry.read_cvars().unwrap();
 
         // TODO: Unclear fromm the bevy documentation if this drops all other events for the frame,
         //       but in this case it's almost certainly fine
@@ -776,13 +777,13 @@ mod systems {
         Ok(())
     }
 
-    #[derive(Deserialize)]
-    struct NetworkVars {
-        #[serde(rename(deserialize = "cl_nolerp"))]
-        disable_lerp: f32,
-        #[serde(rename(deserialize = "sv_gravity"))]
-        gravity: f32,
-    }
+    // #[derive(Deserialize)]
+    // struct NetworkVars {
+    //     #[serde(rename(deserialize = "cl_nolerp"))]
+    //     disable_lerp: f32,
+    //     #[serde(rename(deserialize = "sv_gravity"))]
+    //     gravity: f32,
+    // }
 
     pub fn process_network_messages(
         state: Res<Connection>,
@@ -818,27 +819,27 @@ mod systems {
         Ok(())
     }
 
-    pub fn send_connected_event(
-        conn: Option<Res<Connection>>,
-        mut connected: MessageWriter<Connected>,
-        mut old_stage: Local<Option<ConnectionStage>>,
-    ) {
-        let Some(conn) = conn.as_ref() else {
-            *old_stage = None;
-            return;
-        };
+    // pub fn send_connected_event(
+    //     conn: Option<Res<Connection>>,
+    //     mut connected: MessageWriter<Connected>,
+    //     mut old_stage: Local<Option<ConnectionStage>>,
+    // ) {
+    //     let Some(conn) = conn.as_ref() else {
+    //         *old_stage = None;
+    //         return;
+    //     };
 
-        if !conn.is_changed() {
-            return;
-        }
+    //     if !conn.is_changed() {
+    //         return;
+    //     }
 
-        let new_stage = conn.target.stage();
-        let old_stage = old_stage.replace(new_stage);
+    //     let new_stage = conn.target.stage();
+    //     let old_stage = old_stage.replace(new_stage);
 
-        if old_stage != Some(ConnectionStage::Connected) {
-            connected.write(Connected(new_stage == ConnectionStage::Connected));
-        }
-    }
+    //     if old_stage != Some(ConnectionStage::Connected) {
+    //         connected.write(Connected(new_stage == ConnectionStage::Connected));
+    //     }
+    // }
 
     pub mod frame {
         use std::convert::identity;
@@ -989,12 +990,12 @@ mod systems {
                         console_output.set_center_print(text, &time);
                     }
 
-                    ServerCmd::PlayerData(player_data) => {
+                    ServerCmd::PlayerData(_player_data) => {
                         // conn.client_state.update_player(player_data);
                         msg_todo!("player data")
                     }
 
-                    ServerCmd::Cutscene { text } => {
+                    ServerCmd::Cutscene { text: _ } => {
                         msg_todo!("cutscene")
                     }
 
@@ -1195,7 +1196,7 @@ mod systems {
                         }
                     }
 
-                    ServerCmd::TempEntity { temp_entity } => {
+                    ServerCmd::TempEntity { temp_entity: _ } => {
                         msg_todo!("temp entity");
                     }
 
@@ -1223,7 +1224,7 @@ mod systems {
                         }
                     }
 
-                    ServerCmd::UpdateColors { player_id, new_colors } => {
+                    ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1245,7 +1246,7 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::UpdateFrags { player_id, new_frags } => {
+                    ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1266,7 +1267,7 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::UpdateName { player_id, new_name } => {
+                    ServerCmd::UpdateName { player_id: _, new_name: _ } => {
                         // let player_id = player_id as usize;
                         // conn.client_state.check_player_id(player_id)?;
 
@@ -1285,7 +1286,7 @@ mod systems {
                         // }
                     }
 
-                    ServerCmd::UpdateStat { stat, value } => {
+                    ServerCmd::UpdateStat { stat: _, value: _ } => {
                         // debug!(
                         //     "{:?}: {} -> {}",
                         //     stat, conn.client_state.stats[stat as usize], value

@@ -30,7 +30,7 @@ pub use music::MusicPlayer;
 
 use std::io;
 
-use crate::common::vfs::{Vfs, VfsError};
+use crate::common::vfs::VfsError;
 
 use thiserror::Error;
 
@@ -204,7 +204,6 @@ mod systems {
 
     pub fn update_mixer(
         channels: Query<(Entity, &Channel, Option<&EntityChannel>)>,
-        vfs: Res<Vfs>,
         mut music_player: ResMut<MusicPlayer>,
         asset_server: Res<AssetServer>,
         mut events: MessageReader<MixerMessage>,
@@ -301,8 +300,8 @@ mod systems {
     }
 
     pub fn update_entities(
-        entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
-        conn: Option<Res<Connection>>,
+        _entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
+        _conn: Option<Res<Connection>>,
     ) {
         // let Some(conn) = conn else {
         //     return;
@@ -316,8 +315,8 @@ mod systems {
     }
 
     pub fn update_listener(
-        listeners: Query<&mut Transform, With<SpatialListener3D>>,
-        conn: Option<Res<Connection>>,
+        _listeners: Query<&mut Transform, With<SpatialListener3D>>,
+        _conn: Option<Res<Connection>>,
     ) {
         // if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {
         //     for mut transform in &mut listeners {

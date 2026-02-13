@@ -16,8 +16,8 @@ use bevy_app::Plugin;
 use bevy_asset::{
     AssetApp,
     io::{
-        AssetReader, AssetReaderError, AssetSource, AssetSourceId, ErasedAssetReader, PathStream,
-        Reader, file::FileAssetReader,
+        AssetReader, AssetReaderError, AssetSourceBuilder, AssetSourceId, ErasedAssetReader,
+        PathStream, Reader, file::FileAssetReader,
     },
 };
 use bevy_log as log;
@@ -403,7 +403,7 @@ impl Plugin for PakfilePlugin {
         let sources = self.sources.clone();
         app.register_asset_source(
             AssetSourceId::Default,
-            AssetSource::build().with_reader(move || {
+            AssetSourceBuilder::new(move || {
                 let asset_readers = sources
                     .iter()
                     .map(|reader| {

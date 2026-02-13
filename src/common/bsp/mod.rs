@@ -118,9 +118,8 @@
 
 mod load;
 mod model;
-mod utils;
 
-use std::{collections::HashSet, error::Error, fmt, iter, sync::Arc};
+use std::{collections::HashSet, error::Error, fmt, sync::Arc};
 
 use crate::common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect};
 
@@ -726,7 +725,7 @@ pub struct BspData {
     pub(crate) planes: Arc<[Hyperplane]>,
     pub(crate) textures: Box<[BspTexture]>,
     pub(crate) vertices: Box<[Vec3]>,
-    pub(crate) visibility: Box<[u8]>,
+    // pub(crate) visibility: Box<[u8]>,
     pub(crate) render_nodes: Box<[BspRenderNode]>,
     pub(crate) texinfo: Box<[BspTexInfo]>,
     pub(crate) faces: Box<[BspFace]>,
@@ -845,19 +844,6 @@ impl BspData {
                 }
                 BspRenderNodeChild::Leaf(leaf_id) => return leaf_id,
             }
-        }
-    }
-
-    pub fn get_pvs(&self, leaf_id: usize, num_leaves: usize) -> impl Iterator<Item = usize> {
-        // leaf 0 is outside the map, everything is visible
-        if leaf_id == 0 {
-            return itertools::Either::Left(iter::empty());
-        }
-
-        match self.leaves[leaf_id].vis_offset {
-            Some(o) => itertools::Either::Right(utils::get_pvs(&self.visibility, o, num_leaves)),
-
-            None => itertools::Either::Left(iter::empty()),
         }
     }
 

@@ -1178,7 +1178,8 @@ impl ServerCmd {
 
     pub fn deserialize<R>(reader: &mut R) -> Result<Option<ServerCmd>, NetError>
     where R: BufRead {
-        if !reader.has_data_left().unwrap() {
+        // Expanded form of `has_data_left`
+        if !reader.fill_buf().map(|b| !b.is_empty()).unwrap() {
             return Ok(None);
         }
 

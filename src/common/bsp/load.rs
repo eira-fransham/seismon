@@ -258,8 +258,9 @@ where
     let width = reader.read_u32::<LittleEndian>()?;
     let height = reader.read_u32::<LittleEndian>()?;
 
-    let mip_offsets: [_; MIPLEVELS] =
-        std::array::try_from_fn(|_| reader.read_u32::<LittleEndian>())?;
+    let mip_offsets: [_; MIPLEVELS] = std::array::from_fn(|_| reader.read_u32::<LittleEndian>());
+    let [mip_a, mip_b, mip_c, mip_d] = mip_offsets;
+    let mip_offsets: [_; MIPLEVELS] = [mip_a?, mip_b?, mip_c?, mip_d?];
 
     let mut mipmaps = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for m in 0..MIPLEVELS {
@@ -906,7 +907,7 @@ where R: Read + Seek {
         planes: planes_rc.clone(),
         textures: textures.into_boxed_slice(),
         vertices: vertices.into_boxed_slice(),
-        visibility: vis_data.into_boxed_slice(),
+        // visibility: vis_data.into_boxed_slice(),
         render_nodes: render_nodes.into_boxed_slice(),
         texinfo: texinfo.into_boxed_slice(),
         faces: faces.into_boxed_slice(),

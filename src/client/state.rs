@@ -188,7 +188,7 @@ impl ClientState {
         self.frame_keepalive.set(ent_id as usize, true);
     }
 
-    pub fn handle_damage(&mut self, armor: u8, health: u8, source: Vec3, kick_vars: KickVars) {
+    pub fn handle_damage(&mut self, _armor: u8, _health: u8, _source: Vec3, _kick_vars: KickVars) {
         // const DMG_DENSITY: f32 = 0.03;
 
         // self.face_anim_time = self.time + Duration::try_milliseconds(200).unwrap();
@@ -232,10 +232,10 @@ impl ClientState {
 
     pub fn calc_final_view(
         &mut self,
-        idle_vars: IdleVars,
-        kick_vars: KickVars,
-        roll_vars: RollVars,
-        bob_vars: BobVars,
+        _idle_vars: IdleVars,
+        _kick_vars: KickVars,
+        _roll_vars: RollVars,
+        _bob_vars: BobVars,
     ) {
         // let Some(view) = self.view.as_mut() else {
         //     return;

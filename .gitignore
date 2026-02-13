@@ -5,3 +5,4 @@ target
 *.pak
 *.pak.d
 .#*
+.DS_Store
