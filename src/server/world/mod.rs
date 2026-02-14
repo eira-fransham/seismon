@@ -790,10 +790,7 @@ impl World {
 
         self.unlink_entity(e_id)?;
 
-        let mut abs_min;
-        let mut abs_max;
-        let solid;
-        {
+        let (solid, abs_min, abs_max) = {
             const BOUNDS_OFFSET_MAGNITUDE: f32 = 15.;
 
             let mut ent = self.get_mut(e_id)?;
@@ -802,8 +799,8 @@ impl World {
             let mins = ent.min()?;
             let maxs = ent.max()?;
             debug!("origin = {:?} mins = {:?} maxs = {:?}", origin, mins, maxs);
-            abs_min = origin + mins;
-            abs_max = origin + maxs;
+            let mut abs_min = origin + mins;
+            let mut abs_max = origin + maxs;
 
             let flags_f = ent.get_float(FieldAddrFloat::Flags as i16)?;
             let flags = EntityFlags::from_bits(flags_f as u16).unwrap();
@@ -828,13 +825,15 @@ impl World {
                 debug!("TODO: SV_FindTouchedLeafs");
             }
 
-            solid = ent.solid()?;
+            let solid = ent.solid()?;
 
             if solid == EntitySolid::Not {
                 // this entity has no touch interaction, we're done
                 return Ok(());
             }
-        }
+
+            (solid, abs_min, abs_max)
+        };
 
         let mut node_id = 0;
         while let AreaNodeKind::Branch(b) = &self.area_nodes[node_id].kind {
