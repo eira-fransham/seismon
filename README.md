@@ -2,6 +2,23 @@
 
 ### An extensible, modern Quake engine
 
+> #### NOTE
+>
+> This branch is for a migration away from "hand-rolled" solutions for things like state storage, rendering and networking.
+>
+> This currently includes:
+>
+> - [`bevy_mod_scripting`](https://github.com/eira-fransham/bevy_mod_scripting_qcvm) for the QuakeC VM
+> - [`bevy_trenchbroom`](https://github.com/eira-fransham/bevy_trenchbroom/tree/each-model-separate-sub-asset-bevy-0.18) for the map loading/rendering
+>
+> and in the future, will include using `lightyear` or a similar mechanism for networking, along with some other improvements.
+>
+> The hope is that once this refactor is completed, Seismon will be able to use Lua as an alternate scripting language, will be able to load non-Quake 1
+> maps and models (e.g. Half-Life), and will be able to run in FTEQW- or DarkPlaces-compatible modes, as well as potentially supporting Quake 3's map
+> and VM formats.
+>
+> Currently, it is less functional than the default [`bevy`](https://github.com/eira-fransham/seismon/tree/bevy) branch, but improvements are being made.
+
 #### Click here for a preview video:
 
 [![Preview video](https://img.youtube.com/vi/Hy5QStHHv8A/0.jpg)](https://www.youtube.com/watch?v=Hy5QStHHv8A)
