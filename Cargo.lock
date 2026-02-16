@@ -2199,6 +2199,7 @@ dependencies = [
 [[package]]
 name = "bevy_mod_scripting_qcvm"
 version = "0.1.0"
+source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#64e62d6ce41ca47a2b1031aef2399065898489f9"
 dependencies = [
  "bevy_app 0.18.0",
  "bevy_asset 0.18.0",
@@ -7495,6 +7496,7 @@ dependencies = [
 [[package]]
 name = "qcvm"
 version = "0.1.1"
+source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#64e62d6ce41ca47a2b1031aef2399065898489f9"
 dependencies = [
  "anyhow",
  "arc-slice",

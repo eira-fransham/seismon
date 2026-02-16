@@ -125,7 +125,7 @@ strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
-bevy_mod_scripting_qcvm = { path = "../bevy_mod_scripting_qcvm" }
+bevy_mod_scripting_qcvm = { git = "https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git" }
 wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
