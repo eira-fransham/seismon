@@ -102,7 +102,8 @@ qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
 bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
-bevy_seedling = { version = "0.7" }
+bevy_seedling = "0.7"
+bevy_mod_scripting = "0.19"
 bevy-inspector-egui = "0.36"
 bitvec = "1.0"
 bumpalo = "3.4"
@@ -124,6 +125,7 @@ strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
+bevy_mod_scripting_qcvm = { path = "../bevy_mod_scripting_qcvm" }
 wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
