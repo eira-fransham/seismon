@@ -99,11 +99,9 @@ define your own arbitrary `+action`/`-action` commands which can be bound, and a
 attached which will run when the cvar is changed. Commands are also implemented as systems, and so can have access to global
 state.
 
-There are still a couple of small pieces of code that use nightly Rust, but I hope to fix those eventually.
-
 ### Help needed
 
-See [issues](https://github.com/eira-fransham/seismon/issues) for an up-to-date list of what needs help implementing.
+See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-up-to-date list of what needs help implementing.
 
 ### Running
 
