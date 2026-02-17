@@ -194,7 +194,9 @@ pub enum ConsoleError {
 impl serde::de::Error for ConsoleError {
     // Required method
     fn custom<T>(msg: T) -> Self
-    where T: std::fmt::Display {
+    where
+        T: std::fmt::Display,
+    {
         Self::CmdError { error: msg.to_string().into() }
     }
 
@@ -400,7 +402,8 @@ pub trait RegisterCmdExt {
         S: IntoSystem<In<A>, ExecResult, M> + 'static;
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where N: Into<CName>;
+    where
+        N: Into<CName>;
 
     fn cvar_on_set<N, I, S, C, M>(&mut self, name: N, value: C, on_set: S, usage: I) -> &mut Self
     where
@@ -425,14 +428,17 @@ impl RegisterCmdExt for App {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+    {
         self.world_mut().command::<A, S, M>(run);
 
         self
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where N: Into<CName> {
+    where
+        N: Into<CName>,
+    {
         self.world_mut().action(name);
         self
     }
@@ -440,7 +446,8 @@ impl RegisterCmdExt for App {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>, {
+        C: Into<CName>,
+    {
         self.world_mut().alias(name, command);
         self
     }
@@ -450,7 +457,8 @@ impl RegisterCmdExt for App {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         self.world_mut().cvar_on_set(name, value, on_set, usage);
 
         self
@@ -460,7 +468,8 @@ impl RegisterCmdExt for App {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         self.world_mut().cvar(name, value, usage);
 
         self
@@ -471,14 +480,17 @@ impl RegisterCmdExt for SubApp {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+    {
         self.world_mut().command::<A, S, M>(run);
 
         self
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where N: Into<CName> {
+    where
+        N: Into<CName>,
+    {
         self.world_mut().action(name);
         self
     }
@@ -486,7 +498,8 @@ impl RegisterCmdExt for SubApp {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>, {
+        C: Into<CName>,
+    {
         self.world_mut().alias(name, command);
         self
     }
@@ -496,7 +509,8 @@ impl RegisterCmdExt for SubApp {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         self.world_mut().cvar_on_set(name, value, on_set, usage);
 
         self
@@ -506,7 +520,8 @@ impl RegisterCmdExt for SubApp {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         self.world_mut().cvar(name, value, usage);
 
         self
@@ -516,7 +531,9 @@ impl RegisterCmdExt for SubApp {
 fn parse_args<A>(
     mut command: clap::Command,
 ) -> impl FnMut(In<Box<[String]>>) -> Result<A, clap::Error>
-where A: FromArgMatches {
+where
+    A: FromArgMatches,
+{
     move |In(args)| {
         let matches = command.try_get_matches_from_mut(args.iter());
         matches.and_then(|mut m| A::from_arg_matches_mut(&mut m))
@@ -527,7 +544,8 @@ impl RegisterCmdExt for World {
     fn command<A, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static, {
+        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+    {
         let mut command = A::command().no_binary_name(true);
         let command_name = Cow::from(command.get_name().to_owned());
         let usage = command.render_usage();
@@ -552,7 +570,9 @@ impl RegisterCmdExt for World {
     }
 
     fn action<N>(&mut self, name: N) -> &mut Self
-    where N: Into<CName> {
+    where
+        N: Into<CName>,
+    {
         self.resource_mut::<Registry>().insert(
             name,
             CommandImpl {
@@ -567,7 +587,8 @@ impl RegisterCmdExt for World {
     fn alias<S, C>(&mut self, name: S, command: C) -> &mut Self
     where
         S: Into<CName>,
-        C: Into<CName>, {
+        C: Into<CName>,
+    {
         self.resource_mut::<Registry>().alias(name, command);
 
         self
@@ -577,7 +598,8 @@ impl RegisterCmdExt for World {
     where
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         self.resource_mut::<Registry>().cvar(name, value, None, usage);
 
         self
@@ -588,7 +610,8 @@ impl RegisterCmdExt for World {
         S: IntoSystem<In<Value>, (), M> + 'static,
         N: Into<CName>,
         C: Into<Cvar>,
-        I: Into<CName>, {
+        I: Into<CName>,
+    {
         let sys = self.register_system(on_set);
         self.resource_mut::<Registry>().cvar(name, value, Some(sys), usage);
 
@@ -678,7 +701,8 @@ impl Registry {
     pub fn alias<S, C>(&mut self, name: S, command: C)
     where
         S: Into<CName>,
-        C: Into<CName>, {
+        C: Into<CName>,
+    {
         self.insert(
             name.into(),
             CommandImpl {
@@ -704,7 +728,8 @@ impl Registry {
     where
         S: Into<CName>,
         C: Into<Cvar>,
-        H: Into<CName>, {
+        H: Into<CName>,
+    {
         let cvar = cvar.into();
         if let Some(sys) = on_set {
             self.changed_cvars.insert(EqHack(sys), cvar.default.clone());
@@ -734,7 +759,8 @@ impl Registry {
     fn command<N, H>(&mut self, name: N, cmd: SystemId<In<Box<[String]>>, ExecResult>, help: H)
     where
         N: Into<CName>,
-        H: Into<CName>, {
+        H: Into<CName>,
+    {
         self.insert(name.into(), CommandImpl { kind: CmdKind::Builtin(cmd), help: help.into() });
     }
 
@@ -743,7 +769,9 @@ impl Registry {
     /// Returns an error if there was no command with that name.
     // TODO: If we remove a builtin we should also remove the corresponding system from the world
     pub fn remove<S>(&mut self, name: S) -> Result<(), ConsoleError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let name = name.as_ref();
         // TODO: Use `HashMap::extract_if` when stabilised
         match self.commands.get_mut(name) {
@@ -762,7 +790,9 @@ impl Registry {
     ///
     /// Returns an error if there was no command with that name.
     pub fn remove_alias<S>(&mut self, name: S) -> Result<(), ConsoleError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let name = name.as_ref();
         // TODO: Use `HashMap::extract_if` when stabilised
         match self.commands.get_mut(name) {
@@ -785,7 +815,9 @@ impl Registry {
     ///
     /// Returns an error if no command with the specified name exists.
     pub fn get<S>(&self, name: S) -> Option<&CommandImpl>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         self.commands.get(name.as_ref()).map(|(first, rest)| rest.last().unwrap_or(first))
     }
 
@@ -793,12 +825,16 @@ impl Registry {
     ///
     /// Returns an error if no command with the specified name exists.
     pub fn get_mut<S>(&mut self, name: S) -> Option<&mut CommandImpl>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         self.commands.get_mut(name.as_ref()).map(|(first, rest)| rest.last_mut().unwrap_or(first))
     }
 
     pub fn contains<S>(&self, name: S) -> bool
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         self.commands.contains_key(name.as_ref())
     }
 
@@ -827,7 +863,9 @@ impl Registry {
     }
 
     pub fn reset_cvar<N>(&mut self, name: N) -> Result<Value, ConsoleError>
-    where N: AsRef<str> {
+    where
+        N: AsRef<str>,
+    {
         let (cvar, on_set) = self
             .get_cvar_mut(name.as_ref())
             .ok_or_else(|| ConsoleError::NoSuchCvar { name: name.as_ref().to_owned().into() })?;
@@ -848,7 +886,9 @@ impl Registry {
     }
 
     pub fn set_cvar_raw<N>(&mut self, name: N, value: Value) -> Result<Value, ConsoleError>
-    where N: AsRef<str> {
+    where
+        N: AsRef<str>,
+    {
         let (cvar, on_set) = self
             .get_cvar_mut(name.as_ref())
             .ok_or_else(|| ConsoleError::NoSuchCvar { name: name.as_ref().to_owned().into() })?;
@@ -876,7 +916,8 @@ impl Registry {
     pub fn set_cvar<N, V>(&mut self, name: N, value: V) -> Result<Value, ConsoleError>
     where
         N: AsRef<str>,
-        V: AsRef<str>, {
+        V: AsRef<str>,
+    {
         let value = Value::from_str(value.as_ref())
             .map_err(|_| ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() })?;
         self.set_cvar_raw(name, value)
@@ -913,12 +954,13 @@ impl Registry {
                 T,
                 (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
             >
-        where T: Iterator<
+        where
+            T: Iterator<
                 Item = (
                     StrDeserializer<'a, ConsoleError>,
                     serde_lexpr::value::de::Deserializer<'a>,
                 ),
-            >
+            >,
         {
             fn new(mut values: T) -> Self {
                 let cur = values.next();
@@ -932,17 +974,20 @@ impl Registry {
                 T,
                 (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
             >
-        where T: Iterator<
+        where
+            T: Iterator<
                 Item = (
                     StrDeserializer<'a, ConsoleError>,
                     serde_lexpr::value::de::Deserializer<'a>,
                 ),
-            >
+            >,
         {
             type Error = ConsoleError;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
-            where K: serde::de::DeserializeSeed<'a> {
+            where
+                K: serde::de::DeserializeSeed<'a>,
+            {
                 match &mut self.cur {
                     Some((k, _)) => Ok(Some(seed.deserialize(*k)?)),
                     None => Ok(None),
@@ -950,7 +995,9 @@ impl Registry {
             }
 
             fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::DeserializeSeed<'a> {
+            where
+                V: serde::de::DeserializeSeed<'a>,
+            {
                 match mem::replace(&mut self.cur, self.values.next()) {
                     Some((_, mut v)) => Ok(seed.deserialize(&mut v).map_err(|_| {
                         ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() }
@@ -985,97 +1032,135 @@ impl Registry {
             }
 
             fn deserialize_any<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("any"), &"struct"))
             }
 
             fn deserialize_bool<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("bool"), &"struct"))
             }
 
             fn deserialize_i8<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("i8"), &"struct"))
             }
 
             fn deserialize_i16<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("i16"), &"struct"))
             }
 
             fn deserialize_i32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("i32"), &"struct"))
             }
 
             fn deserialize_i64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("i64"), &"struct"))
             }
 
             fn deserialize_u8<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("u8"), &"struct"))
             }
 
             fn deserialize_u16<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("u16"), &"struct"))
             }
 
             fn deserialize_u32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("u32"), &"struct"))
             }
 
             fn deserialize_u64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("u64"), &"struct"))
             }
 
             fn deserialize_f32<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("f32"), &"struct"))
             }
 
             fn deserialize_f64<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("f64"), &"struct"))
             }
 
             fn deserialize_char<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("char"), &"struct"))
             }
 
             fn deserialize_str<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("str"), &"struct"))
             }
 
             fn deserialize_string<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("string"), &"struct"))
             }
 
             fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("bytes"), &"struct"))
             }
 
             fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("byte_buf"), &"struct"))
             }
 
             fn deserialize_option<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("option"), &"struct"))
             }
 
             fn deserialize_unit<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("unit"), &"struct"))
             }
 
@@ -1102,12 +1187,16 @@ impl Registry {
             }
 
             fn deserialize_seq<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("seq"), &"struct"))
             }
 
             fn deserialize_tuple<V>(self, _: usize, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("tuple"), &"struct"))
             }
 
@@ -1124,7 +1213,9 @@ impl Registry {
             }
 
             fn deserialize_map<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("map"), &"struct"))
             }
 
@@ -1141,12 +1232,16 @@ impl Registry {
             }
 
             fn deserialize_identifier<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("identifier"), &"struct"))
             }
 
             fn deserialize_ignored_any<V>(self, _: V) -> Result<V::Value, Self::Error>
-            where V: serde::de::Visitor<'a> {
+            where
+                V: serde::de::Visitor<'a>,
+            {
                 Err(ConsoleError::invalid_type(Unexpected::Other("ignored_any"), &"struct"))
             }
         }
@@ -1728,7 +1823,9 @@ mod gfx {
         // }
 
         pub fn load<S>(vfs: &Vfs, path: S) -> Palette
-        where S: AsRef<str> {
+        where
+            S: AsRef<str>,
+        {
             let mut data = BufReader::new(vfs.open(path).unwrap());
 
             let mut rgb = [[0u8; 3]; 256];
@@ -2175,7 +2272,7 @@ mod systems {
         mut alert: Query<(&mut AtlasText, &mut AlertOutput)>,
     ) {
         for (mut text, mut alert) in alert.iter_mut() {
-            let since = time.elapsed() - settings.timeout;
+            let since = time.elapsed().saturating_sub(settings.timeout);
             let mut lines = console_out
                 .recent(since)
                 .filter(|(_, line)| line.output_type == OutputType::Alert)

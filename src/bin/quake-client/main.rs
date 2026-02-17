@@ -19,6 +19,7 @@ use bevy_capture::{
     Capture, CaptureBundle, CapturePlugin,
     encoder::{gif::GifEncoder, mp4_openh264::Mp4Openh264Encoder},
 };
+use bevy_mod_mdl::MdlPlugin;
 use bevy_mod_pakfile::PakfilePlugin;
 use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
@@ -243,7 +244,7 @@ fn main() -> ExitCode {
         // TODO: Use `BEVY_ASSET_ROOT`
         .add_plugins(PakfilePlugin::from_paths([std::env::current_dir().unwrap().join("id1")]))
         .add_plugins(default_plugins)
-        .register_asset_loader(bevy_mod_assimp::AssimpLoader)
+        .add_plugins(MdlPlugin::default())
         .add_plugins(SeismonClientPlugin{
             base_dir: opt.base_dir.clone(),
             game: opt.game.clone(),

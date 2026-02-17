@@ -2002,6 +2002,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy_animation",
+ "bevy_app 0.18.0",
  "bevy_asset 0.18.0",
  "bevy_camera 0.18.0",
  "bevy_color 0.18.0",

@@ -1,12 +1,20 @@
-use bevy_asset::{Asset, AssetLoader, Handle, RenderAssetUsages};
-use bevy_ecs::{component::Component, system::EntityCommand, world::EntityWorldMut};
+use bevy_app::{Plugin, PostUpdate};
+use bevy_asset::{Asset, AssetApp, AssetLoader, Assets, Handle, RenderAssetUsages};
+use bevy_ecs::{
+    component::Component,
+    query::Changed,
+    reflect::ReflectComponent,
+    system::{EntityCommand, Query, Res},
+    world::{EntityWorldMut, World},
+};
 use bevy_image::Image;
+use bevy_log::error;
 use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
-    prelude::GenericMaterial,
+    prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{UVec2, Vec3};
-use bevy_mesh::Mesh;
+use bevy_math::{Vec2, Vec3};
+use bevy_mesh::{Mesh, Mesh3d};
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -14,13 +22,13 @@ use bevy_scene::Scene;
 use bevy_tasks::ConditionalSendFuture;
 use seismon_utils::model::ModelFlags;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, io};
+use std::{cell::OnceCell, collections::HashSet, io};
 use thiserror::Error;
 
 pub use qbsp::Palette;
 
 use crate::{
-    anim::AnimMeshes,
+    anim::{AnimMeshes, MeshAnimPlayer},
     read::{Animation, Texture},
 };
 
@@ -29,6 +37,10 @@ pub mod read;
 
 #[derive(Error, Debug)]
 pub enum MdlFileError {
+    #[error("No meshes")]
+    NoMeshes,
+    #[error("No textures")]
+    NoSkins,
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     #[error("Invalid magic number: found {0}, expected {}", read::MAGIC)]
@@ -118,6 +130,7 @@ pub struct Mdl {
     textures: Vec<Handle<GenericMaterial>>,
     animations: Vec<Handle<AnimMeshes>>,
     flags: HashSet<MdlFlag>,
+    default_mesh: Handle<Mesh>,
 }
 
 #[derive(Reflect, Default)]
@@ -262,6 +275,8 @@ async fn load_mdl(
         })
         .collect();
 
+    let mut default_mesh = OnceCell::<Handle<Mesh>>::new();
+
     let animations = raw
         .animations()
         .enumerate()
@@ -276,11 +291,13 @@ async fn load_mdl(
                 mesh.insert_attribute(
                     Mesh::ATTRIBUTE_UV_0,
                     raw.texcoords()
-                        .map(|coord| UVec2::new(coord.s(), coord.t()))
+                        .map(|coord| Vec2::new(coord.s() as f32, coord.t() as f32))
                         .collect::<Vec<_>>(),
                 );
 
                 let mesh_handle = load_context.add_labeled_asset(format!("anim{i}mesh"), mesh);
+
+                let _ = default_mesh.set(mesh_handle.clone());
 
                 load_context
                     .add_labeled_asset(format!("anim{i}"), AnimMeshes { frames: vec![mesh_handle] })
@@ -303,11 +320,16 @@ async fn load_mdl(
                         mesh.insert_attribute(
                             Mesh::ATTRIBUTE_UV_0,
                             raw.texcoords()
-                                .map(|coord| UVec2::new(coord.s(), coord.t()))
+                                .map(|coord| Vec2::new(coord.s() as f32, coord.t() as f32))
                                 .collect::<Vec<_>>(),
                         );
 
-                        load_context.add_labeled_asset(format!("anim{i}frame{frame_idx}"), mesh)
+                        let mesh_handle = load_context
+                            .add_labeled_asset(format!("anim{i}frame{frame_idx}"), mesh);
+
+                        let _ = default_mesh.set(mesh_handle.clone());
+
+                        mesh_handle
                     })
                     .collect();
 
@@ -320,6 +342,7 @@ async fn load_mdl(
     Ok(Mdl {
         origin: raw.origin(),
         radius: raw.radius(),
+        default_mesh: default_mesh.take().ok_or(MdlFileError::NoMeshes)?,
         textures,
         animations,
         flags: raw
@@ -350,19 +373,86 @@ async fn load_mdl(
     })
 }
 
-#[expect(dead_code, reason = "TODO")]
-async fn load_mdl_scene(
-    _loader: &MdlLoader,
-    _reader: &mut dyn bevy_asset::io::Reader,
-    _settings: &MdlLoaderSettings,
-    _load_context: &mut bevy_asset::LoadContext<'_>,
+async fn load_mdl_as_scene(
+    loader: &MdlLoader,
+    reader: &mut dyn bevy_asset::io::Reader,
+    settings: &MdlLoaderSettings,
+    load_context: &mut bevy_asset::LoadContext<'_>,
 ) -> Result<Scene, MdlFileError> {
-    // Add the various components for e.g. mesh animation
-    todo!()
+    let mdl = load_mdl(loader, reader, settings, load_context).await?;
+
+    let anim_player =
+        MeshAnimPlayer::new(mdl.animations.get(0).ok_or(MdlFileError::NoMeshes)?.clone());
+
+    let texture = GenericMaterial3d(mdl.textures.get(0).ok_or(MdlFileError::NoSkins)?.clone());
+
+    let mesh = Mesh3d(mdl.default_mesh.clone());
+
+    let mut world = World::new();
+
+    let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
+
+    world.spawn((
+        MdlSettings { animation: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
+        anim_player,
+        texture,
+        mesh,
+    ));
+
+    Ok(Scene { world })
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct MdlSettings {
+    pub animation: usize,
+    pub skin: usize,
+    pub mdl: Handle<Mdl>,
+    cur_animation: usize,
+    cur_skin: usize,
+}
+
+fn update_mdls(
+    entities: Query<
+        (&MdlSettings, &mut MeshAnimPlayer, &mut GenericMaterial3d),
+        Changed<MdlSettings>,
+    >,
+    mdls: Res<Assets<Mdl>>,
+) {
+    for (settings, mut player, mut mat) in entities {
+        dbg!();
+        if settings.animation == settings.cur_animation && settings.skin == settings.cur_skin {
+            continue;
+        }
+
+        let mdl = mdls.get(&settings.mdl).expect("Missing mdl");
+
+        'set_anim: {
+            if settings.animation != settings.cur_animation {
+                let Some(anim_mesh) = mdl.animations.get(settings.animation) else {
+                    error!("Missing animation {}", settings.animation);
+                    break 'set_anim;
+                };
+
+                player.anim_meshes = anim_mesh.clone();
+            }
+        }
+
+        'set_skin: {
+            if settings.skin != settings.cur_skin {
+                let Some(skin) = mdl.textures.get(settings.skin) else {
+                    error!("Missing skin {}", settings.skin);
+                    break 'set_skin;
+                };
+
+                mat.0 = skin.clone();
+            }
+        }
+    }
 }
 
 impl AssetLoader for MdlLoader {
-    type Asset = Mdl;
+    type Asset = Scene;
     type Settings = MdlLoaderSettings;
     type Error = MdlFileError;
 
@@ -372,6 +462,25 @@ impl AssetLoader for MdlLoader {
         settings: &Self::Settings,
         load_context: &mut bevy_asset::LoadContext,
     ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
-        load_mdl(self, reader, settings, load_context)
+        load_mdl_as_scene(self, reader, settings, load_context)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["mdl"]
+    }
+}
+
+#[non_exhaustive]
+#[derive(Default)]
+pub struct MdlPlugin {}
+
+impl Plugin for MdlPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.init_asset::<Mdl>()
+            .init_asset::<AnimMeshes>()
+            .register_type::<MdlSettings>()
+            .register_type::<MeshAnimPlayer>()
+            .register_asset_loader(MdlLoader::default())
+            .add_systems(PostUpdate, (update_mdls, anim::animate_mesh_animations));
     }
 }

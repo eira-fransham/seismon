@@ -1,8 +1,8 @@
-use bevy_animation::AnimationPlayer;
 use bevy_asset::{Asset, Assets, Handle};
 use bevy_ecs::{
     change_detection::DetectChanges as _,
     component::Component,
+    reflect::ReflectComponent,
     system::{Query, Res, SystemChangeTick},
     world::Mut,
 };
@@ -14,9 +14,10 @@ pub struct AnimMeshes {
     pub frames: Vec<Handle<Mesh>>,
 }
 
+// TODO: Link this up with `AnimationPlayer`?
 #[derive(Component, Reflect, Clone)]
-#[require(AnimationPlayer)]
-pub struct MeshAnimation {
+#[reflect(Component)]
+pub struct MeshAnimPlayer {
     pub anim_meshes: Handle<AnimMeshes>,
     /// The current point in the animation, in frames.
     pub frame: f64,
@@ -24,9 +25,15 @@ pub struct MeshAnimation {
     last_index: usize,
 }
 
+impl MeshAnimPlayer {
+    pub fn new(anim_meshes: Handle<AnimMeshes>) -> Self {
+        Self { anim_meshes, frame: 0., last_index: 0 }
+    }
+}
+
 pub fn animate_mesh_animations(
     anim_meshes: Res<Assets<AnimMeshes>>,
-    entities: Query<(&mut Mesh3d, Mut<MeshAnimation>)>,
+    entities: Query<(&mut Mesh3d, Mut<MeshAnimPlayer>)>,
     ticks: SystemChangeTick,
 ) {
     for (mut mesh, mut anim) in entities {

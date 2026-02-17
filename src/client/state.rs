@@ -133,14 +133,15 @@ impl ClientState {
                                 worldspawn_path.clone().with_label(format!("Model{model_idx}")),
                             )
                         } else {
-                            asset_server.load_with_settings(
-                                model_name,
-                                |settings: &mut bevy_mod_assimp::AssimpSettings| {
-                                    // Assimp seems to rotate the models compared to what we expect.
-                                    settings.transform =
-                                        Mat4::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
-                                },
-                            )
+                            // asset_server.load_with_settings(
+                            //     model_name,
+                            //     |settings: &mut bevy_mod_assimp::AssimpSettings| {
+                            //         // Assimp seems to rotate the models compared to what we expect.
+                            //         settings.transform =
+                            //             Mat4::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
+                            //     },
+                            // )
+                            asset_server.load(model_name)
                         }
                     })
                     .map(Some),
