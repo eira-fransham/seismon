@@ -163,7 +163,7 @@ impl Plugin for SeismonConsolePlugin {
                     (systems::write_console_out, systems::write_center_print)
                         .run_if(resource_changed::<RenderConsoleOutput>),
                     systems::write_console_in.run_if(resource_changed::<RenderConsoleInput>),
-                    systems::update_console_visibility.run_if(resource_changed::<InputFocus>),
+                    systems::update_console_visibility.run_if(state_changed::<InputFocus>),
                     console_text::systems::update_atlas_text,
                 ),
             )
@@ -2156,10 +2156,10 @@ mod systems {
 
     pub fn update_console_visibility(
         mut consoles: Query<&mut Visibility, With<ConsoleUi>>,
-        focus: Res<InputFocus>,
+        focus: Res<State<InputFocus>>,
     ) {
         for mut vis in consoles.iter_mut() {
-            match *focus {
+            match focus.get() {
                 InputFocus::Console => {
                     *vis = Visibility::Visible;
                 }

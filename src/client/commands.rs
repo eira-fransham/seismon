@@ -46,16 +46,19 @@ pub fn register_commands(app: &mut App) {
 
     // set up overlay/ui toggles
     app.command(
-        |In(ToggleConsole), conn: Option<Res<Connection>>, mut focus: ResMut<InputFocus>| {
+        |In(ToggleConsole),
+         conn: Option<Res<Connection>>,
+         focus: Res<State<InputFocus>>,
+         mut next_focus: ResMut<NextState<InputFocus>>| {
             if conn.is_some() {
-                match &*focus {
-                    InputFocus::Menu | InputFocus::Game => *focus = InputFocus::Console,
-                    InputFocus::Console => *focus = InputFocus::Game,
+                match focus.get() {
+                    InputFocus::Menu | InputFocus::Game => next_focus.set(InputFocus::Console),
+                    InputFocus::Console => next_focus.set(InputFocus::Game),
                 }
             } else {
-                match &*focus {
-                    InputFocus::Console => *focus = InputFocus::Menu,
-                    InputFocus::Menu => *focus = InputFocus::Console,
+                match focus.get() {
+                    InputFocus::Console => next_focus.set(InputFocus::Menu),
+                    InputFocus::Menu => next_focus.set(InputFocus::Console),
                     InputFocus::Game => {
                         unreachable!("Game focus is invalid when we are disconnected")
                     }
@@ -70,24 +73,29 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "togglemenu", about = "Open or close the menu")]
     struct ToggleMenu;
 
-    app.command(|In(ToggleMenu), conn: Option<Res<Connection>>, mut focus: ResMut<InputFocus>| {
-        if conn.is_some() {
-            match &*focus {
-                InputFocus::Game => *focus = InputFocus::Menu,
-                InputFocus::Console => *focus = InputFocus::Menu,
-                InputFocus::Menu => *focus = InputFocus::Game,
-            }
-        } else {
-            match &*focus {
-                InputFocus::Console => *focus = InputFocus::Menu,
-                InputFocus::Menu => *focus = InputFocus::Console,
-                InputFocus::Game => {
-                    unreachable!("Game focus is invalid when we are disconnected")
+    app.command(
+        |In(ToggleMenu),
+         conn: Option<Res<Connection>>,
+         focus: Res<State<InputFocus>>,
+         mut next_focus: ResMut<NextState<InputFocus>>| {
+            if conn.is_some() {
+                match focus.get() {
+                    InputFocus::Game => next_focus.set(InputFocus::Menu),
+                    InputFocus::Console => next_focus.set(InputFocus::Menu),
+                    InputFocus::Menu => next_focus.set(InputFocus::Game),
+                }
+            } else {
+                match focus.get() {
+                    InputFocus::Console => next_focus.set(InputFocus::Menu),
+                    InputFocus::Menu => next_focus.set(InputFocus::Console),
+                    InputFocus::Game => {
+                        unreachable!("Game focus is invalid when we are disconnected")
+                    }
                 }
             }
-        }
-        ExecResult::default()
-    });
+            ExecResult::default()
+        },
+    );
 
     #[derive(Parser)]
     #[command(name = "connect", about = "Connect to a remote server")]
@@ -96,30 +104,36 @@ pub fn register_commands(app: &mut App) {
     }
 
     // set up connection console commands
-    app.command(|In(Connect { remote }), mut commands: Commands, mut focus: ResMut<InputFocus>| {
-        match connect(&remote) {
-            Ok((new_conn, new_state)) => {
-                *focus = InputFocus::Game;
-                commands.insert_resource(new_conn);
-                commands.insert_resource(Connection::new_server(new_state));
-                ExecResult::default()
+    app.command(
+        |In(Connect { remote }),
+         mut commands: Commands,
+         mut next_focus: ResMut<NextState<InputFocus>>| {
+            match connect(&remote) {
+                Ok((new_conn, new_state)) => {
+                    next_focus.set(InputFocus::Game);
+                    commands.insert_resource(new_conn);
+                    commands.insert_resource(Connection::new_server(new_state));
+                    ExecResult::default()
+                }
+                Err(e) => e.to_string().into(),
             }
-            Err(e) => e.to_string().into(),
-        }
-    });
+        },
+    );
 
     #[derive(Parser)]
     #[command(name = "reconnect", about = "Reconnect to the current server")]
     struct Reconnect;
 
     app.command(
-        |In(Reconnect), mut conn: Option<ResMut<Connection>>, mut focus: ResMut<InputFocus>| {
+        |In(Reconnect),
+         mut conn: Option<ResMut<Connection>>,
+         mut next_focus: ResMut<NextState<InputFocus>>| {
             if let Some(conn) = conn.as_deref_mut()
                 && let ConnectionTarget::Server { stage, .. } = &mut conn.target
             {
                 // TODO: is this all that's needed to reconnect to a server?
                 *stage = ConnectionStage::SignOn(SignOnStage::Prespawn);
-                *focus = InputFocus::Game;
+                next_focus.set(InputFocus::Game);
                 ExecResult::default()
             } else {
                 "not connected".into()
@@ -135,11 +149,11 @@ pub fn register_commands(app: &mut App) {
         |In(Disconnect),
          mut commands: Commands,
          conn: Option<Res<Connection>>,
-         mut focus: ResMut<InputFocus>| {
+         mut next_focus: ResMut<NextState<InputFocus>>| {
             if conn.is_some() {
                 commands.remove_resource::<Connection>();
                 commands.remove_resource::<QSocket>();
-                *focus = InputFocus::Console;
+                next_focus.set(InputFocus::Console);
                 ExecResult::default()
             } else {
                 "not connected".into()
@@ -158,7 +172,7 @@ pub fn register_commands(app: &mut App) {
          mut commands: Commands,
          vfs: Res<Vfs>,
          mut time: ResMut<Time<Virtual>>,
-         mut focus: ResMut<InputFocus>| {
+         mut next_focus: ResMut<NextState<InputFocus>>| {
             let mut demo_file = match vfs.open(format!("{demo}.dem")) {
                 Ok(f) => f,
                 Err(e) => {
@@ -170,7 +184,7 @@ pub fn register_commands(app: &mut App) {
 
             match DemoServer::new(&mut demo_file) {
                 Ok(d) => {
-                    *focus = InputFocus::Game;
+                    next_focus.set(InputFocus::Game);
 
                     commands.insert_resource(Connection::new_demo(d));
                 }
@@ -195,7 +209,7 @@ pub fn register_commands(app: &mut App) {
          vfs: Res<Vfs>,
          mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
-         mut focus: ResMut<InputFocus>,
+         mut next_focus: ResMut<NextState<InputFocus>>,
          mut next_state: ResMut<NextState<ClientGameState>>,
          server: Option<Res<Session>>| {
             if !demos.is_empty() {
@@ -233,8 +247,7 @@ pub fn register_commands(app: &mut App) {
                 };
 
                 commands.insert_resource(new_conn);
-                *focus = InputFocus::Game;
-
+                next_focus.set(InputFocus::Game);
                 next_state.set(ClientGameState::Prespawn);
             }
 
@@ -463,7 +476,7 @@ pub fn register_commands(app: &mut App) {
     fn cmd_map(
         In(Map { map_name }): In<Map>,
         mut commands: Commands,
-        mut focus: ResMut<InputFocus>,
+        mut next_focus: ResMut<NextState<InputFocus>>,
         mut client_events: ResMut<Messages<ClientMessage>>,
         mut server_events: ResMut<Messages<ServerMessage>>,
     ) -> ExecResult {
@@ -485,7 +498,7 @@ pub fn register_commands(app: &mut App) {
         commands.insert_resource(Connection::new_server(ConnectionStage::SignOn(
             SignOnStage::Prespawn,
         )));
-        *focus = InputFocus::Game;
+        next_focus.set(InputFocus::Game);
 
         Default::default()
     }

@@ -150,7 +150,7 @@ where
                 camera_template,
                 default_camera_template: camera_template,
             })
-            .insert_state(ClientGameState::default())
+            .init_state::<ClientGameState>()
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
@@ -665,7 +665,7 @@ mod systems {
     pub fn lock_cursor(
         mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
         registry: Res<Registry>,
-        focus: Res<InputFocus>,
+        focus: Res<State<InputFocus>>,
     ) {
         if *focus == InputFocus::Game && registry.is_pressed("mlook") {
             cursor_options.grab_mode = CursorGrabMode::Locked;
@@ -1411,7 +1411,8 @@ mod systems {
             time: Res<Time<Virtual>>,
             mut console: ResMut<ConsoleOutput>,
             mut demo_queue: ResMut<DemoQueue>,
-            mut focus: ResMut<InputFocus>,
+            mut next_focus: ResMut<NextState<InputFocus>>,
+            mut next_state: ResMut<NextState<ClientGameState>>,
         ) -> Result<(), ClientError> {
             use ConnectionStatus as S;
             let new_conn = match status? {
@@ -1461,8 +1462,10 @@ mod systems {
                 commands.insert_resource(new_conn);
             } else {
                 commands.remove_resource::<Connection>();
+                // TODO: We can do this generically rather than manually setting it each time
+                next_state.set(ClientGameState::Disconnected);
                 // don't allow game focus when disconnected
-                *focus = InputFocus::Console;
+                next_focus.set(InputFocus::Console);
             }
 
             Ok(())

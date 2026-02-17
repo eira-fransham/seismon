@@ -27,19 +27,16 @@ pub struct SeismonInputPlugin;
 
 impl Plugin for SeismonInputPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.init_resource::<InputFocus>()
+        app.init_state::<InputFocus>()
             .init_resource::<GameInput>()
             .init_resource::<InputMessageReader<KeyboardInput>>()
             .add_systems(
                 Update,
                 (
-                    systems::game_input
-                        .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Game)),
-                    systems::console_input
-                        .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Console)),
-                    systems::menu_input
-                        .run_if(resource_exists_and_equals::<InputFocus>(InputFocus::Menu)),
-                    systems::reset_mouse_delta.run_if(resource_exists_and_changed::<InputFocus>),
+                    systems::game_input.run_if(in_state(InputFocus::Game)),
+                    systems::console_input.run_if(in_state(InputFocus::Console)),
+                    systems::menu_input.run_if(in_state(InputFocus::Menu)),
+                    systems::reset_mouse_delta.run_if(state_changed::<InputFocus>),
                 )
                     .run_if(systems::window_is_focused),
             );
@@ -48,11 +45,12 @@ impl Plugin for SeismonInputPlugin {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Resource)]
+// TODO: Turn this into a state instead of a resource
+#[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum InputFocus {
-    Game,
     #[default]
     Console,
+    Game,
     Menu,
 }
 

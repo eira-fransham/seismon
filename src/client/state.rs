@@ -313,7 +313,7 @@ impl ClientState {
         };
 
         if let Some(entity) = state.server_entity_to_client_entity.get(&update.ent_id) {
-            let Ok(mut ent) = commands.get_entity(*entity) else {
+            if commands.get_entity(*entity).is_err() {
                 warn!("Server tried to update non-existent entity {}", update.ent_id);
                 return;
             };
@@ -322,8 +322,15 @@ impl ClientState {
                 && let Some(PrecacheModel::Loaded(model)) =
                     state.models.get(model_id as usize).cloned()
             {
-                ent.insert(SceneRoot(model));
+                if let Ok(children) = children.get(*entity) {
+                    for child in children {
+                        commands.entity(*child).despawn();
+                    }
+                }
+                commands.entity(*entity).insert(SceneRoot(model));
             }
+
+            let mut ent = commands.entity(*entity);
 
             let do_update = [
                 update.origin_x.is_some(),
