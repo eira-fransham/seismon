@@ -172,6 +172,7 @@ async fn load_mdl(
 
     let textures = raw
         .textures()
+        .iter()
         .enumerate()
         .filter_map(|(i, tex)| match tex {
             Texture::Static(static_texture) => {
@@ -279,6 +280,7 @@ async fn load_mdl(
 
     let animations = raw
         .animations()
+        .iter()
         .enumerate()
         .map(|(i, anim)| match anim {
             Animation::Static(raw_mesh) => {
@@ -287,11 +289,23 @@ async fn load_mdl(
                     RenderAssetUsages::RENDER_WORLD,
                 );
 
-                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, raw_mesh.vertices().to_owned());
+                mesh.insert_attribute(
+                    Mesh::ATTRIBUTE_POSITION,
+                    raw.polygons()
+                        .iter()
+                        .flat_map(|poly| poly.indices().map(|i| raw_mesh.vertices()[i as usize]))
+                        .collect::<Vec<_>>(),
+                );
                 mesh.insert_attribute(
                     Mesh::ATTRIBUTE_UV_0,
-                    raw.texcoords()
-                        .map(|coord| Vec2::new(coord.s() as f32, coord.t() as f32))
+                    raw.polygons()
+                        .iter()
+                        .flat_map(|poly| {
+                            poly.indices().map(|i| {
+                                let coord = &raw.texcoords()[i as usize];
+                                Vec2::new(coord.s() as f32, coord.t() as f32)
+                            })
+                        })
                         .collect::<Vec<_>>(),
                 );
 
@@ -315,12 +329,23 @@ async fn load_mdl(
 
                         mesh.insert_attribute(
                             Mesh::ATTRIBUTE_POSITION,
-                            raw_mesh.vertices().to_owned(),
+                            raw.polygons()
+                                .iter()
+                                .flat_map(|poly| {
+                                    poly.indices().map(|i| raw_mesh.vertices()[i as usize])
+                                })
+                                .collect::<Vec<_>>(),
                         );
                         mesh.insert_attribute(
                             Mesh::ATTRIBUTE_UV_0,
-                            raw.texcoords()
-                                .map(|coord| Vec2::new(coord.s() as f32, coord.t() as f32))
+                            raw.polygons()
+                                .iter()
+                                .flat_map(|poly| {
+                                    poly.indices().map(|i| {
+                                        let coord = &raw.texcoords()[i as usize];
+                                        Vec2::new(coord.s() as f32, coord.t() as f32)
+                                    })
+                                })
                                 .collect::<Vec<_>>(),
                         );
 
@@ -420,7 +445,6 @@ fn update_mdls(
     mdls: Res<Assets<Mdl>>,
 ) {
     for (settings, mut player, mut mat) in entities {
-        dbg!();
         if settings.animation == settings.cur_animation && settings.skin == settings.cur_skin {
             continue;
         }

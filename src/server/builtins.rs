@@ -21,74 +21,74 @@ use bevy_mod_scripting::{
 
 use crate::server::progs::globals::make_vectors;
 
-// fn makevectors (vector ang) -> void
-// fn setorigin (entity e, vector o) -> void
-// fn setmodel (entity e, string m) -> void
-// fn setsize (entity e, vector min, vector max) -> void
-// fn break () -> void
-// fn random () -> float
-// fn sound (entity e, float chan, string samp, float vol, float atten) -> void
-// fn normalize (vector v) -> vector
-// fn error (string e) -> void
-// fn objerror (string e) -> void
-// fn vlen (vector v) -> float
-// fn vectoyaw (vector v) -> float
-// fn spawn () -> entity
-// fn remove (entity e) -> void
-// fn traceline (vector v1, vector v2, float nomonsters, entity forent) -> void
-// fn checkclient () -> entity
-// fn find (entity start, .string fld, string match) -> entity
-// fn precache_sound (string s) -> string
-// fn precache_model (string s) -> string
-// fn stuffcmd (entity client, string s) -> void
-// fn findradius (vector org, float rad) -> entity
-// fn bprint (float level, string s) -> void
-// fn sprint (entity client, float level, string s) -> void
-// fn dprint (string s) -> void
-// fn ftos (float f) -> string
-// fn vtos (vector v) -> string
-// fn coredump () -> void
-// fn traceon () -> void
-// fn traceoff () -> void
-// fn eprint (entity e) -> void
-// fn walkmove (float yaw, float dist) -> float
-// fn droptofloor (float yaw, float dist) -> float
-// fn lightstyle (float style, string value) -> void
-// fn rint (float v) -> float
-// fn floor (float v) -> float
-// fn ceil (float v) -> float
-// fn checkbottom (entity e) -> float
-// fn pointcontents (vector v) -> float
-// fn fabs (float f) -> float
-// fn aim (entity e, float speed) -> vector
-// fn cvar (string s) -> float
-// fn localcmd (string s) -> void
-// fn nextent (entity e) -> entity
-// fn ChangeYaw () -> void
-// fn vectoangles (vector v) -> vector
-// fn WriteByte (float to, float f) -> void
-// fn WriteChar (float to, float f) -> void
-// fn WriteShort (float to, float f) -> void
-// fn WriteLong (float to, float f) -> void
-// fn WriteCoord (float to, float f) -> void
-// fn WriteAngle (float to, float f) -> void
-// fn WriteString (float to, string s) -> void
-// fn WriteEntity (float to, entity s) -> void
-// fn movetogoal (float step) -> void
-// fn precache_file (string s) -> string
-// fn makestatic (entity e) -> void
-// fn changelevel (string s) -> void
-// fn cvar_set (string var, string val) -> void
-// fn centerprint (entity client, string s) -> void
-// fn ambientsound (vector pos, string samp, float vol, float atten) -> void
-// fn precache_model2 (string s) -> string
-// fn precache_sound2 (string s) -> string
-// fn precache_file2 (string s) -> string
-// fn setspawnparms (entity e) -> void
-// fn logfrag (entity killer, entity killee) -> void
-// fn infokey (entity e, string key) -> string
-// fn stof (string s) -> float
-// fn multicast (vector where, float set) -> void
+// fn makevectors(vector ang) -> void
+// fn setorigin(entity e, vector o) -> void
+// fn setmodel(entity e, string m) -> void
+// fn setsize(entity e, vector min, vector max) -> void
+// fn break() -> void
+// fn random() -> float
+// fn sound(entity e, float chan, string samp, float vol, float atten) -> void
+// fn normalize(vector v) -> vector
+// fn error(string e) -> void
+// fn objerror(string e) -> void
+// fn vlen(vector v) -> float
+// fn vectoyaw(vector v) -> float
+// fn spawn() -> entity
+// fn remove(entity e) -> void
+// fn traceline(vector v1, vector v2, float nomonsters, entity forent) -> void
+// fn checkclient() -> entity
+// fn find(entity start, .string fld, string match) -> entity
+// fn precache_sound(string s) -> string
+// fn precache_model(string s) -> string
+// fn stuffcmd(entity client, string s) -> void
+// fn findradius(vector org, float rad) -> entity
+// fn bprint(float level, string s) -> void
+// fn sprint(entity client, float level, string s) -> void
+// fn dprint(string s) -> void
+// fn ftos(float f) -> string
+// fn vtos(vector v) -> string
+// fn coredump() -> void
+// fn traceon() -> void
+// fn traceoff() -> void
+// fn eprint(entity e) -> void
+// fn walkmove(float yaw, float dist) -> float
+// fn droptofloor(float yaw, float dist) -> float
+// fn lightstyle(float style, string value) -> void
+// fn rint(float v) -> float
+// fn floor(float v) -> float
+// fn ceil(float v) -> float
+// fn checkbottom(entity e) -> float
+// fn pointcontents(vector v) -> float
+// fn fabs(float f) -> float
+// fn aim(entity e, float speed) -> vector
+// fn cvar(string s) -> float
+// fn localcmd(string s) -> void
+// fn nextent(entity e) -> entity
+// fn ChangeYaw() -> void
+// fn vectoangles(vector v) -> vector
+// fn WriteByte(float to, float f) -> void
+// fn WriteChar(float to, float f) -> void
+// fn WriteShort(float to, float f) -> void
+// fn WriteLong(float to, float f) -> void
+// fn WriteCoord(float to, float f) -> void
+// fn WriteAngle(float to, float f) -> void
+// fn WriteString(float to, string s) -> void
+// fn WriteEntity(float to, entity s) -> void
+// fn movetogoal(float step) -> void
+// fn precache_file(string s) -> string
+// fn makestatic(entity e) -> void
+// fn changelevel(string s) -> void
+// fn cvar_set(string var, string val) -> void
+// fn centerprint(entity client, string s) -> void
+// fn ambientsound(vector pos, string samp, float vol, float atten) -> void
+// fn precache_model2(string s) -> string
+// fn precache_sound2(string s) -> string
+// fn precache_file2(string s) -> string
+// fn setspawnparms(entity e) -> void
+// fn logfrag(entity killer, entity killee) -> void
+// fn infokey(entity e, string key) -> string
+// fn stof(string s) -> float
+// fn multicast(vector where, float set) -> void
 
 fn ent_ref<D, O, F>(reference: &ReflectReference, func: F) -> Result<O, InteropError>
 where

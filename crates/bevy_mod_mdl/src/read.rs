@@ -249,20 +249,20 @@ impl RawMdl {
         self.texture_height
     }
 
-    pub fn textures(&self) -> impl Iterator<Item = &Texture> {
-        self.textures.iter()
+    pub fn textures(&self) -> &[Texture] {
+        &self.textures
     }
 
-    pub fn texcoords(&self) -> impl Iterator<Item = &Texcoord> {
-        self.texcoords.iter()
+    pub fn texcoords(&self) -> &[Texcoord] {
+        &self.texcoords
     }
 
-    pub fn polygons(&self) -> impl Iterator<Item = &TriFace> {
-        self.tris.iter()
+    pub fn polygons(&self) -> &[TriFace] {
+        &self.tris
     }
 
-    pub fn animations(&self) -> impl Iterator<Item = &Animation> {
-        self.animations.iter()
+    pub fn animations(&self) -> &[Animation] {
+        &self.animations
     }
 
     pub fn flags(&self) -> ModelFlags {
@@ -289,7 +289,9 @@ impl From<MdlResult> for Result<RawMdl, MdlFileError> {
 }
 
 pub async fn load<R>(mut reader: &mut R) -> MdlResult
-where R: bevy_asset::io::Reader + ?Sized {
+where
+    R: bevy_asset::io::Reader + ?Sized,
+{
     let mut reader = AsyncReadBytes::new(&mut reader);
     let mut error_set = Vec::<MdlFileError>::new();
 
@@ -350,6 +352,7 @@ where R: bevy_asset::io::Reader + ?Sized {
     let scale: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
     let origin: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
     let radius = try_!(reader.read_f32::<LittleEndian>().await);
+    // TODO: Expose this
     let _eye_position: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
     let texture_count = try_!(reader.read_i32::<LittleEndian>().await);
     let texture_width = try_!(reader.read_i32::<LittleEndian>().await);
@@ -458,14 +461,13 @@ where R: bevy_asset::io::Reader + ?Sized {
     };
 
     let texcoords = {
-        let mut out = Vec::with_capacity(texture_count as usize);
+        let mut out = Vec::with_capacity(vertex_count as usize);
 
         for _ in 0..vertex_count {
             let is_on_seam = match try_!(reader.read_i32::<LittleEndian>().await) {
                 0 => false,
                 0x20 => true,
                 x => {
-                    // TODO: Messes up lifetimes
                     nonfatal!(MdlFileError::InvalidSeamFlag(x));
                     false
                 }
@@ -644,10 +646,14 @@ async fn read_vertex<R>(
 where
     R: AsyncReadExt + Unpin,
 {
-    Ok(Vec3::new(
+    let [x, y, z] = Vec3::new(
         reader.read_u8().await? as f32,
         reader.read_u8().await? as f32,
         reader.read_u8().await? as f32,
     )
-    .mul_add(scale, translate))
+    .mul_add(scale, translate)
+    .into();
+
+    // Convert to bevy coordinate system
+    Ok(Vec3::new(-x, z, y))
 }
