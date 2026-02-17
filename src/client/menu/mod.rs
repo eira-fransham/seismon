@@ -350,7 +350,8 @@ impl<'a> MenuBuilder<'a> {
     pub fn add_action<N, S, M>(mut self, name: N, action: S) -> Self
     where
         N: Into<CName>,
-        S: IntoSystem<(), (), M> + 'static, {
+        S: IntoSystem<(), (), M> + 'static,
+    {
         let action_id = self.world.register_system(action);
         self.items.push(NamedMenuItem::new(name, Item::Action(action_id)));
         self
@@ -359,7 +360,8 @@ impl<'a> MenuBuilder<'a> {
     pub fn add_toggle<N, S>(mut self, name: N, init: bool, cvar: S) -> Self
     where
         N: Into<CName>,
-        S: Into<CName>, {
+        S: Into<CName>,
+    {
         self.items.push(NamedMenuItem::new(name, Item::Toggle(Toggle::new(init, cvar))));
         self
     }
@@ -368,7 +370,8 @@ impl<'a> MenuBuilder<'a> {
     where
         S: Into<CName>,
         C: Into<CName>,
-        E: FnOnce(EnumBuilder) -> Vec<EnumItem>, {
+        E: FnOnce(EnumBuilder) -> Vec<EnumItem>,
+    {
         self.items.push(NamedMenuItem::new(
             name,
             Item::Enum(Enum::new(init, cvar, items(EnumBuilder::new()))),
@@ -429,7 +432,8 @@ impl EnumBuilder {
     pub fn with<N, S>(mut self, name: N, val: S) -> Result<Self, Error>
     where
         N: Into<CName>,
-        S: AsRef<str>, {
+        S: AsRef<str>,
+    {
         self.items.push(EnumItem::new(name, val)?);
 
         Ok(self)
@@ -448,7 +452,9 @@ pub struct NamedMenuItem {
 
 impl NamedMenuItem {
     fn new<S>(name: S, item: Item) -> NamedMenuItem
-    where S: Into<CName> {
+    where
+        S: Into<CName>,
+    {
         let name = name.into();
         NamedMenuItem { name, item }
     }
@@ -461,101 +467,3 @@ impl NamedMenuItem {
         &self.item
     }
 }
-
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//     use std::{cell::Cell, rc::Rc};
-
-//     fn view() -> MenuView {
-//         MenuView {
-//             draw_plaque: false,
-//             title_path: "path".to_string(),
-//             body: MenuBodyView::Dynamic,
-//         }
-//     }
-
-//     fn is_inactive(state: &MenuState) -> bool {
-//         match state {
-//             MenuState::Inactive => true,
-//             _ => false,
-//         }
-//     }
-
-//     fn is_active(state: &MenuState) -> bool {
-//         match state {
-//             MenuState::Active { .. } => true,
-//             _ => false,
-//         }
-//     }
-
-//     fn is_insubmenu(state: &MenuState) -> bool {
-//         match state {
-//             MenuState::InSubMenu { .. } => true,
-//             _ => false,
-//         }
-//     }
-
-//     #[test]
-//     fn test_menu_builder() {
-//         let action_target = Rc::new(Cell::new(false));
-//         let action_target_handle = action_target.clone();
-
-//         let _m = MenuBuilder::new()
-//             .add_action("action", Box::new(move || action_target_handle.set(true)))
-//             .build(view());
-
-//         // TODO
-//     }
-
-//     #[test]
-//     fn test_menu_active_submenu() {
-//         let menu = MenuBuilder::new()
-//             .add_submenu(
-//                 "menu_1",
-//                 MenuBuilder::new()
-//                     .add_action("action_1", Box::new(|| ()))
-//                     .build(view()),
-//             )
-//             .add_submenu(
-//                 "menu_2",
-//                 MenuBuilder::new()
-//                     .add_action("action_2", Box::new(|| ()))
-//                     .build(view()),
-//             )
-//             .build(view());
-
-//         let m = &menu;
-//         let m1 = match m.items[0].item {
-//             Item::Submenu(ref m1i) => m1i,
-//             _ => unreachable!(),
-//         };
-//         let m2 = match m.items[1].item {
-//             Item::Submenu(ref m2i) => m2i,
-//             _ => unreachable!(),
-//         };
-
-//         assert!(is_active(&m.state.get()));
-//         assert!(is_inactive(&m1.state.get()));
-//         assert!(is_inactive(&m2.state.get()));
-
-//         // enter m1
-//         m.activate().unwrap();
-//         assert!(is_insubmenu(&m.state.get()));
-//         assert!(is_active(&m1.state.get()));
-//         assert!(is_inactive(&m2.state.get()));
-
-//         // exit m1
-//         m.back().unwrap();
-//         assert!(is_active(&m.state.get()));
-//         assert!(is_inactive(&m1.state.get()));
-//         assert!(is_inactive(&m2.state.get()));
-
-//         // enter m2
-//         m.next().unwrap();
-//         m.activate().unwrap();
-//         assert!(is_insubmenu(&m.state.get()));
-//         assert!(is_inactive(&m1.state.get()));
-//         assert!(is_active(&m2.state.get()));
-//     }
-// }

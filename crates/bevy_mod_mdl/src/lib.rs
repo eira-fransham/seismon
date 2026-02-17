@@ -13,13 +13,14 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{UVec2, Vec3};
+use bevy_math::{Quat, UVec2, Vec3};
 use bevy_mesh::{Mesh, Mesh3d};
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_scene::Scene;
 use bevy_tasks::ConditionalSendFuture;
+use bevy_transform::components::Transform;
 use seismon_utils::model::ModelFlags;
 use serde::{Deserialize, Serialize};
 use std::{cell::OnceCell, collections::HashSet, io};
@@ -436,6 +437,7 @@ async fn load_mdl_as_scene(
     let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
 
     world.spawn((
+        Transform::default(),
         MdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
         anim_player,
         texture,
