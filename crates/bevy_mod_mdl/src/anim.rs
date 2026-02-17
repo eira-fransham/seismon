@@ -1,57 +1,78 @@
 use bevy_asset::{Asset, Assets, Handle};
 use bevy_ecs::{
-    change_detection::DetectChanges as _,
     component::Component,
     reflect::ReflectComponent,
-    system::{Query, Res, SystemChangeTick},
+    system::{Query, Res},
     world::Mut,
 };
 use bevy_mesh::{Mesh, Mesh3d};
 use bevy_reflect::Reflect;
+use bevy_time::{Time, Virtual};
+
+#[derive(Reflect, Clone)]
+pub struct AnimMeshFrame {
+    pub duration_secs: f64,
+    pub mesh: Handle<Mesh>,
+}
 
 #[derive(Asset, Reflect, Clone)]
 pub struct AnimMeshes {
-    pub frames: Vec<Handle<Mesh>>,
+    pub frames: Vec<AnimMeshFrame>,
 }
 
 // TODO: Link this up with `AnimationPlayer`?
-#[derive(Component, Reflect, Clone)]
+#[derive(Debug, Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct MeshAnimPlayer {
-    pub anim_meshes: Handle<AnimMeshes>,
-    /// The current point in the animation, in frames.
-    pub frame: f64,
-    /// The last index that was set on the [`Mesh3d`], to prevent too many updates.
-    last_index: usize,
+    anim_meshes: Handle<AnimMeshes>,
+    dirty: bool,
+    next_frame_time: f64,
+    /// The index of the current frame
+    frame: usize,
 }
 
 impl MeshAnimPlayer {
     pub fn new(anim_meshes: Handle<AnimMeshes>) -> Self {
-        Self { anim_meshes, frame: 0., last_index: 0 }
+        Self { anim_meshes, frame: 0, next_frame_time: f64::NEG_INFINITY, dirty: true }
+    }
+
+    pub fn set_anim_meshes(&mut self, anim_meshes: Handle<AnimMeshes>) {
+        self.anim_meshes = anim_meshes;
+        self.frame = 0;
+        self.dirty = true;
     }
 }
 
-pub fn animate_mesh_animations(
+pub(crate) fn animate_mesh_animations(
+    time: Res<Time<Virtual>>,
     anim_meshes: Res<Assets<AnimMeshes>>,
     entities: Query<(&mut Mesh3d, Mut<MeshAnimPlayer>)>,
-    ticks: SystemChangeTick,
 ) {
     for (mut mesh, mut anim) in entities {
-        if !anim.last_changed().is_newer_than(ticks.last_run(), ticks.this_run()) {
-            continue;
-        }
-
         let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
             continue;
         };
 
-        let cur_index = anim.frame.clamp(0., anim_mesh_frames.frames.len() as f64 - 1.) as usize;
+        let time = time.elapsed().as_secs_f64();
 
-        if anim.last_index == cur_index {
+        let (last_frame_time, new_frame_index) = if anim.dirty {
+            (time, anim.frame)
+        } else if time >= anim.next_frame_time {
+            (anim.next_frame_time, anim.frame + 1)
+        } else {
             continue;
+        };
+
+        let new_frame_index = new_frame_index % anim_mesh_frames.frames.len();
+
+        let new_frame = &anim_mesh_frames.frames[new_frame_index];
+
+        if anim.dirty || new_frame_index != anim.frame {
+            mesh.0 = new_frame.mesh.clone();
         }
 
-        mesh.0 = anim_mesh_frames.frames[cur_index].clone();
-        anim.last_index = cur_index;
+        anim.frame = new_frame_index;
+        anim.next_frame_time = last_frame_time + new_frame.duration_secs;
+        anim.dirty = false;
     }
 }

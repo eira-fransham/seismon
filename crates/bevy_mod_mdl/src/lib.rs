@@ -13,7 +13,7 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{Vec2, Vec3};
+use bevy_math::{UVec2, Vec3};
 use bevy_mesh::{Mesh, Mesh3d};
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;
@@ -28,7 +28,7 @@ use thiserror::Error;
 pub use qbsp::Palette;
 
 use crate::{
-    anim::{AnimMeshes, MeshAnimPlayer},
+    anim::{AnimMeshFrame, AnimMeshes, MeshAnimPlayer},
     read::{Animation, Texture},
 };
 
@@ -185,8 +185,10 @@ async fn load_mdl(
                         settings.override_palette.as_ref().unwrap_or(&loader.default_palette),
                     ),
                 );
-                let mat = load_context
-                    .add_labeled_asset(format!("stdmat{i}"), StandardMaterial::from(img));
+                let mat = load_context.add_labeled_asset(
+                    format!("stdmat{i}"),
+                    StandardMaterial { unlit: true, ..StandardMaterial::from(img) },
+                );
 
                 Some(load_context.add_labeled_asset(format!("tex{i}"), GenericMaterial::new(mat)))
             }
@@ -219,7 +221,7 @@ async fn load_mdl(
                             tex,
                             load_context.add_labeled_asset(
                                 format!("stdmat{i}frame{frame_idx}"),
-                                StandardMaterial::from(img),
+                                StandardMaterial { unlit: true, ..StandardMaterial::from(img) },
                             ),
                         )
                     })
@@ -303,7 +305,10 @@ async fn load_mdl(
                         .flat_map(|poly| {
                             poly.indices().map(|i| {
                                 let coord = &raw.texcoords()[i as usize];
-                                Vec2::new(coord.s() as f32, coord.t() as f32)
+                                coord.to_bevy(
+                                    UVec2::new(raw.texture_width(), raw.texture_height()),
+                                    poly.faces_front(),
+                                )
                             })
                         })
                         .collect::<Vec<_>>(),
@@ -313,8 +318,15 @@ async fn load_mdl(
 
                 let _ = default_mesh.set(mesh_handle.clone());
 
-                load_context
-                    .add_labeled_asset(format!("anim{i}"), AnimMeshes { frames: vec![mesh_handle] })
+                load_context.add_labeled_asset(
+                    format!("anim{i}"),
+                    AnimMeshes {
+                        frames: vec![AnimMeshFrame {
+                            duration_secs: f64::INFINITY,
+                            mesh: mesh_handle,
+                        }],
+                    },
+                )
             }
             Animation::Animated(animated_mesh) => {
                 let frames = animated_mesh
@@ -343,7 +355,10 @@ async fn load_mdl(
                                 .flat_map(|poly| {
                                     poly.indices().map(|i| {
                                         let coord = &raw.texcoords()[i as usize];
-                                        Vec2::new(coord.s() as f32, coord.t() as f32)
+                                        coord.to_bevy(
+                                            UVec2::new(raw.texture_width(), raw.texture_height()),
+                                            poly.faces_front(),
+                                        )
                                     })
                                 })
                                 .collect::<Vec<_>>(),
@@ -354,7 +369,10 @@ async fn load_mdl(
 
                         let _ = default_mesh.set(mesh_handle.clone());
 
-                        mesh_handle
+                        AnimMeshFrame {
+                            duration_secs: raw_mesh.duration().as_secs_f64(),
+                            mesh: mesh_handle,
+                        }
                     })
                     .collect();
 
@@ -418,7 +436,7 @@ async fn load_mdl_as_scene(
     let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
 
     world.spawn((
-        MdlSettings { animation: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
+        MdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
         anim_player,
         texture,
         mesh,
@@ -430,7 +448,7 @@ async fn load_mdl_as_scene(
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct MdlSettings {
-    pub animation: usize,
+    pub frame: usize,
     pub skin: usize,
     pub mdl: Handle<Mdl>,
     cur_animation: usize,
@@ -445,20 +463,20 @@ fn update_mdls(
     mdls: Res<Assets<Mdl>>,
 ) {
     for (settings, mut player, mut mat) in entities {
-        if settings.animation == settings.cur_animation && settings.skin == settings.cur_skin {
+        if settings.frame == settings.cur_animation && settings.skin == settings.cur_skin {
             continue;
         }
 
         let mdl = mdls.get(&settings.mdl).expect("Missing mdl");
 
         'set_anim: {
-            if settings.animation != settings.cur_animation {
-                let Some(anim_mesh) = mdl.animations.get(settings.animation) else {
-                    error!("Missing animation {}", settings.animation);
+            if settings.frame != settings.cur_animation {
+                let Some(anim_mesh) = mdl.animations.get(settings.frame) else {
+                    error!("Missing animation {}", settings.frame);
                     break 'set_anim;
                 };
 
-                player.anim_meshes = anim_mesh.clone();
+                player.set_anim_meshes(anim_mesh.clone());
             }
         }
 

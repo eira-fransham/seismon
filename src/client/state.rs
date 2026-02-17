@@ -9,22 +9,25 @@ use crate::{
     common::net::{EntityState, EntityUpdate, PlayerColor},
 };
 use bevy::{
-    asset::{AssetId, AssetPath, AssetServer, Handle},
+    asset::{AssetPath, AssetServer, Handle},
     camera::visibility::Visibility,
+    ecs::reflect::ReflectComponent,
     ecs::{
         component::Component,
         entity::Entity,
-        hierarchy::ChildOf,
-        system::{Commands, In, Query, ResMut},
+        hierarchy::{ChildOf, Children},
+        system::{Commands, EntityCommands, In, Query, ResMut},
     },
     log::*,
-    math::{Mat4, Quat, Vec3},
+    math::{Quat, Vec3},
+    reflect::Reflect,
     scene::{Scene, SceneRoot},
     transform::components::Transform,
     utils::default,
 };
+use bevy_mod_mdl::MdlSettings;
 use bevy_seedling::sample::AudioSample;
-use bevy_trenchbroom::util::BevyTrenchbroomCoordinateConversions;
+use bevy_trenchbroom::{bsp::Bsp, util::BevyTrenchbroomCoordinateConversions};
 use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::QString;
@@ -50,30 +53,16 @@ pub struct PlayerInfo {
 }
 
 #[derive(Clone)]
-pub enum ModelPrecache {
-    WaitingOnWorld { pending: PendingSceneRoot },
-    Loaded { handle: Handle<Scene> },
+pub enum PrecacheModel {
+    Invalid,
+    WaitingOnWorldspawn(usize),
+    Loaded(Handle<Scene>),
 }
 
-// HACK: https://github.com/bevyengine/bevy/issues/12756
-#[derive(Component, Clone)]
-pub struct PendingSceneRoot {
-    root: AssetId<Scene>,
-    asset: AssetPath<'static>,
-}
-
-impl PendingSceneRoot {
-    pub fn try_resolve(&self, asset_server: &AssetServer) -> Option<Handle<Scene>> {
-        if asset_server.is_loaded_with_dependencies(self.root) {
-            Some(self.force_resolve(asset_server))
-        } else {
-            None
-        }
-    }
-
-    fn force_resolve(&self, asset_server: &AssetServer) -> Handle<Scene> {
-        asset_server.load(&self.asset)
-    }
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct Worldspawn {
+    pub bsp: Handle<Bsp>,
 }
 
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
@@ -85,7 +74,7 @@ pub struct ClientState {
     pub frame_keepalive: BitVec,
 
     /// Model precache.
-    pub models: Box<[Option<Handle<Scene>>]>,
+    pub models: Box<[PrecacheModel]>,
 
     /// Sound precache.
     pub sounds: Box<[Handle<AudioSample>]>,
@@ -99,8 +88,16 @@ pub struct ClientState {
 }
 
 impl ClientState {
+    pub fn populate_precache(&mut self, bsp: &Bsp) {
+        for model in &mut self.models {
+            if let PrecacheModel::WaitingOnWorldspawn(idx) = *model {
+                *model = PrecacheModel::Loaded(bsp.models[idx].clone());
+            }
+        }
+    }
+
     pub fn from_server_info<SName: AsRef<str>>(
-        worldspawn: Entity,
+        worldspawn: &mut EntityCommands,
         asset_server: &AssetServer,
         model_precache: Vec<String>,
         sound_precache: Vec<SName>,
@@ -113,39 +110,30 @@ impl ClientState {
         let worldspawn_path =
             model_precache.next().ok_or_else(|| ClientError::InvalidConnectResponse)?;
 
-        let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned().with_label("Model0");
+        let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned();
+
+        worldspawn.insert(Worldspawn { bsp: asset_server.load(worldspawn_path) });
 
         // TODO: validate submodel names
-        let models = [None, Some(asset_server.load(worldspawn_path.clone()))]
+        let models = [PrecacheModel::Invalid, PrecacheModel::WaitingOnWorldspawn(0)]
             .into_iter()
-            .chain(
-                model_precache
-                    .map(|model_name| {
-                        if model_name.ends_with(".bsp") {
-                            // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
-                            // models
+            .chain(model_precache.map(|model_name| {
+                if model_name.ends_with(".bsp") {
+                    // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
+                    // models
 
-                            asset_server.load(
-                                AssetPath::parse(&model_name).into_owned().with_label("Model0"),
-                            )
-                        } else if let Some(model_idx) = model_name.strip_prefix('*') {
-                            asset_server.load(
-                                worldspawn_path.clone().with_label(format!("Model{model_idx}")),
-                            )
-                        } else {
-                            // asset_server.load_with_settings(
-                            //     model_name,
-                            //     |settings: &mut bevy_mod_assimp::AssimpSettings| {
-                            //         // Assimp seems to rotate the models compared to what we expect.
-                            //         settings.transform =
-                            //             Mat4::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
-                            //     },
-                            // )
-                            asset_server.load(model_name)
-                        }
-                    })
-                    .map(Some),
-            )
+                    PrecacheModel::Loaded(
+                        asset_server
+                            .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
+                    )
+                } else if let Some(model_idx) = model_name.strip_prefix('*') {
+                    PrecacheModel::WaitingOnWorldspawn(
+                        model_idx.parse().expect("TODO: Handle this error"),
+                    )
+                } else {
+                    PrecacheModel::Loaded(asset_server.load(model_name))
+                }
+            }))
             .collect();
 
         let sounds = iter::once("misc/null.wav")
@@ -164,7 +152,7 @@ impl ClientState {
             .collect();
 
         Ok(ClientState {
-            worldspawn,
+            worldspawn: worldspawn.id(),
             models,
             frame_keepalive: default(),
             sounds: sounds.collect(),
@@ -284,7 +272,7 @@ impl ClientState {
             info!("Spawning world: {baseline:?}");
         }
 
-        let model = self.models.get(model_id).cloned().and_then(identity);
+        let model = self.models.get(model_id).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
             .with_rotation(Quat::from_euler(default(), yaw, pitch, roll));
 
@@ -307,7 +295,7 @@ impl ClientState {
             entity
         };
 
-        if let Some(model) = model {
+        if let Some(PrecacheModel::Loaded(model)) = model {
             ent.insert(SceneRoot(model));
         }
     }
@@ -317,6 +305,8 @@ impl ClientState {
         mut commands: Commands<'_, '_>,
         mut conn: ResMut<Connection>,
         mut existing_entities: Query<&mut Transform>,
+        children: Query<&Children>,
+        mut models: Query<&mut MdlSettings>,
     ) {
         let Some(state) = conn.client_state.as_mut() else {
             return;
@@ -329,27 +319,37 @@ impl ClientState {
             };
 
             if let Some(model_id) = update.model_id
-                && let Some(model) = state.models.get(model_id as usize).cloned().and_then(identity)
+                && let Some(PrecacheModel::Loaded(model)) =
+                    state.models.get(model_id as usize).cloned()
             {
                 ent.insert(SceneRoot(model));
             }
 
-            let update_transform = [
-                update.origin_x,
-                update.origin_y,
-                update.origin_z,
-                update.pitch,
-                update.yaw,
-                update.roll,
+            let do_update = [
+                update.origin_x.is_some(),
+                update.origin_y.is_some(),
+                update.origin_z.is_some(),
+                update.pitch.is_some(),
+                update.yaw.is_some(),
+                update.roll.is_some(),
+                update.frame_id.is_some(),
             ]
-            .iter()
-            .any(|v| v.is_some());
+            .into_iter()
+            .any(std::convert::identity);
 
-            if !update_transform {
+            if !do_update {
                 return;
             }
 
             if let Ok(mut transform) = existing_entities.get_mut(*entity) {
+                if let Some(new_frame) = update.frame_id {
+                    for child in children.iter_descendants(*entity) {
+                        if let Ok(mut mdl) = models.get_mut(child) {
+                            mdl.frame = new_frame as usize;
+                        }
+                    }
+                }
+
                 // TODO: Better to keep the client in Quake coordinates?
                 let mut new_trans = transform.translation.bevy_to_trenchbroom();
 
@@ -422,10 +422,8 @@ impl ClientState {
                     ChildOf(state.worldspawn),
                 ));
 
-            if let Some(model) = update
-                .model_id
-                .and_then(|model_id| state.models.get(model_id as usize).cloned())
-                .and_then(identity)
+            if let Some(PrecacheModel::Loaded(model)) =
+                update.model_id.and_then(|model_id| state.models.get(model_id as usize).cloned())
             {
                 ent.insert(SceneRoot(model));
             } else {

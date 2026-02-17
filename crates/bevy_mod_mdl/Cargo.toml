@@ -15,6 +15,7 @@ bevy_log.workspace = true
 bevy_tasks.workspace = true
 bevy_scene.workspace = true
 bevy_transform.workspace = true
+bevy_time.workspace = true
 bevy_math.workspace = true
 bevy_mesh.workspace = true
 bevy_render.workspace = true

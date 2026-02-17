@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use clap::Parser;
 
 use crate::{
+    client::ClientGameState,
     common::{
         console::{AliasInfo, ExecResult, RegisterCmdExt as _, Registry, RunCmd},
         net::{ClientCmd, ClientMessage, MessageKind, QSocket, ServerMessage, SignOnStage},
@@ -195,6 +196,7 @@ pub fn register_commands(app: &mut App) {
          mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
          mut focus: ResMut<InputFocus>,
+         mut next_state: ResMut<NextState<ClientGameState>>,
          server: Option<Res<Session>>| {
             if !demos.is_empty() {
                 *demo_queue = DemoQueue::new(demos);
@@ -232,6 +234,8 @@ pub fn register_commands(app: &mut App) {
 
                 commands.insert_resource(new_conn);
                 *focus = InputFocus::Game;
+
+                next_state.set(ClientGameState::Prespawn);
             }
 
             ExecResult::default()

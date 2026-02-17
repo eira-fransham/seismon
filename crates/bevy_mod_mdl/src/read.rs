@@ -26,7 +26,7 @@ use seismon_utils::{
 };
 
 use bevy_log as log;
-use bevy_math::Vec3;
+use bevy_math::{UVec2, Vec2, Vec3};
 
 use crate::MdlFileError;
 
@@ -104,6 +104,17 @@ impl Texcoord {
 
     pub fn t(&self) -> u32 {
         self.t
+    }
+
+    pub fn to_bevy(&self, size: UVec2, faces_front: bool) -> Vec2 {
+        let s = if !faces_front && self.is_on_seam() {
+            (self.s() + size.x / 2) as f32 + 0.5
+        } else {
+            self.s() as f32 + 0.5
+        } / size.x as f32;
+        let t = (self.t() as f32 + 0.5) / size.y as f32;
+
+        Vec2::new(s, t)
     }
 }
 
@@ -655,5 +666,5 @@ where
     .into();
 
     // Convert to bevy coordinate system
-    Ok(Vec3::new(-x, z, y))
+    Ok(Vec3::new(y, z, x))
 }

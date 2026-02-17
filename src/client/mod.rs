@@ -119,8 +119,18 @@ fn default_camera() -> impl Bundle {
     )
 }
 
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash, Reflect)]
+enum ClientGameState {
+    #[default]
+    Disconnected,
+    Prespawn,
+    Loading,
+    InGame,
+}
+
 impl<F> Plugin for SeismonClientPlugin<F>
-where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static
+where
+    F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy::prelude::App) {
         if let Ok(menu) = (self.main_menu)(MenuBuilder::new(app.world_mut())) {
@@ -140,6 +150,7 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                 camera_template,
                 default_camera_template: camera_template,
             })
+            .insert_state(ClientGameState::default())
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
@@ -166,8 +177,11 @@ where F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync +
                     }),
                 )
                     // TODO: Use bevy's state system
-                    .run_if(resource_exists::<Connection>),
+                    .run_if(resource_exists::<Connection>.and(
+                        in_state(ClientGameState::Prespawn).or(in_state(ClientGameState::InGame)),
+                    )),
             )
+            .add_systems(Main, systems::wait_for_load.run_if(in_state(ClientGameState::Loading)))
             .add_systems(Main, systems::lock_cursor)
             .add_systems(
                 Main,
@@ -561,7 +575,9 @@ impl DemoQueue {
 }
 
 fn connect<A>(server_addrs: A) -> Result<(QSocket, ConnectionStage), ClientError>
-where A: ToSocketAddrs {
+where
+    A: ToSocketAddrs,
+{
     let mut con_sock = ConnectSocket::bind("0.0.0.0:0")?;
     let server_addr = match server_addrs.to_socket_addrs() {
         Ok(ref mut a) => a.next().ok_or(ClientError::InvalidServerAddress),
@@ -637,9 +653,10 @@ pub struct Impulse(pub u8);
 
 mod systems {
     use bevy::window::{CursorGrabMode, CursorOptions};
+    use bevy_trenchbroom::bsp::Bsp;
     use common::net::MessageKind;
 
-    use crate::common::net::ButtonFlags;
+    use crate::{client::state::Worldspawn, common::net::ButtonFlags};
 
     use self::common::console::Registry;
 
@@ -837,16 +854,41 @@ mod systems {
     //     }
     // }
 
+    pub fn wait_for_load(
+        mut conn: ResMut<Connection>,
+        assets: Res<Assets<Bsp>>,
+        worldspawn: Query<&Worldspawn>,
+        mut next_state: ResMut<NextState<ClientGameState>>,
+    ) {
+        let Some(client_state) = &mut conn.client_state else {
+            next_state.set(ClientGameState::Disconnected);
+            return;
+        };
+
+        let Ok(worldspawn) = worldspawn.get(client_state.worldspawn) else {
+            next_state.set(ClientGameState::Disconnected);
+            return;
+        };
+
+        if let Some(bsp) = assets.get(&worldspawn.bsp) {
+            client_state.populate_precache(bsp);
+            next_state.set(ClientGameState::InGame);
+        }
+    }
+
     pub mod frame {
         use std::convert::identity;
 
         use bevy::ecs::entity_disabling::Disabled;
+
+        use crate::client::state::PrecacheModel;
 
         use super::*;
 
         #[expect(clippy::too_many_arguments)]
         pub fn parse_server_msg(
             mut commands: Commands,
+            mut next_state: ResMut<NextState<ClientGameState>>,
             mut conn: ResMut<Connection>,
             settings: Res<SeismonGameSettings>,
             mut time: ResMut<Time<Virtual>>,
@@ -956,15 +998,17 @@ mod systems {
                             commands.entity(state.worldspawn).despawn();
                         }
 
-                        let new_worldspawn =
-                            commands.spawn((Transform::default(), Visibility::Visible)).id();
+                        let mut new_worldspawn =
+                            commands.spawn((Transform::default(), Visibility::Visible));
 
                         conn.client_state = Some(ClientState::from_server_info(
-                            new_worldspawn,
+                            &mut new_worldspawn,
                             &asset_server,
                             model_precache,
                             sound_precache,
                         )?);
+
+                        next_state.set(ClientGameState::Loading);
                     }
 
                     ServerCmd::Bad => {
@@ -1169,8 +1213,8 @@ mod systems {
                                 ChildOf(state.worldspawn),
                             ));
 
-                            if let Some(model) =
-                                state.models.get(model_id as usize).cloned().and_then(identity)
+                            if let Some(PrecacheModel::Loaded(model)) =
+                                state.models.get(model_id as usize).cloned()
                             {
                                 ent.insert(SceneRoot(model));
                             }
