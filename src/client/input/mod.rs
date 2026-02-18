@@ -19,7 +19,7 @@ pub mod commands;
 pub mod console;
 pub mod game;
 
-use bevy::{ecs::resource::Resource, input::keyboard::KeyboardInput, prelude::*};
+use bevy::{input::keyboard::KeyboardInput, prelude::*};
 
 use self::{game::GameInput, systems::InputMessageReader};
 

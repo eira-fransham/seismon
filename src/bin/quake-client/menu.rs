@@ -119,7 +119,7 @@ fn build_menu_options(builder: MenuBuilder) -> Result<Menu, Error> {
             for cvar in [
                 "r_renderscale",
                 "r_screensize",
-                "r_gamma",
+                "gamma",
                 "cl_sensitivity",
                 "bgmvolume",
                 "volume",

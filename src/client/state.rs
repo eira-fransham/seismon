@@ -1,4 +1,4 @@
-use std::{convert::identity, iter, mem};
+use std::{iter, mem};
 
 use super::view::BobVars;
 use crate::{

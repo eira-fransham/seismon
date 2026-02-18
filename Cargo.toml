@@ -103,7 +103,7 @@ qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
 bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
-bevy_seedling = "0.7"
+bevy_seedling = { git = "https://github.com/eira-fransham/bevy_seedling.git", branch = "ignore-already-deleted-entities" }
 bevy_mod_scripting = "0.19"
 bevy-inspector-egui = "0.36"
 bitvec = "1.0"
@@ -126,7 +126,7 @@ strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
-bevy_mod_scripting_qcvm = { git = "https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git" }
+bevy_mod_scripting_qcvm = { version = "0.1", features = ["quake1"] }
 wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 

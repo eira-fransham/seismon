@@ -183,6 +183,7 @@ where
             )
             .add_systems(Main, systems::wait_for_load.run_if(in_state(ClientGameState::Loading)))
             .add_systems(Main, systems::lock_cursor)
+            .add_systems(Main, systems::end_sounds.run_if(state_changed::<ClientGameState>))
             .add_systems(
                 Main,
                 systems::process_network_messages
@@ -656,11 +657,20 @@ mod systems {
     use bevy_trenchbroom::bsp::Bsp;
     use common::net::MessageKind;
 
-    use crate::{client::state::Worldspawn, common::net::ButtonFlags};
+    use crate::{
+        client::{sound::Sound, state::Worldspawn},
+        common::net::ButtonFlags,
+    };
 
     use self::common::console::Registry;
 
     use super::*;
+
+    pub fn end_sounds(mut commands: Commands, sounds: Query<Entity, With<Sound>>) {
+        for sound in sounds {
+            commands.entity(sound).despawn();
+        }
+    }
 
     pub fn lock_cursor(
         mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
@@ -877,9 +887,8 @@ mod systems {
     }
 
     pub mod frame {
-        use std::convert::identity;
-
         use bevy::ecs::entity_disabling::Disabled;
+        use bevy_trenchbroom::util::BevyTrenchbroomCoordinateConversions as _;
 
         use crate::client::state::PrecacheModel;
 
@@ -898,6 +907,7 @@ mod systems {
             mut mixer_events: MessageWriter<MixerMessage>,
             mut console_commands: MessageWriter<RunCmd<'static>>,
             mut console_output: ResMut<ConsoleOutput>,
+            transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
 
@@ -1159,17 +1169,28 @@ mod systems {
                                 continue;
                             }
 
+                            let entity = state
+                                .server_entity_to_client_entity
+                                .get(&entity_id)
+                                .cloned()
+                                .unwrap_or(state.worldspawn);
+                            let entity_origin = transforms
+                                .get(entity)
+                                .map(|trans| trans.translation)
+                                .unwrap_or_default();
+
+                            let origin = position.trenchbroom_to_bevy() - entity_origin;
                             let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
                             let attenuation =
                                 attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
                             if let Some(sound) = state.sounds.get(sound_id as usize) {
                                 mixer_events.write(MixerMessage::StartSound(StartSound {
+                                    entity,
                                     src: sound.clone(),
-                                    ent_id: Some(entity_id as usize),
                                     ent_channel: channel,
                                     volume: volume as f32 / 255.0,
                                     attenuation,
-                                    origin: position.into(),
+                                    origin,
                                 }));
                             }
                         }
@@ -1206,9 +1227,13 @@ mod systems {
                     ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
                         if let Some(state) = conn.client_state.as_mut() {
                             let mut ent = commands.spawn((
-                                Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                                    Quat::from_euler(EulerRot::YZX, angles.x, angles.y, angles.z),
-                                ), // TODO: Handle the other fields
+                                Transform::from_translation(origin.trenchbroom_to_bevy())
+                                    .with_rotation(Quat::from_euler(
+                                        EulerRot::YZX,
+                                        angles.x,
+                                        angles.y,
+                                        angles.z,
+                                    )), // TODO: Handle the other fields
                                 Visibility::Inherited,
                                 ChildOf(state.worldspawn),
                             ));
@@ -1222,16 +1247,15 @@ mod systems {
                     }
 
                     ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
-                        if let Some(sound) = conn
-                            .client_state
-                            .as_ref()
-                            .and_then(|state| state.sounds.get(sound_id as usize))
+                        if let Some(state) = conn.client_state.as_ref()
+                            && let Some(sound) = state.sounds.get(sound_id as usize)
                         {
                             mixer_events.write(MixerMessage::StartStaticSound(StartStaticSound {
+                                world: state.worldspawn,
                                 src: sound.clone(),
-                                origin,
-                                volume: volume as f32 / 255.0,
-                                attenuation: attenuation as f32 / 64.0,
+                                origin: origin.trenchbroom_to_bevy(),
+                                volume: volume as f32 / 255.,
+                                attenuation: attenuation as f32 / 64.,
                             }));
                         }
                     }
@@ -1349,10 +1373,16 @@ mod systems {
                     ServerCmd::SetPause { .. } => {}
 
                     ServerCmd::StopSound { entity_id, channel } => {
-                        mixer_events.write(MixerMessage::StopSound(StopSound {
-                            ent_id: Some(entity_id as _),
-                            ent_channel: channel,
-                        }));
+                        if let Some(state) = conn.client_state.as_ref() {
+                            mixer_events.write(MixerMessage::StopSound(StopSound {
+                                entity: state
+                                    .server_entity_to_client_entity
+                                    .get(&entity_id)
+                                    .cloned()
+                                    .unwrap_or(state.worldspawn),
+                                ent_channel: channel,
+                            }));
+                        }
                     }
                     ServerCmd::SellScreen => todo!(),
                 }

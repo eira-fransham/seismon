@@ -13,7 +13,7 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{Quat, UVec2, Vec3};
+use bevy_math::{UVec2, Vec3};
 use bevy_mesh::{Mesh, Mesh3d};
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;

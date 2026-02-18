@@ -101,9 +101,9 @@ fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
     };
 
     for mut grading in &mut gradings {
-        grading.highlights.gamma = 1. / gamma;
-        grading.midtones.gamma = 1. / gamma;
-        grading.shadows.gamma = 1. / gamma;
+        grading.highlights.gamma = gamma;
+        grading.midtones.gamma = gamma;
+        grading.shadows.gamma = gamma;
     }
 }
 

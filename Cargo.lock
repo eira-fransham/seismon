@@ -2235,7 +2235,8 @@ dependencies = [
 [[package]]
 name = "bevy_mod_scripting_qcvm"
 version = "0.1.0"
-source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#64e62d6ce41ca47a2b1031aef2399065898489f9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "162bac4d990ba1c1837f4aed0019bddff1d3ded6f6c56475c37be7d56349bd2b"
 dependencies = [
  "bevy_app 0.18.0",
  "bevy_asset 0.18.0",
@@ -2250,6 +2251,7 @@ dependencies = [
  "bevy_platform 0.18.0",
  "hashbrown 0.16.1",
  "itertools 0.14.0",
+ "num",
  "qcvm",
 ]
 
@@ -2669,8 +2671,7 @@ dependencies = [
 [[package]]
 name = "bevy_seedling"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c44a95ed28011e116d0056122f88b06c68874e85b7c4f0a17f8f8b1ac127904"
+source = "git+https://github.com/eira-fransham/bevy_seedling.git?branch=ignore-already-deleted-entities#cfa235c00ec79a819553d2232fdc359e32c2f939"
 dependencies = [
  "bevy_app 0.18.0",
  "bevy_asset 0.18.0",
@@ -2693,8 +2694,7 @@ dependencies = [
 [[package]]
 name = "bevy_seedling_macros"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc9ea6172ac34cd08a4035f167d2703b3ae1a50a097c4009858781eb23e800c"
+source = "git+https://github.com/eira-fransham/bevy_seedling.git?branch=ignore-already-deleted-entities#cfa235c00ec79a819553d2232fdc359e32c2f939"
 dependencies = [
  "bevy_macro_utils 0.18.0",
  "proc-macro2",
@@ -6358,9 +6358,9 @@ dependencies = [
 
 [[package]]
 name = "native-tls"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d5d26952a508f321b4d3d2e80e78fc2603eaefcdf0c30783867f19586518bdc"
+checksum = "4f809093c63eb54651a1e6c19e0224c0c3c12793ef25d3800c625af2efed61d1"
 dependencies = [
  "libc",
  "log",
@@ -7554,8 +7554,9 @@ dependencies = [
 
 [[package]]
 name = "qcvm"
-version = "0.1.1"
-source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#64e62d6ce41ca47a2b1031aef2399065898489f9"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc5b8fd98b7ac740aeb2934840827c71a135eda5efb72d08e420f64a3b3669"
 dependencies = [
  "anyhow",
  "arc-slice",

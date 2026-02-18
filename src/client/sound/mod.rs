@@ -34,7 +34,14 @@ use crate::common::vfs::VfsError;
 
 use thiserror::Error;
 
-pub const DISTANCE_ATTENUATION_FACTOR: f32 = 0.001;
+/// We don't scale by the standard trenchbroom->bevy factor, so attenuation needs
+/// to be scaled.
+///
+/// > TODO: Should we just scale everything by this amount instead of hacking
+/// > the sounds?
+pub const DISTANCE_ATTENUATION_FACTOR: f32 = 1. / 40.;
+
+pub const REVERB_AMT: f32 = 0.1;
 
 fn attenuation_factor(attenuation: f32) -> Vec3 {
     Vec3::splat(attenuation * DISTANCE_ATTENUATION_FACTOR)
@@ -127,10 +134,7 @@ impl Plugin for SeismonSoundPlugin {
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
             .add_message::<MixerMessage>()
-            .add_systems(
-                Main,
-                (systems::update_entities, systems::update_mixer, systems::update_listener),
-            );
+            .add_systems(Main, systems::update_mixer);
     }
 }
 
@@ -140,6 +144,7 @@ pub struct Sound;
 
 #[derive(Debug, Clone)]
 pub struct StartStaticSound {
+    pub world: Entity,
     pub src: Handle<AudioSample>,
     pub origin: Vec3,
     pub volume: f32,
@@ -157,25 +162,19 @@ pub struct Channel {
     channel: i8,
 }
 
-/// If a `Sound` does not include this component, sound is associated with a temp entity
-#[derive(Clone, Debug, Component)]
-pub struct EntityChannel {
-    id: usize,
-}
-
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct StartSound {
+    pub entity: Entity,
     pub src: Handle<AudioSample>,
-    pub ent_id: Option<usize>,
     pub ent_channel: i8,
     pub volume: f32,
     pub attenuation: f32,
-    pub origin: [f32; 3],
+    pub origin: Vec3,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct StopSound {
-    pub ent_id: Option<usize>,
+    pub entity: Entity,
     pub ent_channel: i8,
 }
 
@@ -198,87 +197,87 @@ pub enum MixerMessage {
 }
 
 mod systems {
-    use crate::client::Connection;
+    use crate::client::DEFAULT_SOUND_PACKET_ATTENUATION;
 
     use super::*;
 
     pub fn update_mixer(
-        channels: Query<(Entity, &Channel, Option<&EntityChannel>)>,
+        channels: Query<&Channel, With<Sound>>,
         mut music_player: ResMut<MusicPlayer>,
         asset_server: Res<AssetServer>,
         mut events: MessageReader<MixerMessage>,
+        children: Query<&Children>,
         mut commands: Commands,
         mut all_sounds: Query<&mut SamplerNode>,
     ) {
         for event in events.read() {
             match *event {
-                MixerMessage::StartSound(StartSound { ent_id, ent_channel, .. })
-                | MixerMessage::StopSound(StopSound { ent_id, ent_channel }) => {
-                    for (e, chan, e_chan) in channels.iter() {
-                        if chan.channel == ent_channel
-                            && e_chan.map(|e| e.id) == ent_id
-                            && let Ok(mut e) = commands.get_entity(e)
-                        {
-                            e.try_despawn();
+                MixerMessage::StartSound(StartSound { entity, ent_channel, .. })
+                | MixerMessage::StopSound(StopSound { entity, ent_channel }) => {
+                    if let Ok(children) = children.get(entity) {
+                        for entity_sound in children {
+                            if let Ok(Channel { channel }) = channels.get(*entity_sound)
+                                && *channel == ent_channel
+                                && let Ok(mut e) = commands.get_entity(*entity_sound)
+                            {
+                                e.try_despawn();
+                            }
                         }
+                    } else {
+                        continue;
                     }
                 }
                 _ => {}
             }
 
             match event {
-                MixerMessage::StartSound(start) => {
-                    let attenuation =
-                        if start.attenuation.is_finite() { start.attenuation } else { 1. };
-                    // TODO: Entity channels should be children of the enitities they're spawned on.
-                    let mut new_sound = commands.spawn((
+                MixerMessage::StartSound(sound) => {
+                    let attenuation = if sound.attenuation.is_finite() {
+                        sound.attenuation
+                    } else {
+                        DEFAULT_SOUND_PACKET_ATTENUATION
+                    };
+                    commands.spawn((
+                        ChildOf(sound.entity),
                         Sound,
-                        Channel { channel: start.ent_channel },
-                        SamplePlayer::new(start.src.clone()),
-                        Transform::from_translation(start.origin.into()),
+                        Channel { channel: sound.ent_channel },
+                        SamplePlayer::new(sound.src.clone()),
+                        Transform::from_translation(sound.origin.into()),
                         sample_effects![
                             (
                                 SpatialBasicNode {
-                                    volume: Volume::Linear(start.volume),
+                                    volume: Volume::Linear(sound.volume),
                                     ..Default::default()
                                 },
                                 SpatialScale(attenuation_factor(attenuation))
                             ),
-                            SendNode::new(Volume::Linear(attenuation), ReverbBus)
+                            SendNode::new(Volume::Linear(REVERB_AMT), ReverbBus)
                         ],
                     ));
-
-                    if let Some(id) = start.ent_id {
-                        new_sound.insert(EntityChannel { id });
-                    }
                 }
                 MixerMessage::StopSound(StopSound { .. }) => {
                     // Handled by previous match
                 }
-                MixerMessage::StartStaticSound(static_sound) => {
-                    let attenuation = if static_sound.attenuation.is_finite() {
-                        static_sound.attenuation
+                MixerMessage::StartStaticSound(sound) => {
+                    let attenuation = if sound.attenuation.is_finite() {
+                        sound.attenuation
                     } else {
-                        1.
+                        DEFAULT_SOUND_PACKET_ATTENUATION
                     };
                     commands.spawn((
                         Sound,
-                        SamplePlayer::new(static_sound.src.clone()).looping(),
-                        Transform::from_translation(static_sound.origin),
+                        ChildOf(sound.world),
+                        SamplePlayer::new(sound.src.clone()).looping(),
+                        Transform::from_translation(sound.origin),
                         sample_effects![
                             (
                                 SpatialBasicNode {
-                                    // TODO: Fudge factor - ambient sounds are REALLY loud for some
-                                    // reason
-                                    volume: Volume::Linear(
-                                        static_sound.volume
-                                            * (1. - static_sound.attenuation).max(0.5)
-                                    ),
+                                    volume: Volume::Linear(sound.volume),
                                     ..Default::default()
                                 },
-                                SpatialScale(attenuation_factor(static_sound.attenuation))
+                                SpatialScale(attenuation_factor(attenuation))
                             ),
-                            SendNode::new(Volume::Linear(attenuation), ReverbBus)
+                            SendNode::new(Volume::Linear(REVERB_AMT), ReverbBus)
                         ],
                     ));
                 }
@@ -297,32 +296,5 @@ mod systems {
                 MixerMessage::PauseMusic => music_player.pause(&mut all_sounds),
             }
         }
-    }
-
-    pub fn update_entities(
-        _entities: Query<(&mut Transform, &EntityChannel), With<Sound>>,
-        _conn: Option<Res<Connection>>,
-    ) {
-        // let Some(conn) = conn else {
-        //     return;
-        // };
-
-        // for (mut transform, e_chan) in &mut entities {
-        //     if let Some(e) = conn.client_state.entities.get(e_chan.id) {
-        //         *transform = Transform::from_translation(e.origin);
-        //     }
-        // }
-    }
-
-    pub fn update_listener(
-        _listeners: Query<&mut Transform, With<SpatialListener3D>>,
-        _conn: Option<Res<Connection>>,
-    ) {
-        // if let Some(new_listener) = conn.and_then(|conn| conn.state.update_listener()) {
-        //     for mut transform in &mut listeners {
-        //         *transform = Transform::from_rotation(new_listener.rotation)
-        //             .with_translation(new_listener.origin);
-        //     }
-        // }
     }
 }
