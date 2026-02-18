@@ -1588,12 +1588,12 @@ pub struct ConsoleText {
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp {
-    pub timestamp: u128,
+    pub timestamp: i64,
     pub generation: u16,
 }
 
 impl Timestamp {
-    pub fn new(timestamp: u128, generation: u16) -> Self {
+    pub fn new(timestamp: i64, generation: u16) -> Self {
         Self { timestamp, generation }
     }
 }
@@ -1604,7 +1604,7 @@ pub struct ConsoleOutput {
     center_print: Option<(Timestamp, QString)>,
     buffer_ty: OutputType,
     buffer: QString,
-    last_timestamp: u128,
+    last_timestamp: i64,
     unwritten_chunks: Vec<(Timestamp, ConsoleText)>,
 }
 
@@ -1614,8 +1614,8 @@ pub struct RenderConsoleOutput {
     pub center_print: (Timestamp, QString),
 }
 
-fn elapsed_millis(time: &Time<impl Default>) -> u128 {
-    time.elapsed().as_millis()
+fn elapsed_millis(time: &Time<impl Default>) -> i64 {
+    time.elapsed().as_millis().try_into().expect("Elapsed overflowed i64")
 }
 
 impl ConsoleOutput {
@@ -1639,7 +1639,7 @@ impl ConsoleOutput {
         ConsoleOutput::default()
     }
 
-    fn push<S: AsRef<[u8]>>(&mut self, chars: S, timestamp: u128, ty: OutputType) {
+    fn push<S: AsRef<[u8]>>(&mut self, chars: S, timestamp: i64, ty: OutputType) {
         let chars = chars.as_ref();
 
         if chars.is_empty() {
@@ -1683,7 +1683,7 @@ impl ConsoleOutput {
         ));
     }
 
-    fn push_line<S: AsRef<[u8]>>(&mut self, chars: S, timestamp: u128, ty: OutputType) {
+    fn push_line<S: AsRef<[u8]>>(&mut self, chars: S, timestamp: i64, ty: OutputType) {
         if let Ok(vals) = str::from_utf8(chars.as_ref()) {
             match ty {
                 OutputType::Console => debug!(target: "console", "{vals}"),
@@ -1718,12 +1718,14 @@ impl ConsoleOutput {
 }
 
 impl RenderConsoleOutput {
-    pub fn text(&self) -> impl Iterator<Item = (u128, &ConsoleText)> + '_ {
+    pub fn text(&self) -> impl Iterator<Item = (i64, &ConsoleText)> + '_ {
         self.text_chunks.iter().map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
     }
 
     pub fn center_print(&self, since: Duration) -> Option<QStr<'_>> {
-        if self.center_print.0.timestamp >= since.as_millis() {
+        if self.center_print.0.timestamp
+            >= i64::try_from(since.as_millis()).expect("Time overflowed i64")
+        {
             Some(self.center_print.1.reborrow())
         } else {
             None
@@ -1738,16 +1740,16 @@ impl RenderConsoleOutput {
     /// `max_candidates` specifies the maximum number of lines to consider,
     /// while `max_results` specifies the maximum number of lines that should
     /// be returned.
-    pub fn recent(&self, since: Duration) -> impl Iterator<Item = (u128, &ConsoleText)> + '_ {
+    pub fn recent(&self, since: i64) -> impl Iterator<Item = (i64, &ConsoleText)> + '_ {
         self.text_chunks
-            .range(Timestamp::new(since.as_millis(), 0)..)
+            .range(Timestamp::new(since, 0)..)
             .map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
     }
 }
 
 #[derive(Component, Default)]
 struct AlertOutput {
-    last_timestamp: Option<u128>,
+    last_timestamp: Option<i64>,
 }
 
 #[derive(Resource)]
@@ -2196,8 +2198,8 @@ mod systems {
 
         let center_time = registry.read_cvar::<f32>("scr_centertime").unwrap_or(2.);
         if !render_out.center_print.1.is_empty()
-            && time.elapsed().as_millis()
-                > (render_out.center_print.0.timestamp + (center_time * 1000.) as u128)
+            && i64::try_from(time.elapsed().as_millis()).expect("Time overflowed i64")
+                > (render_out.center_print.0.timestamp + (center_time * 1000.) as i64)
         {
             render_out.center_print.1.clear();
         }
@@ -2272,7 +2274,12 @@ mod systems {
         mut alert: Query<(&mut AtlasText, &mut AlertOutput)>,
     ) {
         for (mut text, mut alert) in alert.iter_mut() {
-            let since = time.elapsed().saturating_sub(settings.timeout);
+            let elapsed = i64::try_from(time.elapsed().as_millis()).expect("Time overflowed i64");
+            let timeout =
+                i64::try_from(settings.timeout.as_millis()).expect("Timeout overflowed i64");
+
+            // Need to subtract then negate, as std time doesn't support negative durations.
+            let since = elapsed - timeout;
             let mut lines = console_out
                 .recent(since)
                 .filter(|(_, line)| line.output_type == OutputType::Alert)
