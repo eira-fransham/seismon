@@ -3,6 +3,7 @@ mod cvars;
 pub mod demo;
 pub mod entity;
 pub mod input;
+mod interpolation;
 pub mod menu;
 pub mod sound;
 pub mod state;
@@ -21,8 +22,9 @@ use crate::{
     client::{
         demo::{Demo, DemoError, DemoLoader, DemoServer},
         entity::ClientEntity,
+        interpolation::InterpolateApp,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
-        state::ClientState,
+        state::{ClientState, Worldspawn},
         view::KickVars,
     },
     common::{
@@ -144,6 +146,16 @@ where
         app.world_mut().despawn(camera_template);
 
         let app = app
+            .interpolate_component::<Transform, Virtual>()
+            // TODO: Need to remove the coordinate system conversion inside `bevy_trenchbroom` first, but this
+            // will allow us to use Quake coordinates in the frontend too.
+            // .register_required_components_with::<Worldspawn, Transform>(|| {
+            //     Transform::from_matrix(Mat4::from_mat3(Mat3::from_cols_array_2d(&[
+            //         [0., -1., 0.],
+            //         [0., 0., 1.],
+            //         [-1., 0., 0.],
+            //     ])))
+            // })
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
@@ -1010,8 +1022,7 @@ mod systems {
                             commands.entity(state.worldspawn).despawn();
                         }
 
-                        let mut new_worldspawn =
-                            commands.spawn((Transform::default(), Visibility::Visible));
+                        let mut new_worldspawn = commands.spawn(Visibility::Visible);
 
                         conn.client_state = Some(ClientState::from_server_info(
                             &mut new_worldspawn,
@@ -1068,7 +1079,10 @@ mod systems {
                         // first update signals the last sign-on stage
                         conn.handle_signon(SignOnStage::Done, &client_vars)?;
 
-                        commands.run_system_cached_with(ClientState::update_entity, ent_update);
+                        commands.run_system_cached_with(
+                            ClientState::update_entity,
+                            (ent_update, conn.last_msg_time.as_secs_f64()),
+                        );
 
                         // patch view angles in demos
                         // if let Some(angles) = demo_view_angles
@@ -1207,6 +1221,7 @@ mod systems {
                         origin,
                         angles,
                     } => {
+                        let msg_time = conn.last_msg_time.as_secs_f64();
                         if let Some(state) = conn.client_state.as_mut() {
                             state.spawn_entities(
                                 commands.reborrow(),
@@ -1222,6 +1237,7 @@ mod systems {
                                     skin_id: skin_id.into(),
                                     effects: Default::default(),
                                 },
+                                msg_time,
                             );
                         }
                     }
@@ -1235,7 +1251,8 @@ mod systems {
                                         angles.x,
                                         angles.y,
                                         angles.z,
-                                    )), // TODO: Handle the other fields
+                                    )),
+                                // TODO: Handle the other fields
                                 Visibility::Inherited,
                                 ChildOf(state.worldspawn),
                             ));

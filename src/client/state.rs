@@ -4,6 +4,7 @@ use super::view::BobVars;
 use crate::{
     client::{
         ClientError, Connection,
+        interpolation::Next,
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityState, EntityUpdate, PlayerColor},
@@ -61,6 +62,7 @@ pub enum PrecacheModel {
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
+#[require(Transform)]
 pub struct Worldspawn {
     pub bsp: Handle<Bsp>,
 }
@@ -251,6 +253,7 @@ impl ClientState {
         mut commands: Commands<'_, '_>,
         id: u16,
         baseline: EntityState,
+        msg_time: f64,
     ) {
         let EntityState {
             origin,
@@ -275,6 +278,7 @@ impl ClientState {
         let model = self.models.get(model_id).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
             .with_rotation(Quat::from_euler(default(), yaw, pitch, roll));
+        let transform = Next { component: transform, elapsed_secs_f64: msg_time };
 
         let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
             let mut entity = commands.entity(*ent);
@@ -301,10 +305,10 @@ impl ClientState {
     }
 
     pub fn update_entity(
-        In(update): In<EntityUpdate>,
+        In((update, msg_time)): In<(EntityUpdate, f64)>,
         mut commands: Commands<'_, '_>,
         mut conn: ResMut<Connection>,
-        mut existing_entities: Query<&mut Transform>,
+        mut existing_entities: Query<&mut Next<Transform>>,
         children: Query<&Children>,
         mut models: Query<&mut MdlSettings>,
     ) {
@@ -358,23 +362,24 @@ impl ClientState {
                 }
 
                 // TODO: Better to keep the client in Quake coordinates?
-                let mut new_trans = transform.translation.bevy_to_trenchbroom();
+                let mut new_translation = transform.component.translation.bevy_to_trenchbroom();
 
                 if let Some(o_x) = update.origin_x {
-                    new_trans = new_trans.with_x(o_x);
+                    new_translation = new_translation.with_x(o_x);
                 }
                 if let Some(o_y) = update.origin_y {
-                    new_trans = new_trans.with_y(o_y);
+                    new_translation = new_translation.with_y(o_y);
                 }
                 if let Some(o_z) = update.origin_z {
-                    new_trans = new_trans.with_z(o_z);
+                    new_translation = new_translation.with_z(o_z);
                 }
 
-                let new_trans = new_trans.trenchbroom_to_bevy();
+                let new_translation = new_translation.trenchbroom_to_bevy();
 
-                let new_transform = transform.with_translation(new_trans);
+                let new_transform = transform.component.with_translation(new_translation);
 
-                let (mut yaw, mut pitch, mut roll) = transform.rotation.to_euler(default());
+                let (mut yaw, mut pitch, mut roll) =
+                    transform.component.rotation.to_euler(default());
                 if let Some(new_pitch) = update.pitch {
                     pitch = new_pitch.to_radians();
                 }
@@ -389,7 +394,8 @@ impl ClientState {
                 let new_transform =
                     new_transform.with_rotation(Quat::from_euler(default(), yaw, pitch, roll));
 
-                *transform = new_transform;
+                transform.component = new_transform;
+                transform.elapsed_secs_f64 = msg_time;
             } else {
                 let origin = Vec3::new(
                     update.origin_x.unwrap_or_default(),
@@ -421,13 +427,15 @@ impl ClientState {
             let [yaw, pitch, roll] =
                 [update.yaw, update.pitch, update.roll].map(|a| a.unwrap_or(0.).to_radians());
 
-            let mut ent =
-                commands.spawn((
-                    Transform::from_xyz(origin.x, origin.y, origin.z)
+            let mut ent = commands.spawn((
+                Next {
+                    component: Transform::from_xyz(origin.x, origin.y, origin.z)
                         .with_rotation(Quat::from_euler(default(), yaw, pitch, roll)),
-                    Visibility::Inherited,
-                    ChildOf(state.worldspawn),
-                ));
+                    elapsed_secs_f64: msg_time,
+                },
+                Visibility::Inherited,
+                ChildOf(state.worldspawn),
+            ));
 
             if let Some(PrecacheModel::Loaded(model)) =
                 update.model_id.and_then(|model_id| state.models.get(model_id as usize).cloned())
