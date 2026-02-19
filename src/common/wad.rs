@@ -24,7 +24,7 @@
 use std::{
     borrow::Cow,
     fmt::{self, Display},
-    io::{self, SeekFrom},
+    io::{self, BufReader, Cursor, SeekFrom},
     iter,
 };
 
@@ -35,10 +35,9 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
 };
-use failure::{Backtrace, Context, Error, Fail, bail};
+use failure::{Backtrace, Context, Fail};
 use futures::{AsyncRead, AsyncSeekExt, TryFutureExt};
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
-use seismon_utils::QString;
 use serde::{Deserialize, Serialize};
 use wgpu::{Extent3d, TextureDimension};
 
@@ -153,12 +152,16 @@ impl Palette {
     // indicate transparency.
     /// Translates a set of indices into a list of RGBA values and a list of fullbright
     /// values.
-    pub fn translate(&self, indices: &[u8]) -> Vec<u8> {
+    pub fn translate(&self, indices: &[u8], transparent_color: Option<u8>) -> Vec<u8> {
+        let transparent_color = transparent_color.unwrap_or(0xff);
+
         indices
             .iter()
-            .flat_map(|i| match *i {
-                0xFF => [0; 4],
-                i => {
+            .copied()
+            .flat_map(|i| {
+                if i == transparent_color {
+                    [0; 4]
+                } else {
                     let [r, g, b] = self.rgb[i as usize];
                     [r, g, b, 0xff]
                 }
@@ -182,13 +185,14 @@ pub struct QPicLoader {}
 pub struct QPicLoaderSettings {
     pub palette_path: AssetPath<'static>,
     pub size: Option<UVec2>,
+    pub transparent_color: Option<u8>,
 }
 
 pub const DEFAULT_PALETTE_PATH: &str = "gfx/palette.lmp";
 
 impl Default for QPicLoaderSettings {
     fn default() -> Self {
-        Self { palette_path: DEFAULT_PALETTE_PATH.into(), size: None }
+        Self { palette_path: DEFAULT_PALETTE_PATH.into(), size: None, transparent_color: None }
     }
 }
 
@@ -209,7 +213,7 @@ where
 
     let qpic = QPic::load(reader, settings.size).await?;
 
-    let data = palette.get().translate(qpic.indices());
+    let data = palette.get().translate(qpic.indices(), settings.transparent_color);
 
     Ok(Image::new(
         Extent3d { width: qpic.width(), height: qpic.height(), depth_or_array_layers: 1 },
@@ -306,12 +310,13 @@ impl AssetLoader for ConcharsLoader {
         load_context: &mut LoadContext,
     ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
     {
-        Wad::load_file(reader, &*settings.conchars_name).and_then(move |mut file| async move {
+        Wad::find_file(reader, &*settings.conchars_name).and_then(move |mut file| async move {
             load_qpic_as_image(
                 &mut file,
                 &QPicLoaderSettings {
                     palette_path: settings.palette_path.clone(),
                     size: Some(UVec2::new(CONCHARS_SIZE, CONCHARS_SIZE)),
+                    transparent_color: Some(0),
                 },
                 load_context,
             )
@@ -327,12 +332,11 @@ impl AssetLoader for ConcharsLoader {
 
 #[derive(Asset, Reflect)]
 pub struct Wad {
-    conchars_name: Cow<'static, str>,
     files: HashMap<String, Vec<u8>>,
 }
 
 impl Wad {
-    pub async fn load_file<'a>(
+    pub async fn find_file<'a>(
         root_reader: &'a mut dyn bevy::asset::io::Reader,
         name: &str,
     ) -> Result<impl AsyncRead + Unpin + 'a, failure::Error> {
@@ -347,9 +351,11 @@ impl Wad {
         let lump_count = reader.read_u32::<LittleEndian>().await?;
         let lumpinfo_ofs = reader.read_u32::<LittleEndian>().await?;
 
-        dbg!(root_reader.seek(SeekFrom::Start(dbg!(lumpinfo_ofs as u64))).await?);
+        root_reader.seek(SeekFrom::Start(lumpinfo_ofs as u64)).await?;
 
         let mut reader = AsyncReadBytes::new(&mut root_reader);
+
+        let mut file_info = None::<(u32, u32)>;
 
         for _ in 0..lump_count {
             // TODO sanity check these values
@@ -361,28 +367,19 @@ impl Wad {
             let _pad = reader.read_u16::<LittleEndian>().await?;
             let mut name_bytes = [0u8; 16];
             reader.read_exact(&mut name_bytes).await?;
-            let lump_name = seismon_utils::read_cstring_async(&mut reader).await?;
+            let lump_name =
+                seismon_utils::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
 
-            if dbg!(&*lump_name.to_str()) == name {
-                root_reader.seek(SeekFrom::Start(dbg!(offset as u64))).await?;
-                return Ok(root_reader.take(size as u64));
+            if file_info.is_none() && &*lump_name.to_str() == name {
+                file_info = Some((offset, size))
             }
         }
 
-        Err(failure::err_msg(format!("Could not find file {name} in the .wad")))
-    }
-
-    pub fn open_conchars(&self) -> Result<QPic, Error> {
-        match self.files.get(&*self.conchars_name) {
-            Some(data) => {
-                let width = 128;
-                let height = 128;
-                let indices = Vec::from(&data[..(width * height) as usize]);
-
-                Ok(QPic { width, height, indices })
-            }
-
-            None => bail!("conchars not found in WAD"),
+        if let Some((offset, size)) = file_info {
+            root_reader.seek(SeekFrom::Start(dbg!(offset as u64))).await?;
+            Ok(root_reader.take(size as u64))
+        } else {
+            Err(failure::err_msg(format!("Could not find file {name} in the .wad")))
         }
     }
 }

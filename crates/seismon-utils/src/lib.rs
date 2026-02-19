@@ -59,9 +59,15 @@ impl Not for StringColor {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct QStr<'a> {
     pub raw: Cow<'a, [u8]>,
+}
+
+impl fmt::Debug for QStr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.to_str())
+    }
 }
 
 impl<'a> QStr<'a> {
