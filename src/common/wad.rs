@@ -96,8 +96,6 @@ impl Display for WadError {
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
 pub enum WadErrorKind {
-    #[fail(display = "CONCHARS must be loaded with the dedicated function")]
-    ConcharsUseDedicatedFunction,
     #[fail(display = "Invalid magic number")]
     InvalidMagicNumber,
     #[fail(display = "I/O error")]
@@ -279,7 +277,6 @@ impl QPic {
     }
 }
 
-// TODO: This can probably be made somewhat generic
 #[derive(Debug, Default, Reflect)]
 #[non_exhaustive]
 pub struct ConcharsLoader {}
@@ -303,6 +300,8 @@ impl AssetLoader for ConcharsLoader {
     type Settings = ConcharsLoaderSettings;
     type Error = failure::Error;
 
+    // TODO: Since this is only used for `gfx.wad`, we can probably make this work for any qpic, with the "size" being a setting
+    // just like for `QPicLoader`.
     fn load(
         &self,
         reader: &mut dyn bevy::asset::io::Reader,
@@ -336,6 +335,7 @@ pub struct Wad {
 }
 
 impl Wad {
+    // TODO: This is a pretty inefficient way to handle this.
     pub async fn find_file<'a>(
         root_reader: &'a mut dyn bevy::asset::io::Reader,
         name: &str,
@@ -379,7 +379,7 @@ impl Wad {
             root_reader.seek(SeekFrom::Start(dbg!(offset as u64))).await?;
             Ok(root_reader.take(size as u64))
         } else {
-            Err(failure::err_msg(format!("Could not find file {name} in the .wad")))
+            Err(WadErrorKind::NoSuchFile.into())
         }
     }
 }
