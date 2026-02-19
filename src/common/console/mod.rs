@@ -27,9 +27,15 @@ use serde::{
 use serde_lexpr::Value;
 use snafu::{Backtrace, prelude::*};
 
-use crate::client::{
-    Connected,
-    input::{InputFocus, game::Trigger},
+use crate::{
+    client::{
+        Connected,
+        input::{InputFocus, game::Trigger},
+    },
+    common::{
+        console::gfx::Conchars,
+        wad::{ConcharsLoader, Palette, PaletteLoader, QPicLoader},
+    },
 };
 
 use super::{parse, vfs::Vfs};
@@ -60,8 +66,12 @@ impl Plugin for SeismonConsoleCorePlugin {
         #[command(name = "resetall", about = "Reset all cvars to their initial values")]
         struct ResetAll;
 
-        app.init_resource::<Registry>()
-            .init_resource::<gfx::Gfx>()
+        app.init_asset_loader::<QPicLoader>()
+            .init_asset_loader::<PaletteLoader>()
+            .init_asset_loader::<ConcharsLoader>()
+            .init_asset::<Palette>()
+            .init_resource::<Registry>()
+            .init_resource::<gfx::Conchars>()
             .add_message::<RunCmd<'static>>()
             .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
                 ExecResult {
@@ -124,6 +134,7 @@ impl Plugin for SeismonConsolePlugin {
 
         let mut history = lined::History::default();
 
+        // TODO: Remove `Vfs`
         if let Ok(history_path) = vfs.find_writable_filename("history.cfg") {
             match history.set_file_name_and_load_history(history_path) {
                 Ok(_) => history.inc_append = true,
@@ -136,6 +147,7 @@ impl Plugin for SeismonConsolePlugin {
 
         app.add_plugins(SeismonConsoleCorePlugin)
             .add_message::<UnhandledCmd>()
+            .init_resource::<Conchars>()
             .init_resource::<ConsoleOutput>()
             .insert_resource(ConsoleInput::new(history).unwrap())
             .init_resource::<RenderConsoleOutput>()
@@ -1778,157 +1790,35 @@ struct ConsoleTextInputUi;
 
 /// TODO: Properly this with Bevy (needs WAD support somehow)
 mod gfx {
-    use super::Vfs;
-    use crate::common::wad::Wad;
-    use bevy::{asset::RenderAssetUsages, prelude::*};
-    use std::io::{BufReader, Read as _};
-    use wgpu::{Extent3d, TextureDimension};
+    use bevy::prelude::*;
 
-    pub struct DiffuseData {
-        pub rgba: Vec<u8>,
-    }
+    const GLYPH_WIDTH: usize = 8;
+    const GLYPH_HEIGHT: usize = 8;
+    const GLYPH_COLS: usize = 16;
+    const GLYPH_ROWS: usize = 16;
+    const SCALE: f32 = 2.;
 
-    impl From<Vec<u8>> for DiffuseData {
-        fn from(value: Vec<u8>) -> Self {
-            Self { rgba: value }
-        }
-    }
-
-    // pub struct FullbrightData {
-    //     pub fullbright: Vec<u8>,
-    // }
-
-    // impl From<Vec<u8>> for FullbrightData {
-    //     fn from(value: Vec<u8>) -> Self {
-    //         Self { fullbright: value }
-    //     }
-    // }
-
-    pub struct Palette {
-        pub rgb: [[u8; 3]; 256],
-    }
-
-    impl Palette {
-        // pub fn new(data: &[u8]) -> Palette {
-        //     if data.len() != 768 {
-        //         panic!("Bad len for rgb data");
-        //     }
-
-        //     let mut rgb = [[0; 3]; 256];
-        //     for color in 0..256 {
-        //         for component in 0..3 {
-        //             rgb[color][component] = data[color * 3 + component];
-        //         }
-        //     }
-
-        //     Palette { rgb }
-        // }
-
-        pub fn load<S>(vfs: &Vfs, path: S) -> Palette
-        where
-            S: AsRef<str>,
-        {
-            let mut data = BufReader::new(vfs.open(path).unwrap());
-
-            let mut rgb = [[0u8; 3]; 256];
-
-            data.read_exact(rgb.as_flattened_mut()).unwrap();
-
-            Palette { rgb }
-        }
-
-        // TODO: this will not render console characters correctly, as they use index 0 (black) to
-        // indicate transparency.
-        /// Translates a set of indices into a list of RGBA values and a list of fullbright
-        /// values.
-        pub fn translate(&self, indices: &[u8]) -> DiffuseData {
-            DiffuseData {
-                rgba: indices
-                    .iter()
-                    .flat_map(|i| match *i {
-                        0xFF => [0; 4],
-                        i => {
-                            let [r, g, b] = self.rgb[i as usize];
-                            [r, g, b, 0xff]
-                        }
-                    })
-                    .collect(),
-            }
-        }
-    }
-
-    #[derive(Debug, Clone)]
+    #[derive(Resource, Reflect)]
     pub struct Conchars {
-        pub image: ImageNode,
+        pub image: Handle<Image>,
         pub layout: Handle<TextureAtlasLayout>,
-        pub glyph_size: (Val, Val),
+        pub glyph_size: [Val; 2],
     }
 
-    #[derive(Resource)]
-    pub struct Gfx {
-        pub palette: Palette,
-        pub conchars: Conchars,
-    }
-
-    impl FromWorld for Gfx {
+    impl FromWorld for Conchars {
         fn from_world(world: &mut World) -> Self {
-            // TODO: Deduplicate with glyph.rs
-            const GLYPH_WIDTH: usize = 8;
-            const GLYPH_HEIGHT: usize = 8;
-            const GLYPH_COLS: usize = 16;
-            const GLYPH_ROWS: usize = 16;
-            const SCALE: f32 = 2.;
-
-            let vfs = world.resource::<Vfs>();
             let assets = world.resource::<AssetServer>();
-
-            let palette = Palette::load(vfs, "gfx/palette.lmp");
-            let wad = Wad::load(vfs.open("gfx.wad").unwrap()).unwrap();
-
-            let conchars = wad.open_conchars().unwrap();
-
-            // TODO: validate conchars dimensions
-
-            let indices = conchars
-                .indices()
-                .iter()
-                .map(|i| if *i == 0 { 0xFF } else { *i })
-                .collect::<Vec<_>>();
-
-            let layout = assets.add(TextureAtlasLayout::from_grid(
-                UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
-                GLYPH_COLS as _,
-                GLYPH_ROWS as _,
-                None,
-                None,
-            ));
-
-            let image = {
-                let diffuse_data = palette.translate(&indices);
-
-                assets
-                    .add(Image::new(
-                        Extent3d {
-                            width: conchars.width(),
-                            height: conchars.height(),
-                            depth_or_array_layers: 1,
-                        },
-                        TextureDimension::D2,
-                        diffuse_data.rgba,
-                        // TODO: This feels like it shouldn't be `srgb`
-                        wgpu::TextureFormat::Rgba8UnormSrgb,
-                        RenderAssetUsages::RENDER_WORLD,
-                    ))
-                    .into()
-            };
-
-            let conchars = Conchars {
-                image,
-                layout,
-                glyph_size: (Val::Px(GLYPH_WIDTH as _) * SCALE, Val::Px(GLYPH_HEIGHT as _) * SCALE),
-            };
-
-            Self { palette, conchars }
+            Self {
+                image: assets.load("gfx.wad"),
+                layout: assets.add(TextureAtlasLayout::from_grid(
+                    UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
+                    GLYPH_COLS as _,
+                    GLYPH_ROWS as _,
+                    None,
+                    None,
+                )),
+                glyph_size: [Val::Px(GLYPH_WIDTH as _) * SCALE, Val::Px(GLYPH_HEIGHT as _) * SCALE],
+            }
         }
     }
 }
@@ -2016,18 +1906,13 @@ mod systems {
     use super::*;
 
     pub mod startup {
-        use bevy::asset::RenderAssetUsages;
-        use wgpu::{Extent3d, TextureDimension};
-
-        use crate::common::{
-            console::gfx::{Conchars, Gfx},
-            wad::QPic,
-        };
+        use crate::common::console::gfx::Conchars;
 
         use super::*;
 
-        pub fn init_alert_output(mut commands: Commands, gfx: Res<Gfx>) {
-            let Conchars { image, layout, glyph_size } = gfx.conchars.clone();
+        pub fn init_alert_output(conchars: Res<Conchars>, mut commands: Commands) {
+            const GLYPH_SIZE_MULTIPLIER: f32 = 1.5;
+
             commands.spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -2040,27 +1925,30 @@ mod systems {
                 GlobalZIndex(1),
                 AtlasText {
                     text: "".into(),
-                    image: image.clone(),
-                    layout: layout.clone(),
-                    glyph_size: (glyph_size.0 * 1.5, glyph_size.1 * 1.5),
+                    image: conchars.image.clone().into(),
+                    layout: conchars.layout.clone(),
+                    glyph_size: conchars.glyph_size.map(|s| s * GLYPH_SIZE_MULTIPLIER).into(),
                     line_padding: UiRect { top: Val::Px(4.), ..default() },
                     justify: JustifyContent::Center,
                 },
                 ConsoleTextCenterPrintUi,
             ));
+
+            let [half_w, half_h] = conchars.glyph_size.map(|s| s / 2.);
+
             commands.spawn((
                 Node {
-                    left: glyph_size.0 / 2.,
-                    top: glyph_size.1 / 2.,
+                    left: half_w,
+                    top: half_h,
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
                 AtlasText {
                     text: "".into(),
-                    image,
-                    layout,
+                    image: conchars.image.clone().into(),
+                    layout: conchars.layout.clone(),
                     line_padding: UiRect { top: Val::Px(4.), ..default() },
-                    glyph_size: (glyph_size.0, glyph_size.1),
+                    glyph_size: conchars.glyph_size.clone().into(),
                     justify: JustifyContent::Center,
                 },
                 AlertOutput::default(),
@@ -2068,30 +1956,11 @@ mod systems {
         }
 
         pub fn init_console(
+            conchars: Res<Conchars>,
             mut commands: Commands,
-            vfs: Res<Vfs>,
-            gfx: Res<Gfx>,
             assets: Res<AssetServer>,
         ) {
-            let Conchars { image: conchars_img, layout, glyph_size } = gfx.conchars.clone();
-
-            let conback = QPic::load(vfs.open("gfx/conback.lmp").unwrap()).unwrap();
-
-            // TODO: validate conchars dimensions
-
-            let diffuse_data = gfx.palette.translate(conback.indices());
-
-            let image = assets.add(Image::new(
-                Extent3d {
-                    width: conback.width(),
-                    height: conback.height(),
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                diffuse_data.rgba,
-                wgpu::TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::RENDER_WORLD,
-            ));
+            let image = assets.load("gfx/conback.lmp");
 
             commands
                 .spawn((
@@ -2131,9 +2000,9 @@ mod systems {
                                 Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "".into(),
-                                    image: conchars_img.clone(),
-                                    layout: layout.clone(),
-                                    glyph_size,
+                                    image: conchars.image.clone().into(),
+                                    layout: conchars.layout.clone(),
+                                    glyph_size: conchars.glyph_size.clone().into(),
                                     line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },
@@ -2143,9 +2012,9 @@ mod systems {
                                 Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "] ".into(),
-                                    image: conchars_img.clone(),
-                                    layout: layout.clone(),
-                                    glyph_size,
+                                    image: conchars.image.clone().into(),
+                                    layout: conchars.layout.clone(),
+                                    glyph_size: conchars.glyph_size.clone().into(),
                                     line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },

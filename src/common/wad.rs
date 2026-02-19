@@ -22,16 +22,25 @@
 #![allow(non_local_definitions)]
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display},
-    io::{self, BufReader, Cursor, Read, Seek, SeekFrom},
+    io::{self, SeekFrom},
     iter,
 };
 
-use bevy::prelude::*;
-use byteorder::{LittleEndian, ReadBytesExt};
+use bevy::{
+    asset::{
+        AssetLoader, AssetPath, AsyncReadExt as _, LoadContext, LoadedAsset, RenderAssetUsages,
+    },
+    platform::collections::HashMap,
+    prelude::*,
+};
 use failure::{Backtrace, Context, Error, Fail, bail};
-use hashbrown::HashMap;
+use futures::{AsyncRead, AsyncSeekExt, TryFutureExt};
+use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use seismon_utils::QString;
+use serde::{Deserialize, Serialize};
+use wgpu::{Extent3d, TextureDimension};
 
 // see definition of lumpinfo_t:
 // https://github.com/id-Software/Quake/blob/master/WinQuake/wad.h#L54-L63
@@ -102,26 +111,155 @@ pub enum WadErrorKind {
     UnexpectedEof,
 }
 
+#[derive(Debug, Default, Reflect)]
+#[non_exhaustive]
+pub struct PaletteLoader {}
+
+impl AssetLoader for PaletteLoader {
+    type Asset = Palette;
+    type Settings = ();
+    type Error = std::io::Error;
+
+    fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut bevy::asset::LoadContext,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
+    {
+        Palette::load(reader)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["lmp"]
+    }
+}
+
+#[derive(Asset, Reflect)]
+pub struct Palette {
+    pub rgb: [[u8; 3]; 256],
+}
+
+impl Palette {
+    pub async fn load(reader: &mut dyn bevy::asset::io::Reader) -> Result<Palette, std::io::Error> {
+        let mut rgb = [[0u8; 3]; 256];
+
+        reader.read_exact(rgb.as_flattened_mut()).await?;
+
+        Ok(Palette { rgb })
+    }
+
+    // TODO: this will not render console characters correctly, as they use index 0 (black) to
+    // indicate transparency.
+    /// Translates a set of indices into a list of RGBA values and a list of fullbright
+    /// values.
+    pub fn translate(&self, indices: &[u8]) -> Vec<u8> {
+        indices
+            .iter()
+            .flat_map(|i| match *i {
+                0xFF => [0; 4],
+                i => {
+                    let [r, g, b] = self.rgb[i as usize];
+                    [r, g, b, 0xff]
+                }
+            })
+            .collect()
+    }
+}
+
+#[derive(Asset, Reflect)]
 pub struct QPic {
     width: u32,
     height: u32,
-    indices: Box<[u8]>,
+    indices: Vec<u8>,
+}
+
+#[derive(Debug, Default, Reflect)]
+#[non_exhaustive]
+pub struct QPicLoader {}
+
+#[derive(Debug, Reflect, Serialize, Deserialize)]
+pub struct QPicLoaderSettings {
+    pub palette_path: AssetPath<'static>,
+    pub size: Option<UVec2>,
+}
+
+pub const DEFAULT_PALETTE_PATH: &str = "gfx/palette.lmp";
+
+impl Default for QPicLoaderSettings {
+    fn default() -> Self {
+        Self { palette_path: DEFAULT_PALETTE_PATH.into(), size: None }
+    }
+}
+
+async fn load_qpic_as_image<R>(
+    reader: &mut R,
+    settings: &QPicLoaderSettings,
+    load_context: &mut LoadContext<'_>,
+) -> Result<Image, std::io::Error>
+where
+    R: AsyncRead + Unpin + ?Sized,
+{
+    let palette: LoadedAsset<Palette> = load_context
+        .loader()
+        .immediate()
+        .load(&settings.palette_path)
+        .await
+        .map_err(std::io::Error::other)?;
+
+    let qpic = QPic::load(reader, settings.size).await?;
+
+    let data = palette.get().translate(qpic.indices());
+
+    Ok(Image::new(
+        Extent3d { width: qpic.width(), height: qpic.height(), depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    ))
+}
+
+impl AssetLoader for QPicLoader {
+    type Asset = Image;
+    type Settings = QPicLoaderSettings;
+    type Error = std::io::Error;
+
+    fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        settings: &Self::Settings,
+        load_context: &mut LoadContext,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
+    {
+        load_qpic_as_image(reader, settings, load_context)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["lmp"]
+    }
 }
 
 impl QPic {
-    pub fn load<R>(data: R) -> Result<QPic, WadError>
-    where R: Read + Seek {
-        let mut reader = BufReader::new(data);
+    pub async fn load<R>(mut reader: &mut R, size: Option<UVec2>) -> Result<QPic, std::io::Error>
+    where
+        R: AsyncRead + Unpin + ?Sized,
+    {
+        let mut reader = AsyncReadBytes::new(&mut reader);
 
-        let width = reader.read_u32::<LittleEndian>()?;
-        let height = reader.read_u32::<LittleEndian>()?;
+        let [width, height] = match size {
+            Some(size) => size.into(),
+            None => {
+                [reader.read_u32::<LittleEndian>().await?, reader.read_u32::<LittleEndian>().await?]
+            }
+        };
 
         let mut indices = Vec::new();
-        (&mut reader).take((width * height) as u64).read_to_end(&mut indices)?;
+        (*reader).take((width * height) as u64).read_to_end(&mut indices).await?;
 
         indices.extend(iter::repeat_n(0xFF, (width * height) as usize - indices.len()));
 
-        Ok(QPic { width, height, indices: indices.into_boxed_slice() })
+        Ok(QPic { width, height, indices })
     }
 
     pub fn width(&self) -> u32 {
@@ -137,85 +275,114 @@ impl QPic {
     }
 }
 
-struct LumpInfo {
-    offset: u32,
-    size: u32,
-    name: QString,
+// TODO: This can probably be made somewhat generic
+#[derive(Debug, Default, Reflect)]
+#[non_exhaustive]
+pub struct ConcharsLoader {}
+
+#[derive(Debug, Reflect, Serialize, Deserialize)]
+pub struct ConcharsLoaderSettings {
+    pub conchars_name: Cow<'static, str>,
+    pub palette_path: AssetPath<'static>,
 }
 
+impl Default for ConcharsLoaderSettings {
+    fn default() -> Self {
+        Self { conchars_name: "CONCHARS".into(), palette_path: DEFAULT_PALETTE_PATH.into() }
+    }
+}
+
+const CONCHARS_SIZE: u32 = 128;
+
+impl AssetLoader for ConcharsLoader {
+    type Asset = Image;
+    type Settings = ConcharsLoaderSettings;
+    type Error = failure::Error;
+
+    fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        settings: &Self::Settings,
+        load_context: &mut LoadContext,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
+    {
+        Wad::load_file(reader, &*settings.conchars_name).and_then(move |mut file| async move {
+            load_qpic_as_image(
+                &mut file,
+                &QPicLoaderSettings {
+                    palette_path: settings.palette_path.clone(),
+                    size: Some(UVec2::new(CONCHARS_SIZE, CONCHARS_SIZE)),
+                },
+                load_context,
+            )
+            .await
+            .map_err(Into::into)
+        })
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["wad"]
+    }
+}
+
+#[derive(Asset, Reflect)]
 pub struct Wad {
-    files: HashMap<String, Box<[u8]>>,
+    conchars_name: Cow<'static, str>,
+    files: HashMap<String, Vec<u8>>,
 }
 
 impl Wad {
-    pub fn load<R>(data: R) -> Result<Wad, Error>
-    where R: Read + Seek {
-        let mut reader = BufReader::new(data);
+    pub async fn load_file<'a>(
+        root_reader: &'a mut dyn bevy::asset::io::Reader,
+        name: &str,
+    ) -> Result<impl AsyncRead + Unpin + 'a, failure::Error> {
+        let mut root_reader = root_reader.seekable()?;
+        let mut reader = AsyncReadBytes::new(&mut root_reader);
 
-        let magic = reader.read_u32::<LittleEndian>()?;
+        let magic = reader.read_u32::<LittleEndian>().await?;
         if magic != MAGIC {
             return Err(WadErrorKind::InvalidMagicNumber.into());
         }
 
-        let lump_count = reader.read_u32::<LittleEndian>()?;
-        let lumpinfo_ofs = reader.read_u32::<LittleEndian>()?;
+        let lump_count = reader.read_u32::<LittleEndian>().await?;
+        let lumpinfo_ofs = reader.read_u32::<LittleEndian>().await?;
 
-        reader.seek(SeekFrom::Start(lumpinfo_ofs as u64))?;
+        dbg!(root_reader.seek(SeekFrom::Start(dbg!(lumpinfo_ofs as u64))).await?);
 
-        let mut lump_infos = Vec::new();
+        let mut reader = AsyncReadBytes::new(&mut root_reader);
 
         for _ in 0..lump_count {
             // TODO sanity check these values
-            let offset = reader.read_u32::<LittleEndian>()?;
-            let _size_on_disk = reader.read_u32::<LittleEndian>()?;
-            let size = reader.read_u32::<LittleEndian>()?;
-            let _type = reader.read_u8()?;
-            let _compression = reader.read_u8()?;
-            let _pad = reader.read_u16::<LittleEndian>()?;
+            let offset = reader.read_u32::<LittleEndian>().await?;
+            let _size_on_disk = reader.read_u32::<LittleEndian>().await?;
+            let size = reader.read_u32::<LittleEndian>().await?;
+            let _type = reader.read_u8().await?;
+            let _compression = reader.read_u8().await?;
+            let _pad = reader.read_u16::<LittleEndian>().await?;
             let mut name_bytes = [0u8; 16];
-            reader.read_exact(&mut name_bytes)?;
-            let name_lossy = String::from_utf8_lossy(&name_bytes);
-            debug!("name: {}", name_lossy);
-            let name = seismon_utils::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
+            reader.read_exact(&mut name_bytes).await?;
+            let lump_name = seismon_utils::read_cstring_async(&mut reader).await?;
 
-            lump_infos.push(LumpInfo { offset, size, name });
+            if dbg!(&*lump_name.to_str()) == name {
+                root_reader.seek(SeekFrom::Start(dbg!(offset as u64))).await?;
+                return Ok(root_reader.take(size as u64));
+            }
         }
 
-        let mut files = HashMap::default();
-
-        for lump_info in lump_infos {
-            let mut data = Vec::with_capacity(lump_info.size as usize);
-            reader.seek(SeekFrom::Start(lump_info.offset as u64))?;
-            (&mut reader).take(lump_info.size as u64).read_to_end(&mut data)?;
-            files.insert(lump_info.name.into_string(), data.into_boxed_slice());
-        }
-
-        Ok(Wad { files })
+        Err(failure::err_msg(format!("Could not find file {name} in the .wad")))
     }
 
     pub fn open_conchars(&self) -> Result<QPic, Error> {
-        match self.files.get("CONCHARS") {
+        match self.files.get(&*self.conchars_name) {
             Some(data) => {
                 let width = 128;
                 let height = 128;
                 let indices = Vec::from(&data[..(width * height) as usize]);
 
-                Ok(QPic { width, height, indices: indices.into_boxed_slice() })
+                Ok(QPic { width, height, indices })
             }
 
             None => bail!("conchars not found in WAD"),
-        }
-    }
-
-    pub fn open_qpic<S>(&self, name: S) -> Result<QPic, WadError>
-    where S: AsRef<str> {
-        if name.as_ref() == "CONCHARS" {
-            Err(WadErrorKind::ConcharsUseDedicatedFunction)?
-        }
-
-        match self.files.get(name.as_ref()) {
-            Some(ref data) => QPic::load(Cursor::new(data)),
-            None => Err(WadErrorKind::NoSuchFile.into()),
         }
     }
 }

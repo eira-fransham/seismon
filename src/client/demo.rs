@@ -193,6 +193,6 @@ impl AssetLoader for DemoLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["mdl"]
+        &["dem"]
     }
 }

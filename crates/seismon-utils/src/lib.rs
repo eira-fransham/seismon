@@ -199,7 +199,9 @@ impl<'a> QStr<'a> {
 
 /// Read a `[f32; 3]` in little-endian byte order.
 pub fn read_f32_3<R>(reader: &mut R) -> Result<[f32; 3], std::io::Error>
-where R: ReadBytesExt {
+where
+    R: ReadBytesExt,
+{
     let mut ar = [0.0f32; 3];
     reader.read_f32_into::<LittleEndian>(&mut ar)?;
     Ok(ar)
@@ -213,7 +215,9 @@ where R: ReadBytesExt {
 /// - If the end of the input is reached before a zero byte is found.
 pub fn read_cstring<R>(src: &mut R) -> io::Result<QString>
 // QStringOwned
-where R: BufRead {
+where
+    R: BufRead,
+{
     // TODO: `BufRead` would be better here
     let mut bytes: Vec<u8> = Vec::new();
     loop {
@@ -232,7 +236,9 @@ where R: BufRead {
 pub async fn read_f32_3_async<R>(
     reader: &mut AsyncReadBytes<'_, R>,
 ) -> Result<[f32; 3], std::io::Error>
-where R: AsyncReadExt + Unpin {
+where
+    R: AsyncReadExt + Unpin,
+{
     Ok([
         reader.read_f32::<futures_byteorder::LittleEndian>().await?,
         reader.read_f32::<futures_byteorder::LittleEndian>().await?,
@@ -248,7 +254,9 @@ where R: AsyncReadExt + Unpin {
 /// - If the end of the input is reached before a zero byte is found.
 pub async fn read_cstring_async<R>(src: &mut AsyncReadBytes<'_, R>) -> io::Result<QString>
 // QStringOwned
-where R: AsyncReadExt + Unpin {
+where
+    R: AsyncReadExt + Unpin,
+{
     // TODO: `BufRead` would be better here
     let mut bytes: Vec<u8> = Vec::new();
     loop {
