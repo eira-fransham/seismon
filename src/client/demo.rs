@@ -1,33 +1,37 @@
-use std::{io, ops::Range};
+use std::{ops::Range, sync::Arc};
 
-use crate::common::{
-    net::{self, NetError},
-    vfs::VirtualFile,
-};
+use crate::common::net::{self, NetError};
 
 use arrayvec::ArrayVec;
-use bevy::{log::warn, math::Vec3};
-use byteorder::{LittleEndian, ReadBytesExt};
-use io::BufReader;
-use seismon_utils::read_f32_3;
+use bevy::{
+    asset::{Asset, AssetLoadError, AssetLoader, Assets, AsyncReadExt, Handle},
+    log::warn,
+    math::Vec3,
+    reflect::Reflect,
+    tasks::ConditionalSendFuture,
+};
+use futures_byteorder::{AsyncReadBytes, LittleEndian};
+use seismon_utils::read_f32_3_async;
 use thiserror::Error;
 
 /// An error returned by a demo server.
 #[derive(Error, Debug)]
-pub enum DemoServerError {
+pub enum DemoError {
     #[error("Invalid CD track number")]
     InvalidCdTrack,
     #[error("No such CD track: {0}")]
     NoSuchCdTrack(i32),
     #[error("Message size ({0}) exceeds maximum allowed size {}", net::MAX_MESSAGE)]
     MessageTooLong(u32),
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+    #[error("Load error: {0}")]
+    Load(#[from] Arc<AssetLoadError>),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("Network error: {0}")]
     Net(#[from] NetError),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
 struct DemoMessage {
     view_angles: Vec3,
     msg_range: Range<usize>,
@@ -36,29 +40,51 @@ struct DemoMessage {
 /// A view of a server message from a demo.
 #[derive(Debug, Copy, Clone)]
 pub struct DemoMessageView<'a> {
-    view_angles: Vec3,
-    message: &'a [u8],
+    pub view_angles: Vec3,
+    pub message: &'a [u8],
+    pub track_override: Option<u32>,
 }
 
-impl<'a> DemoMessageView<'a> {
-    /// Returns the view angles recorded for this demo message.
-    pub fn view_angles(&self) -> Vec3 {
-        self.view_angles
+pub struct DemoServer {
+    demo: Handle<Demo>,
+    message_id: usize,
+}
+
+impl From<Handle<Demo>> for DemoServer {
+    fn from(value: Handle<Demo>) -> Self {
+        Self::new(value)
+    }
+}
+
+impl DemoServer {
+    pub fn new(demo: Handle<Demo>) -> Self {
+        Self { demo, message_id: 0 }
     }
 
-    /// Returns the server message for this demo message as a slice of bytes.
-    pub fn message(self) -> &'a [u8] {
-        self.message
+    pub fn demo(&self) -> &Handle<Demo> {
+        &self.demo
+    }
+
+    /// Retrieve the next server message from the currently playing demo.
+    ///
+    /// If this returns `None`, the demo is complete.
+    pub fn next_msg<'a>(&mut self, demos: &'a Assets<Demo>) -> Option<DemoMessageView<'a>> {
+        let demo = demos.get(&self.demo)?;
+        let msg = &demo.messages.get(self.message_id)?;
+        self.message_id += 1;
+
+        Some(DemoMessageView {
+            view_angles: msg.view_angles,
+            track_override: demo.track_override,
+            message: &demo.message_data.get(msg.msg_range.clone())?,
+        })
     }
 }
 
 /// A server that yields commands from a demo file.
-#[derive(Clone)]
-pub struct DemoServer {
+#[derive(Asset, Clone, Reflect)]
+pub struct Demo {
     track_override: Option<u32>,
-
-    // id of next message to "send"
-    message_id: usize,
 
     messages: Vec<DemoMessage>,
 
@@ -66,15 +92,15 @@ pub struct DemoServer {
     message_data: Vec<u8>,
 }
 
-impl DemoServer {
+impl Demo {
     /// Construct a new `DemoServer` from the specified demo file.
-    pub fn new(file: &mut VirtualFile) -> Result<DemoServer, DemoServerError> {
-        let mut dem_reader = BufReader::new(file);
-
+    pub async fn new(mut reader: &mut dyn bevy::asset::io::Reader) -> Result<Demo, DemoError> {
+        let mut reader = AsyncReadBytes::new(&mut reader);
         let mut buf = ArrayVec::<u8, 3>::new();
+
         // copy CD track number (terminated by newline) into buffer
         for i in 0..buf.capacity() {
-            match dem_reader.read_u8()? {
+            match reader.read_u8().await? {
                 b'\n' => break,
                 // cannot panic because we won't exceed capacity with a loop this small
                 b => buf.push(b),
@@ -82,7 +108,7 @@ impl DemoServer {
 
             if i >= buf.capacity() - 1 {
                 // CD track would be more than 2 digits long, which is impossible
-                warn!("{}", DemoServerError::InvalidCdTrack);
+                warn!("{}", DemoError::InvalidCdTrack);
             }
         }
 
@@ -90,7 +116,7 @@ impl DemoServer {
             let track_str = match std::str::from_utf8(&buf) {
                 Ok(s) => Some(s),
                 Err(_) => {
-                    warn!("{}", DemoServerError::InvalidCdTrack);
+                    warn!("{}", DemoError::InvalidCdTrack);
                     None
                 }
             };
@@ -103,13 +129,13 @@ impl DemoServer {
                         // if track is -1, allow demo to specify tracks in messages
                         -1 => None,
                         t if t < -1 => {
-                            warn!("{}", DemoServerError::InvalidCdTrack);
+                            warn!("{}", DemoError::InvalidCdTrack);
                             None
                         }
                         _ => Some(track as u32),
                     },
                     Err(_) => {
-                        warn!("{}", DemoServerError::InvalidCdTrack);
+                        warn!("{}", DemoError::InvalidCdTrack);
                         None
                     }
                 },
@@ -121,38 +147,21 @@ impl DemoServer {
         let mut messages = Vec::new();
 
         // read all messages
-        while let Ok(msg_len) = dem_reader.read_u32::<LittleEndian>() {
+        while let Ok(msg_len) = reader.read_u32::<LittleEndian>().await {
             // get view angles
-            let view_angles = read_f32_3(&mut dem_reader)?.into();
+            let view_angles = read_f32_3_async(&mut reader).await?.into();
+
+            message_data.reserve(msg_len as usize);
 
             // read next message
             let msg_start = message_data.len();
-            for _ in 0..msg_len {
-                message_data.push(dem_reader.read_u8()?);
-            }
+            reader.take(msg_len as _).read_to_end(&mut message_data).await?;
             let msg_end = message_data.len();
 
             messages.push(DemoMessage { view_angles, msg_range: msg_start..msg_end });
         }
 
-        Ok(DemoServer { track_override, message_id: 0, messages, message_data })
-    }
-
-    /// Retrieve the next server message from the currently playing demo.
-    ///
-    /// If this returns `None`, the demo is complete.
-    pub fn next_msg(&mut self) -> Option<DemoMessageView<'_>> {
-        if self.message_id >= self.messages.len() {
-            return None;
-        }
-
-        let msg = &self.messages[self.message_id];
-        self.message_id += 1;
-
-        Some(DemoMessageView {
-            view_angles: msg.view_angles,
-            message: &self.message_data[msg.msg_range.clone()],
-        })
+        Ok(Demo { track_override, messages, message_data })
     }
 
     /// Returns the currently playing demo's music track override, if any.
@@ -162,5 +171,28 @@ impl DemoServer {
     /// command.
     pub fn track_override(&self) -> Option<u32> {
         self.track_override
+    }
+}
+
+#[non_exhaustive]
+#[derive(Default, Debug, Reflect)]
+pub struct DemoLoader {}
+
+impl AssetLoader for DemoLoader {
+    type Asset = Demo;
+    type Settings = ();
+    type Error = DemoError;
+
+    fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut bevy::asset::LoadContext,
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
+        Demo::new(reader)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["mdl"]
     }
 }

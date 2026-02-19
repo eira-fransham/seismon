@@ -19,7 +19,7 @@ use std::{iter, net::ToSocketAddrs, ops::Range, path::PathBuf, time::Duration};
 
 use crate::{
     client::{
-        demo::{DemoServer, DemoServerError},
+        demo::{Demo, DemoError, DemoLoader, DemoServer},
         entity::ClientEntity,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
         state::ClientState,
@@ -39,7 +39,7 @@ use crate::{
 
 use beef::Cow;
 use bevy::{
-    asset::AssetServer,
+    asset::{AssetServer, LoadState},
     ecs::{
         entity_disabling::Disabled,
         message::MessageCursor,
@@ -154,6 +154,8 @@ where
             .init_resource::<Vfs>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
+            .init_asset::<Demo>()
+            .init_asset_loader::<DemoLoader>()
             .add_message::<ServerMessage>()
             .add_message::<ClientMessage>()
             .add_message::<Impulse>()
@@ -176,7 +178,6 @@ where
                         }
                     }),
                 )
-                    // TODO: Use bevy's state system
                     .run_if(resource_exists::<Connection>.and(
                         in_state(ClientGameState::Prespawn).or(in_state(ClientGameState::InGame)),
                     )),
@@ -249,7 +250,7 @@ pub enum ClientError {
     #[error("Failed to open audio output stream")]
     OutputStream,
     #[error("Demo server error: {0}")]
-    DemoServer(#[from] DemoServerError),
+    DemoServer(#[from] DemoError),
     #[error("Network error: {0}")]
     Network(#[from] NetError),
     #[error("Failed to load sound: {0}")]
@@ -335,6 +336,9 @@ pub enum ConnectionStage {
 pub struct Connected(pub bool);
 
 /// Possible targets that a client can be connected to.
+///
+/// > TODO: These should be two different resources so we can switch the systems based on
+/// > which exists.
 enum ConnectionTarget {
     /// A regular Quake server.
     Server {
@@ -351,15 +355,6 @@ enum ConnectionTarget {
     /// A demo server.
     Demo(DemoServer),
 }
-
-// impl ConnectionTarget {
-//     pub fn stage(&self) -> ConnectionStage {
-//         match self {
-//             ConnectionTarget::Server { stage, .. } => *stage,
-//             ConnectionTarget::Demo(_) => ConnectionStage::Connected,
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 struct ServerUpdate<'a> {
@@ -385,10 +380,13 @@ impl Default for ServerUpdate<'_> {
 }
 
 impl ConnectionTarget {
-    fn recv(
+    // TODO: `Result<Result<..>>` is ugly here.
+    fn recv<'a>(
         &mut self,
+        assets: &AssetServer,
+        demos: &'a Assets<Demo>,
         events: &Messages<ServerMessage>,
-    ) -> Result<Option<ServerUpdate<'_>>, ClientError> {
+    ) -> Result<Result<ServerUpdate<'a>, ConnectionStatus>, ClientError> {
         match self {
             Self::Server { reader, .. } => {
                 let mut out = Vec::new();
@@ -399,38 +397,39 @@ impl ConnectionTarget {
                     }
                 }
 
-                Ok(Some(ServerUpdate { message: out.into(), ..default() }))
+                Ok(Ok(ServerUpdate { message: out.into(), ..default() }))
             }
             Self::Demo(demo_srv) => {
-                let track_override = demo_srv.track_override();
-                let msg_view = match demo_srv.next_msg() {
+                match assets.load_state(demo_srv.demo()) {
+                    LoadState::Loaded => {}
+                    LoadState::Loading => return Ok(Err(ConnectionStatus::Maintain)),
+                    LoadState::NotLoaded => return Ok(Err(ConnectionStatus::NextDemo)),
+                    LoadState::Failed(err) => {
+                        return Err(ClientError::DemoServer(DemoError::Load(err)));
+                    }
+                };
+
+                let msg_view = match demo_srv.next_msg(demos) {
                     Some(v) => v,
                     None => {
                         // if there are no commands left in the demo, play
                         // the next demo if there is one
-                        return Ok(None);
+                        return Ok(Err(ConnectionStatus::NextDemo));
                     }
                 };
 
-                let mut view_angles = msg_view.view_angles();
+                let mut view_angles = msg_view.view_angles;
                 // invert entity angles to get the camera direction right.
                 // yaw is already inverted.
                 view_angles.z = -view_angles.z;
 
                 // TODO: we shouldn't have to copy the message here
-                Ok(Some(ServerUpdate {
-                    message: msg_view.message().into(),
+                Ok(Ok(ServerUpdate {
+                    message: msg_view.message.into(),
                     angles: Some(view_angles),
-                    track_override,
+                    track_override: msg_view.track_override,
                 }))
             }
-        }
-    }
-
-    fn is_demo(&self) -> bool {
-        match self {
-            Self::Demo(_) => true,
-            Self::Server { .. } => false,
         }
     }
 }
@@ -466,9 +465,9 @@ impl Connection {
         }
     }
 
-    pub fn new_demo(demo: DemoServer) -> Self {
+    pub fn new_demo(demo: Handle<Demo>) -> Self {
         Self {
-            target: ConnectionTarget::Demo(demo),
+            target: ConnectionTarget::Demo(demo.into()),
             client_state: default(),
             last_msg_time: Duration::ZERO,
             connected: false,
@@ -902,6 +901,7 @@ mod systems {
             settings: Res<SeismonGameSettings>,
             mut time: ResMut<Time<Virtual>>,
             asset_server: Res<AssetServer>,
+            demos: Res<Assets<Demo>>,
             registry: Res<Registry>,
             server_events: Res<Messages<ServerMessage>>,
             mut mixer_events: MessageWriter<MixerMessage>,
@@ -938,8 +938,10 @@ mod systems {
                 time.advance_to(expected_next_tick);
             }
 
-            let Some(server_update) = conn.target.recv(&server_events)? else {
-                return if conn.target.is_demo() { Ok(S::NextDemo) } else { Ok(S::Maintain) };
+            // TODO: "Wait for demo load" logic should be in its own system.
+            let server_update = match conn.target.recv(&*asset_server, &*demos, &server_events)? {
+                Ok(update) => update,
+                Err(status) => return Ok(status),
             };
 
             let ServerUpdate { message, track_override, .. } = server_update.into_owned();
@@ -1437,9 +1439,7 @@ mod systems {
             // TODO: This can almost certainly be simplified.
             In(status): In<Result<ConnectionStatus, ClientError>>,
             mut commands: Commands,
-            vfs: Res<Vfs>,
-            time: Res<Time<Virtual>>,
-            mut console: ResMut<ConsoleOutput>,
+            asset_server: Res<AssetServer>,
             mut demo_queue: ResMut<DemoQueue>,
             mut next_focus: ResMut<NextState<InputFocus>>,
             mut next_state: ResMut<NextState<ClientGameState>>,
@@ -1451,41 +1451,9 @@ mod systems {
                 S::Disconnect => None,
 
                 // get the next demo from the queue
-                S::NextDemo => loop {
-                    match demo_queue.next_demo() {
-                        Some(demo) => {
-                            // TODO: Extract this to a separate function so we don't duplicate the
-                            // logic to find the demos in different places
-                            let mut demo_file = match vfs
-                                .open(format!("{demo}.dem"))
-                                .or_else(|_| vfs.open(format!("demos/{demo}.dem")))
-                            {
-                                Ok(f) => Some(f),
-                                Err(e) => {
-                                    // log the error, dump the demo queue and disconnect
-                                    console.println(format!("{e}"), &time);
-
-                                    match demo_queue.index() {
-                                        Some(0) => break None,
-                                        _ => continue,
-                                    }
-                                }
-                            };
-
-                            break demo_file.as_mut().and_then(|df| match DemoServer::new(df) {
-                                Ok(d) => Some(Connection::new_demo(d)),
-                                Err(e) => {
-                                    console.println(format!("{e}"), &time);
-                                    demo_queue.reset();
-                                    None
-                                }
-                            });
-                        }
-
-                        // if there are no more demos in the queue, disconnect
-                        None => break None,
-                    }
-                },
+                S::NextDemo => demo_queue
+                    .next_demo()
+                    .map(|demo| Connection::new_demo(asset_server.load(format!("{demo}.dem")))),
             };
 
             if let Some(new_conn) = new_conn {

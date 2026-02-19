@@ -15,7 +15,6 @@ use crate::{
 
 use super::{
     Connection, ConnectionStage, ConnectionTarget, DemoQueue, connect,
-    demo::DemoServer,
     input::InputFocus,
     sound::{MixerMessage, MusicSource},
 };
@@ -167,31 +166,21 @@ pub fn register_commands(app: &mut App) {
         demo: String,
     }
 
+    // TODO: Deduplicate this and `StartDemos`
     app.command(
         |In(PlayDemo { demo }),
          mut commands: Commands,
-         vfs: Res<Vfs>,
+         assets: Res<AssetServer>,
          mut time: ResMut<Time<Virtual>>,
-         mut next_focus: ResMut<NextState<InputFocus>>| {
-            let mut demo_file = match vfs.open(format!("{demo}.dem")) {
-                Ok(f) => f,
-                Err(e) => {
-                    return e.to_string().into();
-                }
-            };
-
+         mut next_focus: ResMut<NextState<InputFocus>>,
+         mut next_state: ResMut<NextState<ClientGameState>>| {
+            // TODO: Commands should be async and this should use `wait_for_asset`
             *time = Time::default();
 
-            match DemoServer::new(&mut demo_file) {
-                Ok(d) => {
-                    next_focus.set(InputFocus::Game);
-
-                    commands.insert_resource(Connection::new_demo(d));
-                }
-                Err(e) => {
-                    return e.to_string().into();
-                }
-            }
+            // TODO: This should look for demos in root or `/demos`
+            commands.insert_resource(Connection::new_demo(assets.load(format!("{demo}.dem"))));
+            next_focus.set(InputFocus::Game);
+            next_state.set(ClientGameState::Prespawn);
 
             ExecResult::default()
         },
@@ -206,16 +195,16 @@ pub fn register_commands(app: &mut App) {
     app.command(
         |In(StartDemos { demos }),
          mut commands: Commands,
-         vfs: Res<Vfs>,
+         assets: Res<AssetServer>,
          mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
          mut next_focus: ResMut<NextState<InputFocus>>,
          mut next_state: ResMut<NextState<ClientGameState>>,
          server: Option<Res<Session>>| {
-            if !demos.is_empty() {
-                *demo_queue = DemoQueue::new(demos);
-            } else {
+            if demos.is_empty() {
                 demo_queue.reset();
+            } else {
+                *demo_queue = DemoQueue::new(demos);
             }
 
             *time = Time::default();
@@ -225,23 +214,8 @@ pub fn register_commands(app: &mut App) {
             if server.is_none() {
                 let new_conn = match demo_queue.next_demo() {
                     Some(demo) => {
-                        let mut demo_file = match vfs
-                            .open(format!("{demo}.dem"))
-                            .or_else(|_| vfs.open(format!("demos/{demo}.dem")))
-                        {
-                            Ok(f) => f,
-                            Err(e) => {
-                                // log the error, dump the demo queue and disconnect
-                                return e.to_string().into();
-                            }
-                        };
-
-                        match DemoServer::new(&mut demo_file) {
-                            Ok(d) => Connection::new_demo(d),
-                            Err(e) => {
-                                return e.to_string().into();
-                            }
-                        }
+                        // TODO: This should look for demos in root or `/demos`
+                        Connection::new_demo(assets.load(format!("{demo}.dem")))
                     }
                     None => return "".into(),
                 };

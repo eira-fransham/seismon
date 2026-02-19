@@ -19,6 +19,7 @@
 // SOFTWARE.
 
 mod item;
+mod render;
 
 use bevy::ecs::{
     resource::Resource,

@@ -1,21 +1,17 @@
-use std::{any::TypeId, sync::Arc};
+use std::sync::Arc;
 
 use bevy::{
     app::App,
     ecs::{
         component::Component,
-        entity::Entity,
-        query::{QueryData, QueryItem, QueryState, ROQueryItem},
+        query::{QueryData, QueryItem, ROQueryItem},
         world::Mut,
     },
     math::{Vec2, Vec3, Vec3Swizzles as _},
     transform::components::Transform,
 };
 use bevy_mod_scripting::{
-    bindings::{
-        ExternalError, FromScript, InteropError, ReflectBase, ReflectReference,
-        ThreadWorldContainer,
-    },
+    bindings::{ExternalError, InteropError, ReflectBase, ReflectReference, ThreadWorldContainer},
     prelude::*,
 };
 

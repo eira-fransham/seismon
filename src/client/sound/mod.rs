@@ -30,8 +30,6 @@ pub use music::MusicPlayer;
 
 use std::io;
 
-use crate::common::vfs::VfsError;
-
 use thiserror::Error;
 
 /// We don't scale by the standard trenchbroom->bevy factor, so attenuation needs
@@ -53,8 +51,6 @@ pub enum SoundError {
     NoSuchTrack(String),
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    #[error("Virtual filesystem error: {0}")]
-    Vfs(#[from] VfsError),
 }
 
 /// Data needed for sound spatialization.

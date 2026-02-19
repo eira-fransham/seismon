@@ -8349,6 +8349,7 @@ dependencies = [
  "dashmap",
  "failure",
  "futures",
+ "futures-byteorder",
  "hashbrown 0.15.5",
  "hashers",
  "im",

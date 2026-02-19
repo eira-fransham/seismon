@@ -88,6 +88,7 @@ bitflags.workspace = true
 byteorder.workspace = true
 clap.workspace = true
 futures.workspace = true
+futures-byteorder.workspace = true
 hashbrown.workspace = true
 itertools.workspace = true
 memmap2.workspace = true
