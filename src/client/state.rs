@@ -69,6 +69,12 @@ pub struct Worldspawn {
 
 const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
 
+fn angles_to_quat(roll: f32, pitch: f32, yaw: f32) -> Quat {
+    // TODO: [-roll, -pitch, yaw] seems to be how `bevy_trenchbroom`, but is it correct?
+    // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L364-L369?
+    Quat::from_euler(QUAKE_ROLL_PITCH_YAW, -roll, -pitch, yaw)
+}
+
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
 /// server entity ID to local [`Entity`].
 pub struct ClientState {
@@ -205,8 +211,8 @@ impl ClientState {
 
         // let v_angles = Angles {
         //     pitch: v_ent.angles.x,
-        //     roll: v_ent.angles.z,
         //     yaw: v_ent.angles.y,
+        //     roll: v_ent.angles.z,
         // };
 
         // view.handle_damage(
@@ -267,8 +273,6 @@ impl ClientState {
         } = baseline;
 
         let [pitch, yaw, roll] = angles.map(|x| x.to_radians()).into();
-        // TODO: [-pitch, yaw, -roll] seems to be implied by docs in `bevy_trenchbroom`, but is it correct?
-        let [pitch, yaw, roll] = [-pitch, yaw, -roll];
 
         if id == 0 {
             info!("Spawning world: {baseline:?}");
@@ -276,7 +280,7 @@ impl ClientState {
 
         let model = self.models.get(model_id).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
-            .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw));
+            .with_rotation(angles_to_quat(roll, pitch, yaw));
         let transform = Next { component: transform, elapsed_secs: msg_time };
 
         let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
@@ -327,11 +331,6 @@ impl ClientState {
                 && let Some(PrecacheModel::Loaded(model)) =
                     state.models.get(model_id as usize).cloned()
             {
-                if let Ok(children) = children.get(*entity) {
-                    for child in children {
-                        commands.entity(*child).despawn();
-                    }
-                }
                 commands.entity(*entity).insert(SceneRoot(model));
             }
 
@@ -372,23 +371,17 @@ impl ClientState {
 
                 let (mut roll, mut pitch, mut yaw) =
                     transform.component.rotation.to_euler(QUAKE_ROLL_PITCH_YAW);
-                // TODO: [-pitch, yaw, -roll] seems to be implied by docs in `bevy_trenchbroom`, but is it correct?
                 if let Some(new_pitch) = update.pitch {
-                    pitch = -new_pitch.to_radians();
+                    pitch = new_pitch.to_radians();
                 }
                 if let Some(new_yaw) = update.yaw {
                     yaw = new_yaw.to_radians();
                 }
                 if let Some(new_roll) = update.roll {
-                    roll = -new_roll.to_radians();
+                    roll = new_roll.to_radians();
                 }
 
-                let new_transform = new_transform.with_rotation(Quat::from_euler(
-                    QUAKE_ROLL_PITCH_YAW,
-                    roll,
-                    pitch,
-                    yaw,
-                ));
+                let new_transform = new_transform.with_rotation(angles_to_quat(roll, pitch, yaw));
 
                 transform.component = new_transform;
                 transform.elapsed_secs = msg_time;
@@ -404,7 +397,7 @@ impl ClientState {
 
                 ent.insert(
                     Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw)),
+                        .with_rotation(angles_to_quat(roll, pitch, yaw)),
                 );
             }
         } else {
@@ -425,7 +418,7 @@ impl ClientState {
             let mut ent = commands.spawn((
                 Next {
                     component: Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw)),
+                        .with_rotation(angles_to_quat(roll, pitch, yaw)),
                     elapsed_secs: msg_time,
                 },
                 Visibility::Inherited,

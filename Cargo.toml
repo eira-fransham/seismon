@@ -77,7 +77,6 @@ qbsp = { version = "0.14", features = ["bevy_reflect", "serde"] }
 [dependencies]
 seismon-utils.workspace = true
 bevy_mod_mdl.workspace = true
-# bevy_mod_assimp.workspace = true
 bevy_trenchbroom = { git = "https://github.com/eira-fransham/bevy_trenchbroom.git", branch = "each-model-separate-sub-asset-bevy-0.18", features = ["bsp"] }
 bevy_mod_pakfile.workspace = true
 lined.workspace = true

@@ -144,12 +144,16 @@ pub enum NetError {
 
 impl NetError {
     pub fn with_msg<S>(msg: S) -> Self
-    where S: Into<String> {
+    where
+        S: Into<String>,
+    {
         NetError::Other { msg: msg.into(), backtrace: Backtrace::capture() }
     }
 
     pub fn invalid_data<S>(msg: S) -> Self
-    where S: Into<String> {
+    where
+        S: Into<String>,
+    {
         NetError::Other { msg: msg.into(), backtrace: Backtrace::capture() }
     }
 }
@@ -402,7 +406,9 @@ pub enum TempEntity {
 
 impl TempEntity {
     pub fn read_temp_entity<R>(reader: &mut R) -> Result<TempEntity, NetError>
-    where R: Read {
+    where
+        R: Read,
+    {
         let code_byte = reader.read_u8()?;
         let code = match TempEntityCode::from_u8(code_byte) {
             Some(c) => c,
@@ -468,7 +474,9 @@ impl TempEntity {
     }
 
     pub fn write_temp_entity<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where W: WriteBytesExt {
+    where
+        W: WriteBytesExt,
+    {
         use TempEntityCode as Code;
 
         match *self {
@@ -630,7 +638,9 @@ pub struct EntityUpdate {
 
 impl EntityUpdate {
     pub fn read<R>(reader: &mut R, update_flags: UpdateFlags) -> io::Result<Self>
-    where R: Read {
+    where
+        R: Read,
+    {
         let ent_id = if update_flags.contains(UpdateFlags::LONG_ENTITY) {
             reader.read_u16::<LittleEndian>()?
         } else {
@@ -710,7 +720,9 @@ impl EntityUpdate {
     }
 
     pub fn write<W>(&self, writer: &mut W) -> io::Result<()>
-    where W: Write {
+    where
+        W: Write,
+    {
         match u8::try_from(self.ent_id) {
             Ok(byte_entity) => writer.write_u8(byte_entity)?,
             Err(_) => writer.write_u16::<LittleEndian>(self.ent_id)?,
@@ -848,11 +860,13 @@ pub trait Cmd: Sized {
 
     /// Reads data from the given source and constructs a command object.
     fn deserialize<R>(reader: &mut R) -> Result<Self, NetError>
-    where R: BufRead + ReadBytesExt;
+    where
+        R: BufRead + ReadBytesExt;
 
     /// Writes this command's content to the given sink.
     fn serialize<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where W: WriteBytesExt;
+    where
+        W: WriteBytesExt;
 }
 
 // TODO: use feature(arbitrary_enum_discriminant)
@@ -887,7 +901,7 @@ pub enum BasicServerCmdCode {
     CenterPrint = 26,
     KilledMonster = 27,
     FoundSecret = 28,
-    SpawnStaticSound = 29,
+    StaticSound = 29,
     Intermission = 30,
     Finale = 31,
     CdTrack = 32,
@@ -903,7 +917,9 @@ pub enum ServerCmdCode {
 
 impl ServerCmdCode {
     pub fn read<R>(reader: &mut R) -> io::Result<Self>
-    where R: Read {
+    where
+        R: Read,
+    {
         let low_bits = reader.read_u8()?;
 
         if low_bits & FAST_UPDATE_FLAG != 0 {
@@ -931,7 +947,9 @@ impl ServerCmdCode {
     }
 
     pub fn write<W>(&self, writer: &mut W) -> io::Result<usize>
-    where W: Write {
+    where
+        W: Write,
+    {
         match self {
             Self::Basic(basic) => writer.write_u8(*basic as _).map(|()| mem::size_of::<u8>()),
             Self::FastUpdate(update) => {
@@ -1067,7 +1085,7 @@ pub enum ServerCmd {
     },
     KilledMonster,
     FoundSecret,
-    SpawnStaticSound {
+    StaticSound {
         origin: Vec3,
         sound_id: u8,
         volume: u8,
@@ -1121,7 +1139,7 @@ impl ServerCmd {
             | ServerCmd::CenterPrint { .. }
             | ServerCmd::KilledMonster
             | ServerCmd::FoundSecret
-            | ServerCmd::SpawnStaticSound { .. }
+            | ServerCmd::StaticSound { .. }
             | ServerCmd::Intermission
             | ServerCmd::Finale { .. }
             | ServerCmd::CdTrack { .. }
@@ -1164,9 +1182,7 @@ impl ServerCmd {
             ServerCmd::CenterPrint { .. } => ServerCmdCode::Basic(BasicServerCmdCode::CenterPrint),
             ServerCmd::KilledMonster => ServerCmdCode::Basic(BasicServerCmdCode::KilledMonster),
             ServerCmd::FoundSecret => ServerCmdCode::Basic(BasicServerCmdCode::FoundSecret),
-            ServerCmd::SpawnStaticSound { .. } => {
-                ServerCmdCode::Basic(BasicServerCmdCode::SpawnStaticSound)
-            }
+            ServerCmd::StaticSound { .. } => ServerCmdCode::Basic(BasicServerCmdCode::StaticSound),
             ServerCmd::Intermission => ServerCmdCode::Basic(BasicServerCmdCode::Intermission),
             ServerCmd::Finale { .. } => ServerCmdCode::Basic(BasicServerCmdCode::Finale),
             ServerCmd::CdTrack { .. } => ServerCmdCode::Basic(BasicServerCmdCode::CdTrack),
@@ -1177,7 +1193,9 @@ impl ServerCmd {
     }
 
     pub fn deserialize<R>(reader: &mut R) -> Result<Option<ServerCmd>, NetError>
-    where R: BufRead {
+    where
+        R: BufRead,
+    {
         // Expanded form of `has_data_left`
         if !reader.fill_buf().map(|b| !b.is_empty()).unwrap() {
             return Ok(None);
@@ -1565,13 +1583,13 @@ impl ServerCmd {
             BasicServerCmdCode::KilledMonster => ServerCmd::KilledMonster,
             BasicServerCmdCode::FoundSecret => ServerCmd::FoundSecret,
 
-            BasicServerCmdCode::SpawnStaticSound => {
+            BasicServerCmdCode::StaticSound => {
                 let origin = read_coord_vector3(reader)?;
                 let sound_id = reader.read_u8()?;
                 let volume = reader.read_u8()?;
                 let attenuation = reader.read_u8()?;
 
-                ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation }
+                ServerCmd::StaticSound { origin, sound_id, volume, attenuation }
             }
 
             BasicServerCmdCode::Intermission => ServerCmd::Intermission,
@@ -1601,7 +1619,9 @@ impl ServerCmd {
     }
 
     pub fn serialize<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where W: Write {
+    where
+        W: Write,
+    {
         self.code().write(writer)?;
 
         match *self {
@@ -1917,7 +1937,7 @@ impl ServerCmd {
 
             ServerCmd::KilledMonster | ServerCmd::FoundSecret => {}
 
-            ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
+            ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
                 write_coord_vector3(writer, origin)?;
                 writer.write_u8(sound_id)?;
                 writer.write_u8(volume)?;
@@ -1992,7 +2012,9 @@ impl ClientCmd {
     }
 
     pub fn deserialize<R>(reader: &mut R) -> Result<Option<ClientCmd>, NetError>
-    where R: ReadBytesExt + BufRead {
+    where
+        R: ReadBytesExt + BufRead,
+    {
         let code_val = match reader.read_u8() {
             Ok(val) => val,
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
@@ -2049,7 +2071,9 @@ impl ClientCmd {
     }
 
     pub fn serialize<W>(&self, writer: &mut W) -> Result<(), NetError>
-    where W: WriteBytesExt {
+    where
+        W: WriteBytesExt,
+    {
         writer.write_u8(self.code())?;
 
         match *self {
@@ -2403,23 +2427,31 @@ impl QSocket {
 }
 
 fn read_coord<R>(reader: &mut R) -> io::Result<f32>
-where R: Read {
+where
+    R: Read,
+{
     Ok(reader.read_i16::<LittleEndian>()? as f32 / 8.0)
 }
 
 fn read_coord_vector3<R>(reader: &mut R) -> io::Result<Vec3>
-where R: Read {
+where
+    R: Read,
+{
     Ok(Vec3::new(read_coord(reader)?, read_coord(reader)?, read_coord(reader)?))
 }
 
 fn write_coord<W>(writer: &mut W, coord: f32) -> io::Result<()>
-where W: Write {
+where
+    W: Write,
+{
     writer.write_i16::<LittleEndian>((coord * 8.0) as i16)?;
     Ok(())
 }
 
 fn write_coord_vector3<W>(writer: &mut W, coords: Vec3) -> io::Result<()>
-where W: Write {
+where
+    W: Write,
+{
     for coord in &coords.to_array()[..] {
         write_coord(writer, *coord)?;
     }
@@ -2428,18 +2460,24 @@ where W: Write {
 }
 
 fn read_angle<R>(reader: &mut R) -> io::Result<f32>
-where R: Read {
+where
+    R: Read,
+{
     Ok(reader.read_i8()? as i32 as f32 * (360.0 / 256.0))
 }
 
 fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
-where W: Write {
+where
+    W: Write,
+{
     writer.write_i8(((angle as i32 * 256 / 360) & 0xFF) as i8)?;
     Ok(())
 }
 
 fn write_angle_vector3<W>(writer: &mut W, angles: Vec3) -> io::Result<()>
-where W: Write {
+where
+    W: Write,
+{
     for angle in &angles.to_array()[..] {
         write_angle(writer, *angle)?;
     }

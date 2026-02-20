@@ -2999,7 +2999,7 @@ dependencies = [
 [[package]]
 name = "bevy_trenchbroom"
 version = "0.13.0-rc.1"
-source = "git+https://github.com/eira-fransham/bevy_trenchbroom.git?branch=each-model-separate-sub-asset-bevy-0.18#19d632c142fcf731ef385bc90ce08d83cec81e7f"
+source = "git+https://github.com/eira-fransham/bevy_trenchbroom.git?branch=each-model-separate-sub-asset-bevy-0.18#4bcb75493d3d748eb21deb05bf329cb22eb6263f"
 dependencies = [
  "anyhow",
  "atomicow",
@@ -3030,7 +3030,7 @@ dependencies = [
 [[package]]
 name = "bevy_trenchbroom_macros"
 version = "0.13.0-rc.1"
-source = "git+https://github.com/eira-fransham/bevy_trenchbroom.git?branch=each-model-separate-sub-asset-bevy-0.18#19d632c142fcf731ef385bc90ce08d83cec81e7f"
+source = "git+https://github.com/eira-fransham/bevy_trenchbroom.git?branch=each-model-separate-sub-asset-bevy-0.18#4bcb75493d3d748eb21deb05bf329cb22eb6263f"
 dependencies = [
  "deluxe",
  "heck 0.5.0",

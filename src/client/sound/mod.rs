@@ -32,18 +32,7 @@ use std::io;
 
 use thiserror::Error;
 
-/// We don't scale by the standard trenchbroom->bevy factor, so attenuation needs
-/// to be scaled.
-///
-/// > TODO: Should we just scale everything by this amount instead of hacking
-/// > the sounds?
-pub const DISTANCE_ATTENUATION_FACTOR: f32 = 1. / 40.;
-
 pub const REVERB_AMT: f32 = 0.1;
-
-fn attenuation_factor(attenuation: f32) -> Vec3 {
-    Vec3::splat(attenuation * DISTANCE_ATTENUATION_FACTOR)
-}
 
 #[derive(Error, Debug)]
 pub enum SoundError {
@@ -245,7 +234,7 @@ mod systems {
                                     volume: Volume::Linear(sound.volume),
                                     ..Default::default()
                                 },
-                                SpatialScale(attenuation_factor(attenuation))
+                                SpatialScale(Vec3::splat(attenuation))
                             ),
                             SendNode::new(Volume::Linear(REVERB_AMT), ReverbBus)
                         ],
@@ -271,7 +260,7 @@ mod systems {
                                     volume: Volume::Linear(sound.volume),
                                     ..Default::default()
                                 },
-                                SpatialScale(attenuation_factor(attenuation))
+                                SpatialScale(Vec3::splat(attenuation))
                             ),
                             SendNode::new(Volume::Linear(REVERB_AMT), ReverbBus)
                         ],

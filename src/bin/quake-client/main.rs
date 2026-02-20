@@ -224,10 +224,15 @@ fn main() -> ExitCode {
     let default_plugins =
         default_plugins.disable::<AudioPlugin>().add(bevy_seedling::SeedlingPlugin::default());
 
+    let games = [Some("id1"), opt.game.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(|game| std::env::current_dir().unwrap().join(game));
+
     app
         // TODO: Respect game dir.
         // TODO: Use `BEVY_ASSET_ROOT`
-        .add_plugins(PakfilePlugin::from_paths([std::env::current_dir().unwrap().join("id1")]))
+        .add_plugins(PakfilePlugin::from_paths(games))
         .add_plugins(default_plugins)
         .add_plugins(MdlPlugin::default())
         .add_plugins(SeismonClientPlugin{

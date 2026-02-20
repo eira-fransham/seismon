@@ -172,15 +172,13 @@ where
                         .pipe(systems::frame::advance_frame)
                         .pipe(systems::frame::end_frame)
                         .pipe(|In(res)| {
-                            // TODO: Error handling
                             if let Err(e) = res {
-                                error!("Error handling input: {}", e);
+                                error!("Error handling frame: {e}");
                             }
                         }),
                     systems::send_input_to_server.pipe(|In(res)| {
-                        // TODO: Error handling
                         if let Err(e) = res {
-                            error!("Error handling frame: {}", e);
+                            error!("Error handling input: {e}");
                         }
                     }),
                 )
@@ -205,7 +203,7 @@ where
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
             .add_plugins(
-                TrenchBroomPlugins(TrenchBroomConfig { scale: 1., ..default() })
+                TrenchBroomPlugins(Default::default())
                     .build()
                     .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
             );
@@ -1289,7 +1287,7 @@ mod systems {
                             }
                         }
 
-                        ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
+                        ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
                             if let Some(state) = conn.client_state.as_ref()
                                 && let Some(sound) = state.sounds.get(sound_id as usize)
                             {
@@ -1317,19 +1315,18 @@ mod systems {
                         },
 
                         ServerCmd::Time { time } => {
-                            // TODO: How do we handle dead entities?
-                            // let last_msg_time = conn.last_msg_time;
-                            // if conn.is_connected()
-                            //     && let Some(state) = &mut conn.client_state
-                            // {
-                            //     if !last_msg_time.is_zero() {
-                            //         for entity in state.dead_entities() {
-                            //             commands
-                            //                 .entity(entity)
-                            //                 .insert_recursive::<Children>(Disabled);
-                            //         }
-                            //     }
-                            // }
+                            let last_msg_time = conn.last_msg_time;
+                            if conn.is_connected()
+                                && let Some(state) = &mut conn.client_state
+                            {
+                                if !last_msg_time.is_zero() {
+                                    for entity in state.dead_entities() {
+                                        commands
+                                            .entity(entity)
+                                            .insert_recursive::<Children>(Disabled);
+                                    }
+                                }
+                            }
 
                             conn.last_msg_time = Duration::from_secs_f32(time);
                         }

@@ -3195,7 +3195,7 @@ impl LevelState {
             return Ok(());
         };
 
-        ServerCmd::SpawnStaticSound { origin, sound_id: sound_id as _, volume, attenuation }
+        ServerCmd::StaticSound { origin, sound_id: sound_id as _, volume, attenuation }
             .serialize(&mut self.broadcast)?;
 
         Ok(())
