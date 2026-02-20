@@ -191,7 +191,8 @@ pub trait EditorContext: fmt::Write {
     fn read_line<C>(&mut self, prompt: Prompt, handler: &mut C) -> io::Result<String>
     where
         C: Completer,
-        Self: Sized, {
+        Self: Sized,
+    {
         self.read_line_with_highlighter(prompt, handler, NoHighlighting)
     }
 

@@ -16,7 +16,9 @@ pub struct Event<'a, C: EditorContext> {
 impl<'a, C: EditorContext> Event<'a, C> {
     /// Create a new [`Event`] from an editor and a kind.
     pub fn new<E>(editor: &'a mut E, kind: EventKind) -> Self
-    where E: ?Sized + AsMut<Editor<C, dyn Highlighter>> {
+    where
+        E: ?Sized + AsMut<Editor<C, dyn Highlighter>>,
+    {
         Event { editor: editor.as_mut(), kind }
     }
 }

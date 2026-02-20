@@ -37,7 +37,9 @@ pub trait Program: Sized {
 }
 
 pub struct Host<P>
-where P: Program {
+where
+    P: Program,
+{
     program: P,
 
     init_time: Instant,
@@ -60,7 +62,8 @@ pub mod cvars {
 }
 
 impl<P> Host<P>
-where P: Program
+where
+    P: Program,
 {
     pub fn handle_event<T>(
         &mut self,

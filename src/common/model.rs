@@ -49,7 +49,8 @@ impl<A0, S0> Model<A0, S0> {
     pub fn cast<A1, S1>(self) -> Model<A1, S1>
     where
         A0: Into<A1>,
-        S0: Into<S1>, {
+        S0: Into<S1>,
+    {
         Model { name: self.name, flags: self.flags, kind: self.kind.cast() }
     }
 }
@@ -68,7 +69,8 @@ impl<A0, S0> ModelKind<A0, S0> {
     pub fn cast<A1, S1>(self) -> ModelKind<A1, S1>
     where
         A0: Into<A1>,
-        S0: Into<S1>, {
+        S0: Into<S1>,
+    {
         match self {
             ModelKind::None => ModelKind::None,
             ModelKind::Brush(model) => ModelKind::Brush(model),
@@ -88,13 +90,17 @@ impl Default for &'_ ModelKind {
 
 impl Model {
     pub fn none<Str>(path: Str) -> Model
-    where Str: Into<String> {
+    where
+        Str: Into<String>,
+    {
         Model { name: path.into(), kind: ModelKind::None, flags: ModelFlags::empty() }
     }
 
     /// Construct a new generic model from a brush model.
     pub fn from_brush_model<Str>(name: Str, brush_model: BspModel) -> Model
-    where Str: AsRef<str> {
+    where
+        Str: AsRef<str>,
+    {
         Model {
             name: name.as_ref().into(),
             kind: ModelKind::Brush(brush_model),
@@ -104,7 +110,9 @@ impl Model {
 
     /// Construct a new generic model from an alias model.
     pub fn from_alias_model<Str>(_name: Str, _alias_model: AliasModel) -> Model
-    where Str: AsRef<str> {
+    where
+        Str: AsRef<str>,
+    {
         todo!()
         // let flags = alias_model.flags();
 
@@ -113,7 +121,9 @@ impl Model {
 
     /// Construct a new generic model from a sprite model.
     pub fn from_sprite_model<Str>(name: Str, sprite_model: SpriteModel) -> Model
-    where Str: AsRef<str> {
+    where
+        Str: AsRef<str>,
+    {
         Model {
             name: name.as_ref().into(),
             kind: ModelKind::Sprite(sprite_model),

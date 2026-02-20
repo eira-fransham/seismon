@@ -183,7 +183,9 @@ impl PakfilePlugin {
     /// web sources, you should implement a wrapper that shims in this ability - e.g. by
     /// searching for `pak0.pak`, `pak1.pak`, etc and returning the paths that resolve.
     pub fn push_reader<MkReader>(&mut self, make_reader: MkReader) -> &mut Self
-    where MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static {
+    where
+        MkReader: Fn() -> Box<dyn ErasedAssetReader> + Send + Sync + 'static,
+    {
         self.sources.push(Arc::new(move || PakSource::from(make_reader())) as Arc<MakeSource>);
 
         self
@@ -194,7 +196,8 @@ impl PakfilePlugin {
     pub fn from_paths<I>(paths: I) -> Self
     where
         I: IntoIterator,
-        I::Item: Into<PathBuf>, {
+        I::Item: Into<PathBuf>,
+    {
         Self {
             sources: paths
                 .into_iter()

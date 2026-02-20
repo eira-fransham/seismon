@@ -232,7 +232,9 @@ impl World {
     }
 
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = EntityId> + '_
-    where R: RangeBounds<usize> {
+    where
+        R: RangeBounds<usize>,
+    {
         self.entities.range(range)
     }
 
@@ -356,7 +358,9 @@ impl Entities {
     }
 
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = EntityId> + '_
-    where R: RangeBounds<usize> {
+    where
+        R: RangeBounds<usize>,
+    {
         let start = match range.start_bound() {
             Bound::Unbounded => 0,
             Bound::Excluded(bound) => *bound + 1,
@@ -569,7 +573,9 @@ impl World {
     }
 
     fn find_def<S>(&self, strs: &StringTable, name: S) -> Result<FieldDef, ProgsError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let name = name.as_ref();
 
         match self
@@ -947,7 +953,9 @@ impl World {
     }
 
     pub fn entity_is_stuck<F>(&self, e_id: EntityId, filter: F) -> Result<bool, ProgsError>
-    where F: Fn(EntityId) -> bool {
+    where
+        F: Fn(EntityId) -> bool,
+    {
         let mut ent = self.get(e_id)?;
 
         let origin = ent.origin()?;

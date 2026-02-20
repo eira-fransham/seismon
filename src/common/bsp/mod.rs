@@ -153,7 +153,9 @@ pub enum BspError {
 
 impl BspError {
     fn with_msg<S>(msg: S) -> Self
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         BspError::Other(msg.as_ref().to_owned())
     }
 }
@@ -830,7 +832,9 @@ impl BspData {
 
     /// Locates the leaf containing the given position vector and returns its index.
     pub fn find_leaf<V>(&self, pos: V) -> usize
-    where V: Into<Vec3> {
+    where
+        V: Into<Vec3>,
+    {
         let pos_vec = pos.into();
 
         let mut node = &self.render_nodes[0];

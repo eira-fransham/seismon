@@ -309,7 +309,9 @@ impl History {
     }
 
     fn get_match<I>(&self, vals: I, search_term: &Buffer) -> Option<usize>
-    where I: Iterator<Item = usize> {
+    where
+        I: Iterator<Item = usize>,
+    {
         vals.filter_map(|i| self.buffers.get(i).map(|t| (i, t)))
             .find(|(_i, tested)| tested.starts_with(search_term))
             .map(|(i, _)| i)

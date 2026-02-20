@@ -150,7 +150,9 @@ impl AssetReader for Pak {
 impl Pak {
     // TODO: rename to from_path or similar
     pub fn open<P>(path: P) -> Result<Pak, PakError>
-    where P: AsRef<Path> {
+    where
+        P: AsRef<Path>,
+    {
         debug!("Opening {}", path.as_ref().to_str().unwrap());
 
         Self::read(unsafe { MmapOptions::new().map(&fs::File::open(path)?)? })
@@ -255,7 +257,9 @@ impl Pak {
     /// # }
     /// ```
     pub fn get<S>(&self, path: S) -> Result<&[u8], PakError>
-    where S: AsRef<Path> {
+    where
+        S: AsRef<Path>,
+    {
         let path = path.as_ref();
         self.entries
             .get(path)

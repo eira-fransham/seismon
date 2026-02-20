@@ -80,7 +80,9 @@ pub enum GlobalsError {
 
 impl GlobalsError {
     pub fn with_msg<S>(msg: S) -> Self
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         GlobalsError::Other(msg.as_ref().to_owned())
     }
 }

@@ -46,7 +46,9 @@ impl Precache {
 
     /// Returns the index of the target value if it exists.
     pub fn find<S>(&self, target: S) -> Option<usize>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         self.name_to_index.get(target.as_ref()).copied()
     }
 
@@ -54,7 +56,9 @@ impl Precache {
     ///
     /// If the item already exists in the precache, this has no effect.
     pub fn precache<S>(&mut self, item: S)
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let item = item.as_ref();
 
         if item.is_empty() || item == "*0" {

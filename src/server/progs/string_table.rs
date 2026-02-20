@@ -32,7 +32,9 @@ impl StringTable {
     }
 
     pub fn find<S>(&self, target: S) -> Option<StringId>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let target = target.as_ref().as_bytes();
         for (ofs, _) in target.iter().enumerate() {
             let sub = &self.data[ofs..];
@@ -77,7 +79,9 @@ impl StringTable {
     }
 
     fn insert<S>(&mut self, s: S) -> StringId
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let s = s.as_ref();
 
         assert!(!s.contains('\0'));
@@ -89,7 +93,9 @@ impl StringTable {
     }
 
     pub fn find_or_insert<S>(&mut self, target: S) -> StringId
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         match self.find(target.as_ref()) {
             Some(id) => id,
             None => self.insert(target),

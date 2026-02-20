@@ -486,7 +486,8 @@ impl GameInput {
     where
         I: TryInto<AnyInput>,
         T: AsRef<str>,
-        I::Error: Display, {
+        I::Error: Display,
+    {
         let target: Binding =
             target.as_ref().parse().map_err(|e| format_err!("Failed to parse target: {}", e))?;
         let input = input.try_into().map_err(|e| format_err!("Failed to parse input: {}", e))?;
@@ -498,7 +499,8 @@ impl GameInput {
     pub fn binding<I>(&self, input: I) -> Result<Option<&Binding<'static>>, Error>
     where
         I: TryInto<AnyInput>,
-        I::Error: Display, {
+        I::Error: Display,
+    {
         Ok(self
             .bindings
             .get(&input.try_into().map_err(|e| format_err!("Failed to parse input: {}", e))?))

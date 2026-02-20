@@ -47,7 +47,9 @@ pub struct Toggle {
 
 impl Toggle {
     pub fn new<C>(init: bool, cvar: C) -> Toggle
-    where C: Into<CName> {
+    where
+        C: Into<CName>,
+    {
         Toggle { state: init, cvar: cvar.into() }
     }
 
@@ -159,7 +161,8 @@ impl EnumItem {
     pub fn new<N, V>(name: N, value: V) -> Result<EnumItem, Error>
     where
         N: Into<CName>,
-        V: AsRef<str>, {
+        V: AsRef<str>,
+    {
         Ok(EnumItem { name: name.into(), value: Value::from_str(value.as_ref())? })
     }
 }
@@ -251,7 +254,8 @@ impl TextField {
     pub fn new<D, S>(default: Option<D>, max_len: Option<usize>, cvar: S) -> TextField
     where
         D: Into<String>,
-        S: Into<CName>, {
+        S: Into<CName>,
+    {
         let chars = default.map(|s| s.into()).unwrap_or_default();
         let cvar = cvar.into();
         let cursor = chars.len();

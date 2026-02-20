@@ -177,7 +177,9 @@ impl Vfs {
     }
 
     pub fn open_pakfile<P>(&mut self, path: P) -> Result<(), VfsError>
-    where P: AsRef<Path> {
+    where
+        P: AsRef<Path>,
+    {
         let path = path.as_ref();
         self.components.push(VfsComponent::Pak(Pak::open(path)?).into());
         Ok(())
@@ -189,13 +191,17 @@ impl Vfs {
     }
 
     pub fn add_directory<P>(&mut self, path: P) -> Result<(), VfsError>
-    where P: AsRef<Path> {
+    where
+        P: AsRef<Path>,
+    {
         self.components.push(VfsComponent::Directory(path.as_ref().to_path_buf()).into());
         Ok(())
     }
 
     pub fn open<S>(&self, virtual_path: S) -> Result<VirtualFile<'_>, VfsError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let vp = virtual_path.as_ref();
 
         // iterate in reverse so later PAKs overwrite earlier ones
@@ -219,7 +225,9 @@ impl Vfs {
     }
 
     pub fn write<S>(&self, virtual_path: S) -> Result<BufWriter<File>, VfsError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let vp = virtual_path.as_ref();
 
         // iterate in reverse so later PAKs overwrite earlier ones
@@ -249,7 +257,9 @@ impl Vfs {
     /// This is somewhat of a hack - `liner::History` doesn't (currently) have a way of
     /// saving/loading from arbitrary `Read`/`Write` types, it needs a specific file path
     pub fn find_writable_filename<S>(&self, virtual_path: S) -> Result<PathBuf, VfsError>
-    where S: AsRef<str> {
+    where
+        S: AsRef<str>,
+    {
         let vp = virtual_path.as_ref();
 
         // iterate in reverse so later PAKs overwrite earlier ones

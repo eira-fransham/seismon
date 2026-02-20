@@ -397,7 +397,9 @@ impl<T> CollisionResult<T> {
     }
 
     pub fn map<F, O>(self, func: F) -> CollisionResult<O>
-    where F: FnOnce(T) -> O {
+    where
+        F: FnOnce(T) -> O,
+    {
         CollisionResult {
             floor: self.floor,
             wall_or_step: self.wall_or_step,
@@ -684,7 +686,9 @@ pub fn remove_collinear(vs: Vec<Vec3>) -> Vec<Vec3> {
 }
 
 pub fn bounds<'a, I>(points: I) -> (Vec3, Vec3)
-where I: IntoIterator<Item = &'a Vec3> {
+where
+    I: IntoIterator<Item = &'a Vec3>,
+{
     let mut min = Vec3::splat(32767.0);
     let mut max = Vec3::splat(-32768.0);
     for p in points.into_iter() {

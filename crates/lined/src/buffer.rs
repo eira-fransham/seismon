@@ -382,7 +382,9 @@ impl Buffer {
 
     /// Iterate over a range of characters in the buffer.
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = char>
-    where R: SliceIndex<[char], Output = [char]> {
+    where
+        R: SliceIndex<[char], Output = [char]>,
+    {
         self.data[range].iter().cloned()
     }
 
@@ -393,7 +395,9 @@ impl Buffer {
 
     /// Get the unicode width of all lines in the given range.
     pub fn range_width<R>(&self, range: R) -> Vec<usize>
-    where R: SliceIndex<[char], Output = [char]> {
+    where
+        R: SliceIndex<[char], Output = [char]>,
+    {
         // TODO: We don't really need to collect here.
         self.range(range)
             .chunk_by(|c| *c == '\n')
@@ -424,7 +428,9 @@ impl Buffer {
 
     /// Print the buffer to `out`.
     pub fn print<W>(&self, out: &mut W) -> io::Result<()>
-    where W: Write {
+    where
+        W: Write,
+    {
         let mut writer = BufWriter::new(out);
 
         let mut bytes = [0; mem::size_of::<char>()];
@@ -448,7 +454,9 @@ impl Buffer {
     /// the other stopped.
     /// Used to implement autosuggestions.
     pub fn print_rest<W>(&self, out: &mut W, after: usize) -> io::Result<usize>
-    where W: Write {
+    where
+        W: Write,
+    {
         let string: String = self.data.iter().skip(after).cloned().collect();
         out.write_all(string.as_bytes())?;
 

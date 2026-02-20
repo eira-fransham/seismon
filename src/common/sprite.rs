@@ -105,7 +105,9 @@ impl SpriteSubframe {
 }
 
 pub fn load<R>(data: R) -> SpriteModel
-where R: Read + Seek {
+where
+    R: Read + Seek,
+{
     let mut reader = BufReader::new(data);
 
     let magic = reader.read_u32::<LittleEndian>().unwrap();

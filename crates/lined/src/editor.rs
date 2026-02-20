@@ -39,7 +39,8 @@ impl ViStatus {
     pub fn new<N, I>(mode: ViPromptMode, normal: N, insert: I) -> Self
     where
         N: Into<String>,
-        I: Into<String>, {
+        I: Into<String>,
+    {
         Self { mode, normal: normal.into(), insert: insert.into() }
     }
 
@@ -230,7 +231,8 @@ pub struct Editor<C, H: ?Sized = NoHighlighting> {
 }
 
 impl<C, H> AsMut<Editor<C, dyn Highlighter>> for Editor<C, H>
-where H: Highlighter
+where
+    H: Highlighter,
 {
     fn as_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
         self.as_dyn_mut()
@@ -323,7 +325,8 @@ impl<C: EditorContext> Editor<C> {
 }
 
 impl<C, H> Editor<C, H>
-where H: Highlighter
+where
+    H: Highlighter,
 {
     pub(crate) fn as_dyn_mut(&mut self) -> &mut Editor<C, dyn Highlighter> {
         self as _
@@ -339,7 +342,8 @@ where
     pub fn with_init_buffer<B>(self, buffer: B) -> Self
     where
         B: Into<Buffer>,
-        H: Sized, {
+        H: Sized,
+    {
         Editor {
             prompt: self.prompt,
             cursor: self.cursor,
@@ -369,7 +373,8 @@ where
     pub fn with_highlighter<NewH>(self, highlighter: NewH) -> Editor<C, NewH>
     where
         H: Sized,
-        NewH: Highlighter, {
+        NewH: Highlighter,
+    {
         Editor {
             prompt: self.prompt,
             cursor: self.cursor,
@@ -628,7 +633,9 @@ where
 
     /// Trigger autocompletion.
     pub fn complete<T: Completer>(&mut self, handler: &mut T) -> io::Result<()>
-    where Self: AsMut<Editor<C, dyn Highlighter>> {
+    where
+        Self: AsMut<Editor<C, dyn Highlighter>>,
+    {
         handler.on_event(Event::new(self, EventKind::BeforeComplete));
 
         if let Some((completions, i_in)) = self.show_completions_hint.take() {
@@ -1267,7 +1274,8 @@ where
 }
 
 impl<C, H> From<Editor<C, H>> for String
-where C: EditorContext
+where
+    C: EditorContext,
 {
     fn from(ed: Editor<C, H>) -> String {
         match ed.cur_history_loc {

@@ -23,7 +23,8 @@ impl BasicCompleter {
     pub fn new<I>(prefixes: I) -> BasicCompleter
     where
         I: IntoIterator,
-        I::Item: Into<String>, {
+        I::Item: Into<String>,
+    {
         let mut prefixes = prefixes.into_iter().map(Into::into).collect::<Vec<String>>();
         prefixes.sort();
         prefixes.dedup();

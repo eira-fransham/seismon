@@ -194,7 +194,9 @@ pub enum ProgsError {
 
 impl ProgsError {
     pub fn with_msg<S>(msg: S) -> Self
-    where S: Into<String> {
+    where
+        S: Into<String>,
+    {
         ProgsError::Other { message: msg.into(), backtrace: Backtrace::capture() }
     }
 }
@@ -396,7 +398,9 @@ pub struct LoadProgs {
 ///
 /// This returns objects representing the necessary context to execute QuakeC bytecode.
 pub fn load<R>(mut src: R) -> Result<LoadProgs>
-where R: Read + Seek {
+where
+    R: Read + Seek,
+{
     assert!(src.read_i32::<LittleEndian>()? == VERSION);
     assert!(src.read_i32::<LittleEndian>()? == CRC);
 

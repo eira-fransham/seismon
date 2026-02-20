@@ -98,12 +98,16 @@ mod post_process_serde {
     use serde::{Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(steps: &PostProcessSteps, s: S) -> Result<S::Ok, S::Error>
-    where S: Serializer {
+    where
+        S: Serializer,
+    {
         steps.as_raw().serialize(s)
     }
 
     pub fn deserialize<'de, D>(d: D) -> Result<PostProcessSteps, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         // define a visitor that deserializes
         // `ActualData` encoded as json within a string
         struct PostProcessStepsVisitor;
@@ -116,7 +120,9 @@ mod post_process_serde {
             }
 
             fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
-            where E: serde::de::Error {
+            where
+                E: serde::de::Error,
+            {
                 Ok(PostProcessSteps::from_raw(value))
             }
         }

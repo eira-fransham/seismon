@@ -67,7 +67,9 @@ pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
 }
 
 pub fn vec3<S>(src: S) -> Vec3
-where S: AsRef<str> {
+where
+    S: AsRef<str>,
+{
     let src = src.as_ref();
 
     let mut components = src.split(" ");

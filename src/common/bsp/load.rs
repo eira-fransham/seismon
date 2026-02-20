@@ -94,7 +94,9 @@ struct BspFileSection {
 
 impl BspFileSection {
     fn read_from<R>(reader: &mut R) -> Result<BspFileSection, BspFileError>
-    where R: ReadBytesExt {
+    where
+        R: ReadBytesExt,
+    {
         let offset = match reader.read_i32::<LittleEndian>()? {
             ofs if ofs < 0 => Err(BspFileError::NegativeSectionOffset(ofs)),
             ofs => Ok(ofs as u64),
@@ -171,7 +173,9 @@ struct BspFileTable {
 
 impl BspFileTable {
     fn read_from<R>(reader: &mut R) -> Result<BspFileTable, BspFileError>
-    where R: ReadBytesExt {
+    where
+        R: ReadBytesExt,
+    {
         let mut sections = [BspFileSection { offset: 0, size: 0 }; SECTION_COUNT];
 
         for (id, section) in sections.iter_mut().enumerate() {
@@ -209,7 +213,9 @@ impl BspFileTable {
 }
 
 fn read_hyperplane<R>(reader: &mut R) -> Result<Hyperplane, failure::Error>
-where R: ReadBytesExt {
+where
+    R: ReadBytesExt,
+{
     let normal: Vec3 = read_f32_3(reader)?.into();
     let dist = reader.read_f32::<LittleEndian>()?;
     let plane = match Axis::from_i32(reader.read_i32::<LittleEndian>()?) {
@@ -275,7 +281,9 @@ where
 }
 
 fn load_render_node<R>(reader: &mut R) -> Result<BspRenderNode, failure::Error>
-where R: ReadBytesExt {
+where
+    R: ReadBytesExt,
+{
     let plane_id = reader.read_i32::<LittleEndian>()?;
     if plane_id < 0 {
         bail!("Invalid plane id");
@@ -318,7 +326,9 @@ where R: ReadBytesExt {
 }
 
 fn load_texinfo<R>(reader: &mut R, texture_count: usize) -> Result<BspTexInfo, failure::Error>
-where R: ReadBytesExt {
+where
+    R: ReadBytesExt,
+{
     let s_vector = read_f32_3(reader)?.into();
     let s_offset = reader.read_f32::<LittleEndian>()?;
     let t_vector = read_f32_3(reader)?.into();
@@ -341,7 +351,9 @@ where R: ReadBytesExt {
 /// Load a BSP file, returning the models it contains and a `String` describing the entities
 /// it contains.
 pub fn load<R>(data: R) -> Result<(Vec<Model>, String), failure::Error>
-where R: Read + Seek {
+where
+    R: Read + Seek,
+{
     let mut reader = BufReader::new(data);
 
     let version = reader.read_i32::<LittleEndian>()?;
@@ -1000,7 +1012,9 @@ where R: Read + Seek {
 }
 
 fn read_i16_3<R>(reader: &mut R) -> Result<[i16; 3], std::io::Error>
-where R: ReadBytesExt {
+where
+    R: ReadBytesExt,
+{
     let mut ar = [0i16; 3];
     reader.read_i16_into::<LittleEndian>(&mut ar)?;
     Ok(ar)
