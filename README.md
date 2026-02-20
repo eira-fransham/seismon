@@ -4,8 +4,8 @@
 
 > #### NOTE
 >
-> This branch is in a reasonably functional state, but work is ongoing to heavily refactor on the `big-refactor`
-> branch.
+> This branch is in a reasonably functional state, and has some features (such as, at time of writing, menus and HUD)
+> that are not available on `main`.
 
 #### Click here for a preview video:
 
