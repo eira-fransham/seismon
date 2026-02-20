@@ -13,7 +13,7 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{UVec2, Vec3};
+use bevy_math::UVec2;
 use bevy_mesh::{Mesh, Mesh3d};
 use bevy_pbr::StandardMaterial;
 use bevy_reflect::Reflect;
@@ -126,8 +126,8 @@ impl EntityCommand for MdlFlag {
 
 #[derive(Asset, Reflect)]
 pub struct Mdl {
-    origin: Vec3,
     radius: f32,
+    transform: Transform,
     textures: Vec<Handle<GenericMaterial>>,
     animations: Vec<Handle<AnimMeshes>>,
     flags: HashSet<MdlFlag>,
@@ -384,7 +384,7 @@ async fn load_mdl(
         .collect();
 
     Ok(Mdl {
-        origin: raw.origin(),
+        transform: raw.transform(),
         radius: raw.radius(),
         default_mesh: default_mesh.take().ok_or(MdlFileError::NoMeshes)?,
         textures,
@@ -425,6 +425,8 @@ async fn load_mdl_as_scene(
 ) -> Result<Scene, MdlFileError> {
     let mdl = load_mdl(loader, reader, settings, load_context).await?;
 
+    let transform = mdl.transform;
+
     let anim_player =
         MeshAnimPlayer::new(mdl.animations.get(0).ok_or(MdlFileError::NoMeshes)?.clone());
 
@@ -437,7 +439,7 @@ async fn load_mdl_as_scene(
     let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
 
     world.spawn((
-        Transform::default(),
+        transform,
         MdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
         anim_player,
         texture,

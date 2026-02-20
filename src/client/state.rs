@@ -4,7 +4,7 @@ use super::view::BobVars;
 use crate::{
     client::{
         ClientError, Connection,
-        interpolation::Next,
+        interpolation::{Next, NoInterpolation},
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityState, EntityUpdate, PlayerColor},
@@ -12,15 +12,15 @@ use crate::{
 use bevy::{
     asset::{AssetPath, AssetServer, Handle},
     camera::visibility::Visibility,
-    ecs::reflect::ReflectComponent,
     ecs::{
         component::Component,
         entity::Entity,
         hierarchy::{ChildOf, Children},
+        reflect::ReflectComponent,
         system::{Commands, EntityCommands, In, Query, ResMut},
     },
     log::*,
-    math::{Quat, Vec3},
+    math::{EulerRot, Quat, Vec3},
     reflect::Reflect,
     scene::{Scene, SceneRoot},
     transform::components::Transform,
@@ -28,7 +28,7 @@ use bevy::{
 };
 use bevy_mod_mdl::MdlSettings;
 use bevy_seedling::sample::AudioSample;
-use bevy_trenchbroom::{bsp::Bsp, util::BevyTrenchbroomCoordinateConversions};
+use bevy_trenchbroom::bsp::Bsp;
 use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::QString;
@@ -66,6 +66,8 @@ pub enum PrecacheModel {
 pub struct Worldspawn {
     pub bsp: Handle<Bsp>,
 }
+
+const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
 
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
 /// server entity ID to local [`Entity`].
@@ -169,9 +171,6 @@ impl ClientState {
         self.server_entity_to_client_entity.iter().filter_map(move |(k, v)| {
             if *keepalive.get(*k as usize).as_deref().unwrap_or(&false) { None } else { Some(*v) }
         })
-
-        // TODO: This logic is currently incorrect.
-        // iter::empty()
     }
 
     pub fn mark_entity_alive(&mut self, ent_id: u16) {
@@ -267,9 +266,9 @@ impl ClientState {
             effects: _,
         } = baseline;
 
-        let origin = origin.trenchbroom_to_bevy();
-
         let [pitch, yaw, roll] = angles.map(|x| x.to_radians()).into();
+        // TODO: [-pitch, yaw, -roll] seems to be implied by docs in `bevy_trenchbroom`, but is it correct?
+        let [pitch, yaw, roll] = [-pitch, yaw, -roll];
 
         if id == 0 {
             info!("Spawning world: {baseline:?}");
@@ -277,8 +276,8 @@ impl ClientState {
 
         let model = self.models.get(model_id).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
-            .with_rotation(Quat::from_euler(default(), yaw, pitch, roll));
-        let transform = Next { component: transform, elapsed_secs_f64: msg_time };
+            .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw));
+        let transform = Next { component: transform, elapsed_secs: msg_time };
 
         let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
             let mut entity = commands.entity(*ent);
@@ -301,6 +300,8 @@ impl ClientState {
 
         if let Some(PrecacheModel::Loaded(model)) = model {
             ent.insert(SceneRoot(model));
+        } else {
+            error!("Tried to insert model but it wasn't loaded yet");
         }
     }
 
@@ -336,20 +337,14 @@ impl ClientState {
 
             let mut ent = commands.entity(*entity);
 
-            let do_update = [
-                update.origin_x.is_some(),
-                update.origin_y.is_some(),
-                update.origin_z.is_some(),
-                update.pitch.is_some(),
-                update.yaw.is_some(),
-                update.roll.is_some(),
-                update.frame_id.is_some(),
-            ]
-            .into_iter()
-            .any(std::convert::identity);
-
-            if !do_update {
+            if !update.any() {
                 return;
+            }
+
+            if update.no_lerp {
+                ent.insert(NoInterpolation);
+            } else {
+                ent.remove::<NoInterpolation>();
             }
 
             if let Ok(mut transform) = existing_entities.get_mut(*entity) {
@@ -361,8 +356,7 @@ impl ClientState {
                     }
                 }
 
-                // TODO: Better to keep the client in Quake coordinates?
-                let mut new_translation = transform.component.translation.bevy_to_trenchbroom();
+                let mut new_translation = transform.component.translation;
 
                 if let Some(o_x) = update.origin_x {
                     new_translation = new_translation.with_x(o_x);
@@ -374,41 +368,43 @@ impl ClientState {
                     new_translation = new_translation.with_z(o_z);
                 }
 
-                let new_translation = new_translation.trenchbroom_to_bevy();
-
                 let new_transform = transform.component.with_translation(new_translation);
 
-                let (mut yaw, mut pitch, mut roll) =
-                    transform.component.rotation.to_euler(default());
+                let (mut roll, mut pitch, mut yaw) =
+                    transform.component.rotation.to_euler(QUAKE_ROLL_PITCH_YAW);
+                // TODO: [-pitch, yaw, -roll] seems to be implied by docs in `bevy_trenchbroom`, but is it correct?
                 if let Some(new_pitch) = update.pitch {
-                    pitch = new_pitch.to_radians();
+                    pitch = -new_pitch.to_radians();
                 }
                 if let Some(new_yaw) = update.yaw {
                     yaw = new_yaw.to_radians();
                 }
                 if let Some(new_roll) = update.roll {
-                    roll = new_roll.to_radians();
+                    roll = -new_roll.to_radians();
                 }
 
-                // TODO: For some reason the rotation is wrong here(?)
-                let new_transform =
-                    new_transform.with_rotation(Quat::from_euler(default(), yaw, pitch, roll));
+                let new_transform = new_transform.with_rotation(Quat::from_euler(
+                    QUAKE_ROLL_PITCH_YAW,
+                    roll,
+                    pitch,
+                    yaw,
+                ));
 
                 transform.component = new_transform;
-                transform.elapsed_secs_f64 = msg_time;
+                transform.elapsed_secs = msg_time;
             } else {
                 let origin = Vec3::new(
                     update.origin_x.unwrap_or_default(),
                     update.origin_y.unwrap_or_default(),
                     update.origin_z.unwrap_or_default(),
-                )
-                .trenchbroom_to_bevy();
-                let [yaw, pitch, roll] =
-                    [update.yaw, update.pitch, update.roll].map(|a| a.unwrap_or(0.).to_radians());
+                );
+
+                let [pitch, yaw, roll] =
+                    [update.pitch, update.yaw, update.roll].map(|a| a.unwrap_or(0.).to_radians());
 
                 ent.insert(
                     Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(Quat::from_euler(default(), yaw, pitch, roll)),
+                        .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw)),
                 );
             }
         } else {
@@ -421,8 +417,7 @@ impl ClientState {
                 update.origin_x.unwrap_or_default(),
                 update.origin_y.unwrap_or_default(),
                 update.origin_z.unwrap_or_default(),
-            )
-            .trenchbroom_to_bevy();
+            );
 
             let [yaw, pitch, roll] =
                 [update.yaw, update.pitch, update.roll].map(|a| a.unwrap_or(0.).to_radians());
@@ -430,8 +425,8 @@ impl ClientState {
             let mut ent = commands.spawn((
                 Next {
                     component: Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(Quat::from_euler(default(), yaw, pitch, roll)),
-                    elapsed_secs_f64: msg_time,
+                        .with_rotation(Quat::from_euler(QUAKE_ROLL_PITCH_YAW, roll, pitch, yaw)),
+                    elapsed_secs: msg_time,
                 },
                 Visibility::Inherited,
                 ChildOf(state.worldspawn),

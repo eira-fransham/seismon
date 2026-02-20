@@ -53,20 +53,27 @@ where
     C: Default + Component,
 {
     pub component: C,
-    pub elapsed_secs_f64: f64,
+    pub elapsed_secs: f64,
 }
 
+#[derive(Clone, Component, Reflect)]
+#[reflect(Component)]
+pub struct NoInterpolation;
+
 // TODO: Support `no_lerp`
-fn interpolate<C, T>(components: Query<(Option<&Prev<C>>, &Next<C>, &mut C)>, time: Res<Time<T>>)
-where
+fn interpolate<C, T>(
+    components: Query<(Option<&Prev<C>>, &Next<C>, &mut C, Option<&NoInterpolation>)>,
+    time: Res<Time<T>>,
+) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
     T: Default + Send + Sync + 'static,
 {
-    for (prev, next, mut cur) in components {
-        if let Some(prev) = prev {
-            let range = next.elapsed_secs_f64 - prev.0.elapsed_secs_f64;
-            let factor =
-                ((time.elapsed_secs_f64() - prev.0.elapsed_secs_f64) / range).clamp(0., 1.);
+    for (prev, next, mut cur, no_interp) in components {
+        if no_interp.is_none()
+            && let Some(prev) = prev
+        {
+            let range = next.elapsed_secs - prev.0.elapsed_secs;
+            let factor = ((time.elapsed_secs_f64() - prev.0.elapsed_secs) / range).clamp(0., 1.);
 
             *cur = C::interpolate(&prev.0.component, &next.component, factor as f32);
         } else {

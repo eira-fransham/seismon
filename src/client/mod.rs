@@ -24,7 +24,7 @@ use crate::{
         entity::ClientEntity,
         interpolation::InterpolateApp,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
-        state::{ClientState, Worldspawn},
+        state::ClientState,
         view::KickVars,
     },
     common::{
@@ -48,7 +48,6 @@ use bevy::{
         system::{Res, ResMut},
     },
     prelude::*,
-    render::view::Hdr,
     time::{Time, Virtual},
     window::PrimaryWindow,
 };
@@ -111,12 +110,18 @@ pub struct SeismonGameSettings {
     default_camera_template: Entity,
 }
 
-fn default_camera() -> impl Bundle {
+/// The default set of components for the camera.
+pub fn default_camera() -> impl Bundle {
     (
         Camera3d::default(),
-        Camera::default(),
-        Hdr,
-        Transform::from_translation(Vec3::new(0.0, 0.0, 5.0)).looking_at(Vec3::default(), Vec3::Y),
+        Projection::Perspective(PerspectiveProjection { fov: 90_f32.to_radians(), ..default() }),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 22.0)).with_rotation(Quat::from_euler(
+            EulerRot::XYZ,
+            std::f32::consts::FRAC_PI_2,
+            -std::f32::consts::FRAC_PI_2,
+            0.,
+        )),
+        Visibility::Visible,
         Disabled,
     )
 }
@@ -141,21 +146,8 @@ where
 
         let camera_template = app.world_mut().spawn(default_camera()).id();
 
-        // HACK
-        #[cfg(feature = "dev_tools")]
-        app.world_mut().despawn(camera_template);
-
         let app = app
             .interpolate_component::<Transform, Virtual>()
-            // TODO: Need to remove the coordinate system conversion inside `bevy_trenchbroom` first, but this
-            // will allow us to use Quake coordinates in the frontend too.
-            // .register_required_components_with::<Worldspawn, Transform>(|| {
-            //     Transform::from_matrix(Mat4::from_mat3(Mat3::from_cols_array_2d(&[
-            //         [0., -1., 0.],
-            //         [0., 0., 1.],
-            //         [-1., 0., 0.],
-            //     ])))
-            // })
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
@@ -168,13 +160,15 @@ where
             .init_resource::<DemoQueue>()
             .init_asset::<Demo>()
             .init_asset_loader::<DemoLoader>()
+            .add_message::<ServerCmd>()
             .add_message::<ServerMessage>()
             .add_message::<ClientMessage>()
             .add_message::<Impulse>()
             .add_systems(
                 Main,
                 (
-                    systems::frame::parse_server_msg
+                    systems::frame::parse_server_message
+                        .pipe(systems::frame::execute_server_msg)
                         .pipe(systems::frame::advance_frame)
                         .pipe(systems::frame::end_frame)
                         .pipe(|In(res)| {
@@ -196,7 +190,6 @@ where
             )
             .add_systems(Main, systems::wait_for_load.run_if(in_state(ClientGameState::Loading)))
             .add_systems(Main, systems::lock_cursor)
-            .add_systems(Main, systems::end_sounds.run_if(state_changed::<ClientGameState>))
             .add_systems(
                 Main,
                 systems::process_network_messages
@@ -324,6 +317,9 @@ pub enum IntermissionKind {
 /// Indicates to the client what should be done with the current connection.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ConnectionStatus {
+    /// Early exit, skip the rest of the logic for this frame
+    Break,
+
     /// Maintain the connection.
     Maintain,
 
@@ -414,7 +410,7 @@ impl ConnectionTarget {
             Self::Demo(demo_srv) => {
                 match assets.load_state(demo_srv.demo()) {
                     LoadState::Loaded => {}
-                    LoadState::Loading => return Ok(Err(ConnectionStatus::Maintain)),
+                    LoadState::Loading => return Ok(Err(ConnectionStatus::Break)),
                     LoadState::NotLoaded => return Ok(Err(ConnectionStatus::NextDemo)),
                     LoadState::Failed(err) => {
                         return Err(ClientError::DemoServer(DemoError::Load(err)));
@@ -668,20 +664,11 @@ mod systems {
     use bevy_trenchbroom::bsp::Bsp;
     use common::net::MessageKind;
 
-    use crate::{
-        client::{sound::Sound, state::Worldspawn},
-        common::net::ButtonFlags,
-    };
+    use crate::{client::state::Worldspawn, common::net::ButtonFlags};
 
     use self::common::console::Registry;
 
     use super::*;
-
-    pub fn end_sounds(mut commands: Commands, sounds: Query<Entity, With<Sound>>) {
-        for sound in sounds {
-            commands.entity(sound).despawn();
-        }
-    }
 
     pub fn lock_cursor(
         mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
@@ -880,6 +867,7 @@ mod systems {
         assets: Res<Assets<Bsp>>,
         worldspawn: Query<&Worldspawn>,
         mut next_state: ResMut<NextState<ClientGameState>>,
+        mut commands: Commands,
     ) {
         let Some(client_state) = &mut conn.client_state else {
             next_state.set(ClientGameState::Disconnected);
@@ -892,6 +880,7 @@ mod systems {
         };
 
         if let Some(bsp) = assets.get(&worldspawn.bsp) {
+            commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
             client_state.populate_precache(bsp);
             next_state.set(ClientGameState::InGame);
         }
@@ -899,29 +888,80 @@ mod systems {
 
     pub mod frame {
         use bevy::ecs::entity_disabling::Disabled;
-        use bevy_trenchbroom::util::BevyTrenchbroomCoordinateConversions as _;
 
         use crate::client::state::PrecacheModel;
 
         use super::*;
 
+        pub fn parse_server_message(
+            mut conn: ResMut<Connection>,
+            mut time: ResMut<Time<Virtual>>,
+            mut server_cmds: MessageWriter<ServerCmd>,
+            server_events: Res<Messages<ServerMessage>>,
+            asset_server: Res<AssetServer>,
+            demos: Res<Assets<Demo>>,
+        ) -> Result<ConnectionStatus, ClientError> {
+            // TODO: Calculate from server delta.
+            let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
+
+            if time.elapsed() < conn.last_msg_time {
+                return Ok(ConnectionStatus::Maintain);
+            } else if time.elapsed() > expected_next_tick {
+                *time = Time::default();
+                time.advance_to(expected_next_tick);
+            }
+
+            // TODO: Shuld "wait for demo load" logic be in its own system?
+            let server_update = match conn.target.recv(&*asset_server, &*demos, &server_events)? {
+                Ok(update) => update,
+                Err(status) => return Ok(status),
+            };
+
+            let ServerUpdate { message, .. } = server_update.into_owned();
+
+            // no data available at this time
+            if message.is_empty() {
+                return Ok(ConnectionStatus::Maintain);
+            }
+
+            let reader = &mut &message[..];
+
+            let cmd_iter = std::iter::from_fn(|| match ServerCmd::deserialize(reader) {
+                Err(e) => {
+                    error!("{}", e);
+                    None
+                }
+                Ok(Some(cmd)) => Some(cmd),
+                Ok(None) => None,
+            });
+            server_cmds.write_batch(cmd_iter);
+
+            Ok(ConnectionStatus::Maintain)
+        }
+
         #[expect(clippy::too_many_arguments)]
-        pub fn parse_server_msg(
+        pub fn execute_server_msg(
+            In(status): In<Result<ConnectionStatus, ClientError>>,
             mut commands: Commands,
             mut next_state: ResMut<NextState<ClientGameState>>,
             mut conn: ResMut<Connection>,
             settings: Res<SeismonGameSettings>,
-            mut time: ResMut<Time<Virtual>>,
+            time: Res<Time<Virtual>>,
             asset_server: Res<AssetServer>,
-            demos: Res<Assets<Demo>>,
             registry: Res<Registry>,
-            server_events: Res<Messages<ServerMessage>>,
+            mut pending_messages: Local<Vec<ServerCmd>>,
+            mut server_cmds: MessageReader<ServerCmd>,
             mut mixer_events: MessageWriter<MixerMessage>,
             mut console_commands: MessageWriter<RunCmd<'static>>,
             mut console_output: ResMut<ConsoleOutput>,
             transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
+
+            match status? {
+                S::Maintain => {}
+                s => return Ok(s),
+            }
 
             let kick_vars: KickVars = registry.read_cvars()?;
             // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
@@ -940,474 +980,464 @@ mod systems {
                 color: registry.read_cvar("_cl_color")?,
             };
 
-            // TODO: Calculate from server delta.
-            let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
-
-            if time.elapsed() < conn.last_msg_time {
-                return Ok(S::Maintain);
-            } else if time.elapsed() > expected_next_tick {
-                *time = Time::default();
-                time.advance_to(expected_next_tick);
-            }
-
-            // TODO: "Wait for demo load" logic should be in its own system.
-            let server_update = match conn.target.recv(&*asset_server, &*demos, &server_events)? {
-                Ok(update) => update,
-                Err(status) => return Ok(status),
-            };
-
-            let ServerUpdate { message, track_override, .. } = server_update.into_owned();
-
-            // no data available at this time
-            if message.is_empty() {
-                return Ok(S::Maintain);
-            }
-
-            let reader = &mut &message[..];
-
             macro_rules! msg_todo {
                 ($cmd_name:expr) => {{ debug!("TODO: {}", $cmd_name) }};
             }
 
-            loop {
-                let cmd = match ServerCmd::deserialize(reader) {
-                    Err(e) => {
-                        error!("{}", e);
-                        break;
+            let mut server_cmds = server_cmds.read().cloned();
+
+            let status = {
+                let mut pending_message_iter = pending_messages.drain(..);
+
+                loop {
+                    let Some(cmd) = pending_message_iter.next().or_else(|| server_cmds.next())
+                    else {
+                        break S::Maintain;
+                    };
+
+                    if !matches!(
+                        cmd,
+                        ServerCmd::FastUpdate(..)
+                            | ServerCmd::Time { .. }
+                            | ServerCmd::PlayerData(..)
+                    ) {
+                        debug!("CMD: {cmd:?}");
+                    } else {
+                        trace!("CMD: {cmd:?}");
                     }
-                    Ok(Some(cmd)) => cmd,
-                    Ok(None) => break,
-                };
 
-                if !matches!(
-                    &cmd,
-                    ServerCmd::FastUpdate(..) | ServerCmd::Time { .. } | ServerCmd::PlayerData(..)
-                ) {
-                    debug!("CMD: {cmd:?}");
-                } else {
-                    trace!("CMD: {cmd:?}");
-                }
-
-                if let Some(ent_id) = cmd.entity()
-                    && let Some(state) = &mut conn.client_state
-                {
-                    state.mark_entity_alive(ent_id);
-                    if let Some(entity) = state.server_entity_to_client_entity.get(&ent_id) {
-                        commands.entity(*entity).remove_recursive::<Children, Disabled>();
+                    if let Some(ent_id) = cmd.entity()
+                        && let Some(state) = &mut conn.client_state
+                    {
+                        state.mark_entity_alive(ent_id);
+                        // TODO: This seems wrong.
+                        if let Some(entity) = state.server_entity_to_client_entity.get(&ent_id) {
+                            commands.entity(*entity).remove_recursive::<Children, Disabled>();
+                        }
                     }
-                }
 
-                match cmd {
-                    ServerCmd::ServerInfo {
-                        protocol_version,
-                        max_clients,
-                        game_type,
-                        message,
-                        model_precache,
-                        sound_precache,
-                    } => {
-                        // check protocol version
-                        if protocol_version != net::PROTOCOL_VERSION as i32 {
-                            Err(ClientError::UnrecognizedProtocol(protocol_version))?;
-                        }
-
-                        console_output.println_alert(CONSOLE_DIVIDER, &time);
-                        console_output.println_alert(message.raw, &time);
-                        console_output.println_alert(CONSOLE_DIVIDER, &time);
-
-                        // let _server_info =
-                        ServerInfo { _max_clients: max_clients, _game_type: game_type };
-
-                        if let Some(state) = conn.client_state.as_ref() {
-                            commands.entity(state.worldspawn).despawn();
-                        }
-
-                        let mut new_worldspawn = commands.spawn(Visibility::Visible);
-
-                        conn.client_state = Some(ClientState::from_server_info(
-                            &mut new_worldspawn,
-                            &asset_server,
+                    match cmd {
+                        ServerCmd::ServerInfo {
+                            protocol_version,
+                            max_clients: _,
+                            game_type: _,
+                            message,
                             model_precache,
                             sound_precache,
-                        )?);
+                        } => {
+                            // check protocol version
+                            if protocol_version != net::PROTOCOL_VERSION as i32 {
+                                Err(ClientError::UnrecognizedProtocol(protocol_version))?;
+                            }
 
-                        next_state.set(ClientGameState::Loading);
-                    }
+                            console_output.println_alert(CONSOLE_DIVIDER, &time);
+                            console_output.println_alert(message.raw, &time);
+                            console_output.println_alert(CONSOLE_DIVIDER, &time);
 
-                    ServerCmd::Bad => {
-                        warn!("Invalid command from server")
-                    }
+                            if let Some(state) = conn.client_state.as_ref() {
+                                commands.entity(state.worldspawn).despawn();
+                            }
 
-                    ServerCmd::NoOp => {}
+                            let mut new_worldspawn = commands.spawn(Visibility::Visible);
 
-                    ServerCmd::CdTrack { track, .. } => {
-                        mixer_events.write(MixerMessage::StartMusic(Some(
-                            sound::MusicSource::TrackId(match track_override {
-                                Some(t) => t as usize,
-                                None => track as usize,
-                            }),
-                        )));
-                    }
+                            conn.client_state = Some(ClientState::from_server_info(
+                                &mut new_worldspawn,
+                                &asset_server,
+                                model_precache,
+                                sound_precache,
+                            )?);
 
-                    ServerCmd::CenterPrint { text } => {
-                        console_output.set_center_print(text, &time);
-                    }
-
-                    ServerCmd::PlayerData(_player_data) => {
-                        // conn.client_state.update_player(player_data);
-                        msg_todo!("player data")
-                    }
-
-                    ServerCmd::Cutscene { text: _ } => {
-                        msg_todo!("cutscene")
-                    }
-
-                    ServerCmd::Damage { armor, blood, source } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            state.handle_damage(armor, blood, source, kick_vars)
+                            next_state.set(ClientGameState::Loading);
+                            break S::Break;
                         }
-                    }
 
-                    ServerCmd::Disconnect => {
-                        return Ok(match &conn.target {
-                            ConnectionTarget::Demo(_) => S::NextDemo,
-                            ConnectionTarget::Server { .. } => S::Disconnect,
-                        });
-                    }
+                        ServerCmd::Bad => {
+                            warn!("Invalid command from server")
+                        }
 
-                    ServerCmd::FastUpdate(ent_update) => {
-                        // first update signals the last sign-on stage
-                        conn.handle_signon(SignOnStage::Done, &client_vars)?;
+                        ServerCmd::NoOp => {}
 
-                        commands.run_system_cached_with(
-                            ClientState::update_entity,
-                            (ent_update, conn.last_msg_time.as_secs_f64()),
-                        );
+                        ServerCmd::CdTrack { track, .. } => {
+                            mixer_events.write(MixerMessage::StartMusic(Some(
+                                // sound::MusicSource::TrackId(match track_override {
+                                //     Some(t) => t as usize,
+                                //     None => track as usize,
+                                // }),
+                                sound::MusicSource::TrackId(track as usize),
+                            )));
+                        }
 
-                        // patch view angles in demos
-                        // if let Some(angles) = demo_view_angles
-                        //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as
-                        // usize) {
-                        //     conn.client_state.update_view_angles(angles);
-                        // }
-                    }
+                        ServerCmd::CenterPrint { text } => {
+                            console_output.set_center_print(text, &time);
+                        }
 
-                    ServerCmd::Finale { .. } => msg_todo!("intermission"),
-                    ServerCmd::FoundSecret => msg_todo!("found secret"),
-                    ServerCmd::Intermission => {
-                        msg_todo!("intermission");
-                    }
-                    ServerCmd::KilledMonster => {
-                        msg_todo!("killed monster")
-                    }
+                        ServerCmd::PlayerData(_player_data) => {
+                            // conn.client_state.update_player(player_data);
+                            msg_todo!("player data")
+                        }
 
-                    ServerCmd::LightStyle { .. } => {
-                        msg_todo!("lightstyle")
-                    }
+                        ServerCmd::Cutscene { text: _ } => {
+                            msg_todo!("cutscene")
+                        }
 
-                    ServerCmd::Particle { .. } => {
-                        msg_todo!("particle")
-                    }
+                        ServerCmd::Damage { armor, blood, source } => {
+                            if let Some(state) = conn.client_state.as_mut() {
+                                state.handle_damage(armor, blood, source, kick_vars)
+                            }
+                        }
 
-                    ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
+                        ServerCmd::Disconnect => {
+                            return Ok(match &conn.target {
+                                ConnectionTarget::Demo(_) => S::NextDemo,
+                                ConnectionTarget::Server { .. } => S::Disconnect,
+                            });
+                        }
 
-                    ServerCmd::SetAngle { .. } => msg_todo!("set angle"),
+                        ServerCmd::FastUpdate(ent_update) => {
+                            // first update signals the last sign-on stage
+                            conn.handle_signon(SignOnStage::Done, &client_vars)?;
 
-                    ServerCmd::SetView { ent_id } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            let ent = match state.server_entity_to_client_entity.get(&ent_id) {
-                                Some(ent) => *ent,
-                                None => {
-                                    warn!("Server tried to set view on non-existent entity");
-                                    let entity = commands
-                                        .spawn((Transform::default(), Visibility::Inherited))
-                                        .id();
-                                    state.server_entity_to_client_entity.insert(ent_id, entity);
-                                    entity
-                                }
-                            };
-
-                            #[cfg(not(feature = "dev_tools"))]
-                            commands.run_system_cached(
-                                // TODO: Assumes that `camera_template` contains `Camera3d`, and
-                                // that no other `Camera3d`s exist.
-                                // Not good.
-                                |mut commands: Commands, cameras: Query<Entity, With<Camera3d>>| {
-                                    for camera in cameras {
-                                        commands.entity(camera).despawn();
-                                    }
-                                },
+                            commands.run_system_cached_with(
+                                ClientState::update_entity,
+                                (ent_update, conn.last_msg_time.as_secs_f64()),
                             );
 
-                            commands.entity(ent).insert(Visibility::Hidden);
-
-                            let mut entity = match commands.get_entity(settings.camera_template) {
-                                Ok(ent) => ent,
-                                Err(_) => {
-                                    if let Ok(ent) =
-                                        commands.get_entity(settings.default_camera_template)
-                                    {
-                                        ent
-                                    } else {
-                                        warn!("No template");
-                                        continue;
-                                    }
-                                }
-                            };
-
-                            entity.clone_and_spawn().insert(ChildOf(ent)).remove::<Disabled>();
+                            // patch view angles in demos
+                            // if let Some(angles) = demo_view_angles
+                            //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as
+                            // usize) {
+                            //     conn.client_state.update_view_angles(angles);
+                            // }
                         }
-                    }
 
-                    ServerCmd::SignOnStage { stage } => {
-                        conn.handle_signon(stage, &client_vars)?;
-                    }
+                        ServerCmd::Finale { .. } => msg_todo!("intermission"),
+                        ServerCmd::FoundSecret => msg_todo!("found secret"),
+                        ServerCmd::Intermission => {
+                            msg_todo!("intermission");
+                        }
+                        ServerCmd::KilledMonster => {
+                            msg_todo!("killed monster")
+                        }
 
-                    ServerCmd::Sound {
-                        volume,
-                        attenuation,
-                        entity_id,
-                        channel,
-                        sound_id,
-                        position,
-                    } => {
-                        if let Some(state) = conn.client_state.as_ref() {
-                            trace!(
-                                "starting sound with id {} on entity {} channel {}",
-                                sound_id, entity_id, channel
-                            );
+                        ServerCmd::LightStyle { .. } => {
+                            msg_todo!("lightstyle")
+                        }
 
-                            if !state.server_entity_to_client_entity.contains_key(&entity_id) {
-                                error!(
-                                    "server tried to start sound on nonexistent entity {}",
-                                    entity_id
+                        ServerCmd::Particle { .. } => {
+                            msg_todo!("particle")
+                        }
+
+                        ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
+
+                        ServerCmd::SetAngle { .. } => msg_todo!("set angle"),
+
+                        ServerCmd::SetView { ent_id } => {
+                            dbg!(ent_id);
+                            if let Some(state) = conn.client_state.as_mut() {
+                                let mut view_entity = match state
+                                    .server_entity_to_client_entity
+                                    .get(&ent_id)
+                                {
+                                    Some(ent) => commands.entity(*ent),
+                                    None => {
+                                        warn!(
+                                            "Server tried to set view on non-existent entity {ent_id}"
+                                        );
+                                        let entity = commands.spawn((
+                                            Transform::default(),
+                                            ChildOf(state.worldspawn),
+                                        ));
+                                        state
+                                            .server_entity_to_client_entity
+                                            .insert(ent_id, entity.id());
+                                        entity
+                                    }
+                                };
+
+                                // Viewing entity should be invisible (e.g. do not show player model)
+                                view_entity.insert(Visibility::Hidden);
+
+                                let view_entity = view_entity.id();
+
+                                let mut camera_entity =
+                                    match commands.get_entity(settings.camera_template) {
+                                        Ok(ent) => ent,
+                                        Err(_) => {
+                                            if let Ok(ent) = commands
+                                                .get_entity(settings.default_camera_template)
+                                            {
+                                                ent
+                                            } else {
+                                                warn!("No camera template");
+                                                continue;
+                                            }
+                                        }
+                                    };
+
+                                camera_entity
+                                    .clone_and_spawn_with_opt_out(|builder| {
+                                        builder.deny::<Disabled>();
+                                    })
+                                    .insert(ChildOf(view_entity));
+                            }
+                        }
+
+                        ServerCmd::SignOnStage { stage } => {
+                            conn.handle_signon(stage, &client_vars)?;
+                        }
+
+                        ServerCmd::Sound {
+                            volume,
+                            attenuation,
+                            entity_id,
+                            channel,
+                            sound_id,
+                            position,
+                        } => {
+                            if let Some(state) = conn.client_state.as_ref() {
+                                trace!(
+                                    "starting sound with id {} on entity {} channel {}",
+                                    sound_id, entity_id, channel
                                 );
-                                continue;
-                            }
 
-                            let entity = state
-                                .server_entity_to_client_entity
-                                .get(&entity_id)
-                                .cloned()
-                                .unwrap_or(state.worldspawn);
-                            let entity_origin = transforms
-                                .get(entity)
-                                .map(|trans| trans.translation)
-                                .unwrap_or_default();
-
-                            let origin = position.trenchbroom_to_bevy() - entity_origin;
-                            let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
-                            let attenuation =
-                                attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                            if let Some(sound) = state.sounds.get(sound_id as usize) {
-                                mixer_events.write(MixerMessage::StartSound(StartSound {
-                                    entity,
-                                    src: sound.clone(),
-                                    ent_channel: channel,
-                                    volume: volume as f32 / 255.0,
-                                    attenuation,
-                                    origin,
-                                }));
-                            }
-                        }
-                    }
-
-                    ServerCmd::SpawnBaseline {
-                        ent_id,
-                        model_id,
-                        frame_id,
-                        colormap,
-                        skin_id,
-                        origin,
-                        angles,
-                    } => {
-                        let msg_time = conn.last_msg_time.as_secs_f64();
-                        if let Some(state) = conn.client_state.as_mut() {
-                            state.spawn_entities(
-                                commands.reborrow(),
-                                ent_id,
-                                EntityState {
-                                    origin,
-                                    angles,
-                                    model_id: model_id.into(),
-
-                                    // TODO
-                                    frame_id: frame_id.into(),
-                                    colormap,
-                                    skin_id: skin_id.into(),
-                                    effects: Default::default(),
-                                },
-                                msg_time,
-                            );
-                        }
-                    }
-
-                    ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            let mut ent = commands.spawn((
-                                Transform::from_translation(origin.trenchbroom_to_bevy())
-                                    .with_rotation(Quat::from_euler(
-                                        EulerRot::YZX,
-                                        angles.x,
-                                        angles.y,
-                                        angles.z,
-                                    )),
-                                // TODO: Handle the other fields
-                                Visibility::Inherited,
-                                ChildOf(state.worldspawn),
-                            ));
-
-                            if let Some(PrecacheModel::Loaded(model)) =
-                                state.models.get(model_id as usize).cloned()
-                            {
-                                ent.insert(SceneRoot(model));
-                            }
-                        }
-                    }
-
-                    ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
-                        if let Some(state) = conn.client_state.as_ref()
-                            && let Some(sound) = state.sounds.get(sound_id as usize)
-                        {
-                            mixer_events.write(MixerMessage::StartStaticSound(StartStaticSound {
-                                world: state.worldspawn,
-                                src: sound.clone(),
-                                origin: origin.trenchbroom_to_bevy(),
-                                volume: volume as f32 / 255.,
-                                attenuation: attenuation as f32 / 64.,
-                            }));
-                        }
-                    }
-
-                    ServerCmd::TempEntity { temp_entity: _ } => {
-                        msg_todo!("temp entity");
-                    }
-
-                    ServerCmd::StuffText { text } => match text.to_str().parse() {
-                        Ok(parsed) => {
-                            console_commands.write(parsed);
-                        }
-                        Err(err) => console_output.println(format!("{err}"), &time),
-                    },
-
-                    ServerCmd::Time { time } => {
-                        let last_msg_time = conn.last_msg_time;
-                        if conn.is_connected()
-                            && let Some(state) = &mut conn.client_state
-                        {
-                            if !last_msg_time.is_zero() {
-                                for entity in state.dead_entities() {
-                                    // Quake doesn't actually _delete_ dead entities
-                                    // it just stops displaying and updating them.
-                                    commands.entity(entity).insert_recursive::<Children>(Disabled);
+                                if !state.server_entity_to_client_entity.contains_key(&entity_id) {
+                                    error!(
+                                        "server tried to start sound on nonexistent entity {}",
+                                        entity_id
+                                    );
+                                    continue;
                                 }
-                            }
 
-                            conn.last_msg_time = Duration::from_secs_f32(time);
-                        }
-                    }
-
-                    ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // match conn.client_state.player_info[player_id] {
-                        //     Some(ref mut info) => {
-                        //         trace!(
-                        //             "Player {} (ID {}) colors: {:?} -> {:?}",
-                        //             info.name, player_id, info.colors, new_colors,
-                        //         );
-                        //         info.colors = new_colors;
-                        //     }
-
-                        //     None => {
-                        //         error!(
-                        //             "Attempted to set colors on nonexistent player with ID {}",
-                        //             player_id
-                        //         );
-                        //     }
-                        // }
-                    }
-
-                    ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // match conn.client_state.player_info[player_id] {
-                        //     Some(ref mut info) => {
-                        //         trace!(
-                        //             "Player {} (ID {}) frags: {} -> {}",
-                        //             &info.name, player_id, info.frags, new_frags
-                        //         );
-                        //         info.frags = new_frags as i32;
-                        //     }
-                        //     None => {
-                        //         error!(
-                        //             "Attempted to set frags on nonexistent player with ID {}",
-                        //             player_id
-                        //         );
-                        //     }
-                        // }
-                    }
-
-                    ServerCmd::UpdateName { player_id: _, new_name: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // if let Some(ref mut info) = conn.client_state.player_info[player_id] {
-                        //     // if this player is already connected, it's a name change
-                        //     debug!("Player {} has changed name to {}", &info.name, &new_name);
-                        //     info.name = new_name.into_string().into();
-                        // } else {
-                        //     // if this player is not connected, it's a join
-                        //     debug!("Player {} with ID {} has joined", &new_name, player_id);
-                        //     conn.client_state.player_info[player_id] = Some(PlayerInfo {
-                        //         name: new_name.into_string().into(),
-                        //         colors: PlayerColor::new(0, 0),
-                        //         frags: 0,
-                        //     });
-                        // }
-                    }
-
-                    ServerCmd::UpdateStat { stat: _, value: _ } => {
-                        // debug!(
-                        //     "{:?}: {} -> {}",
-                        //     stat, conn.client_state.stats[stat as usize], value
-                        // );
-                        // conn.client_state.stats[stat as usize] = value;
-                    }
-
-                    ServerCmd::Version { version } => {
-                        if version != net::PROTOCOL_VERSION as i32 {
-                            // TODO: handle with an error
-                            error!(
-                                "Incompatible server version: server's is {}, client's is {}",
-                                version,
-                                net::PROTOCOL_VERSION,
-                            );
-                            panic!("bad version number");
-                        }
-                    }
-
-                    ServerCmd::SetPause { .. } => {}
-
-                    ServerCmd::StopSound { entity_id, channel } => {
-                        if let Some(state) = conn.client_state.as_ref() {
-                            mixer_events.write(MixerMessage::StopSound(StopSound {
-                                entity: state
+                                let entity = state
                                     .server_entity_to_client_entity
                                     .get(&entity_id)
                                     .cloned()
-                                    .unwrap_or(state.worldspawn),
-                                ent_channel: channel,
-                            }));
-                        }
-                    }
-                    ServerCmd::SellScreen => todo!(),
-                }
-            }
+                                    .unwrap_or(state.worldspawn);
+                                let entity_origin = transforms
+                                    .get(entity)
+                                    .map(|trans| trans.translation)
+                                    .unwrap_or_default();
 
-            Ok(S::Maintain)
+                                let origin = position - entity_origin;
+                                let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
+                                let attenuation =
+                                    attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
+                                if let Some(sound) = state.sounds.get(sound_id as usize) {
+                                    mixer_events.write(MixerMessage::StartSound(StartSound {
+                                        entity,
+                                        src: sound.clone(),
+                                        ent_channel: channel,
+                                        volume: volume as f32 / 255.0,
+                                        attenuation,
+                                        origin,
+                                    }));
+                                }
+                            }
+                        }
+
+                        ServerCmd::SpawnBaseline {
+                            ent_id,
+                            model_id,
+                            frame_id,
+                            colormap,
+                            skin_id,
+                            origin,
+                            angles,
+                        } => {
+                            let msg_time = conn.last_msg_time.as_secs_f64();
+                            if let Some(state) = conn.client_state.as_mut() {
+                                state.spawn_entities(
+                                    commands.reborrow(),
+                                    ent_id,
+                                    EntityState {
+                                        origin,
+                                        angles,
+                                        model_id: model_id.into(),
+
+                                        // TODO
+                                        frame_id: frame_id.into(),
+                                        colormap,
+                                        skin_id: skin_id.into(),
+                                        effects: Default::default(),
+                                    },
+                                    msg_time,
+                                );
+                            }
+                        }
+
+                        ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
+                            if let Some(state) = conn.client_state.as_mut() {
+                                let mut ent = commands.spawn((
+                                    Transform::from_translation(origin).with_rotation(
+                                        Quat::from_euler(
+                                            EulerRot::XYZ,
+                                            angles.x,
+                                            angles.y,
+                                            angles.z,
+                                        ),
+                                    ),
+                                    // TODO: Handle the other fields
+                                    Visibility::Inherited,
+                                    ChildOf(state.worldspawn),
+                                ));
+
+                                if let Some(PrecacheModel::Loaded(model)) =
+                                    state.models.get(model_id as usize).cloned()
+                                {
+                                    ent.insert(SceneRoot(model));
+                                }
+                            }
+                        }
+
+                        ServerCmd::SpawnStaticSound { origin, sound_id, volume, attenuation } => {
+                            if let Some(state) = conn.client_state.as_ref()
+                                && let Some(sound) = state.sounds.get(sound_id as usize)
+                            {
+                                mixer_events.write(MixerMessage::StartStaticSound(
+                                    StartStaticSound {
+                                        world: state.worldspawn,
+                                        src: sound.clone(),
+                                        origin,
+                                        volume: volume as f32 / 255.,
+                                        attenuation: attenuation as f32 / 64.,
+                                    },
+                                ));
+                            }
+                        }
+
+                        ServerCmd::TempEntity { temp_entity: _ } => {
+                            msg_todo!("temp entity");
+                        }
+
+                        ServerCmd::StuffText { text } => match text.to_str().parse() {
+                            Ok(parsed) => {
+                                console_commands.write(parsed);
+                            }
+                            Err(err) => console_output.println(format!("{err}"), &time),
+                        },
+
+                        ServerCmd::Time { time } => {
+                            // TODO: How do we handle dead entities?
+                            // let last_msg_time = conn.last_msg_time;
+                            // if conn.is_connected()
+                            //     && let Some(state) = &mut conn.client_state
+                            // {
+                            //     if !last_msg_time.is_zero() {
+                            //         for entity in state.dead_entities() {
+                            //             commands
+                            //                 .entity(entity)
+                            //                 .insert_recursive::<Children>(Disabled);
+                            //         }
+                            //     }
+                            // }
+
+                            conn.last_msg_time = Duration::from_secs_f32(time);
+                        }
+
+                        ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
+                            // let player_id = player_id as usize;
+                            // conn.client_state.check_player_id(player_id)?;
+
+                            // match conn.client_state.player_info[player_id] {
+                            //     Some(ref mut info) => {
+                            //         trace!(
+                            //             "Player {} (ID {}) colors: {:?} -> {:?}",
+                            //             info.name, player_id, info.colors, new_colors,
+                            //         );
+                            //         info.colors = new_colors;
+                            //     }
+
+                            //     None => {
+                            //         error!(
+                            //             "Attempted to set colors on nonexistent player with ID {}",
+                            //             player_id
+                            //         );
+                            //     }
+                            // }
+                        }
+
+                        ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
+                            // let player_id = player_id as usize;
+                            // conn.client_state.check_player_id(player_id)?;
+
+                            // match conn.client_state.player_info[player_id] {
+                            //     Some(ref mut info) => {
+                            //         trace!(
+                            //             "Player {} (ID {}) frags: {} -> {}",
+                            //             &info.name, player_id, info.frags, new_frags
+                            //         );
+                            //         info.frags = new_frags as i32;
+                            //     }
+                            //     None => {
+                            //         error!(
+                            //             "Attempted to set frags on nonexistent player with ID {}",
+                            //             player_id
+                            //         );
+                            //     }
+                            // }
+                        }
+
+                        ServerCmd::UpdateName { player_id: _, new_name: _ } => {
+                            // let player_id = player_id as usize;
+                            // conn.client_state.check_player_id(player_id)?;
+
+                            // if let Some(ref mut info) = conn.client_state.player_info[player_id] {
+                            //     // if this player is already connected, it's a name change
+                            //     debug!("Player {} has changed name to {}", &info.name, &new_name);
+                            //     info.name = new_name.into_string().into();
+                            // } else {
+                            //     // if this player is not connected, it's a join
+                            //     debug!("Player {} with ID {} has joined", &new_name, player_id);
+                            //     conn.client_state.player_info[player_id] = Some(PlayerInfo {
+                            //         name: new_name.into_string().into(),
+                            //         colors: PlayerColor::new(0, 0),
+                            //         frags: 0,
+                            //     });
+                            // }
+                        }
+
+                        ServerCmd::UpdateStat { stat: _, value: _ } => {
+                            // debug!(
+                            //     "{:?}: {} -> {}",
+                            //     stat, conn.client_state.stats[stat as usize], value
+                            // );
+                            // conn.client_state.stats[stat as usize] = value;
+                        }
+
+                        ServerCmd::Version { version } => {
+                            if version != net::PROTOCOL_VERSION as i32 {
+                                // TODO: handle with an error
+                                error!(
+                                    "Incompatible server version: server's is {}, client's is {}",
+                                    version,
+                                    net::PROTOCOL_VERSION,
+                                );
+                                panic!("bad version number");
+                            }
+                        }
+
+                        ServerCmd::SetPause { .. } => {}
+
+                        ServerCmd::StopSound { entity_id, channel } => {
+                            if let Some(state) = conn.client_state.as_ref() {
+                                mixer_events.write(MixerMessage::StopSound(StopSound {
+                                    entity: state
+                                        .server_entity_to_client_entity
+                                        .get(&entity_id)
+                                        .cloned()
+                                        .unwrap_or(state.worldspawn),
+                                    ent_channel: channel,
+                                }));
+                            }
+                        }
+                        ServerCmd::SellScreen => todo!(),
+                    }
+                }
+            };
+
+            pending_messages.extend(server_cmds);
+
+            Ok(status)
         }
 
         pub fn advance_frame(
@@ -1463,7 +1493,7 @@ mod systems {
         ) -> Result<(), ClientError> {
             use ConnectionStatus as S;
             let new_conn = match status? {
-                S::Maintain => return Ok(()),
+                S::Break | S::Maintain => return Ok(()),
                 // if client is already disconnected, this is a no-op
                 S::Disconnect => None,
 

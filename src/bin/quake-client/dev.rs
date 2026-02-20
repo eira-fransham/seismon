@@ -14,10 +14,10 @@ fn cmd_freecam(
     mut commands: Commands,
     cameras: Query<(Entity, Option<&DebugCamera>), With<Camera3d>>,
 ) -> ExecResult {
-    let debug_enabled = cameras.iter().all(|(_, d)| d.is_none());
+    let debug_disabled = cameras.iter().all(|(_, d)| d.is_none());
 
     for (camera, _) in cameras {
-        commands.entity(camera).remove::<DebugCamera>().insert_if(DebugCamera, || debug_enabled);
+        commands.entity(camera).remove::<DebugCamera>().insert_if(DebugCamera, || debug_disabled);
     }
 
     default()

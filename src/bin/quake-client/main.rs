@@ -8,7 +8,6 @@ use bevy::{
     audio::AudioPlugin,
     camera::Exposure,
     core_pipeline::tonemapping::Tonemapping,
-    ecs::entity_disabling::Disabled,
     post_process::bloom::Bloom,
     prelude::*,
     render::view::{ColorGrading, Hdr},
@@ -24,7 +23,7 @@ use bevy_mod_pakfile::PakfilePlugin;
 use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
 use seismon::{
-    client::{SeismonClientPlugin, SeismonGameSettings},
+    client::{SeismonClientPlugin, SeismonGameSettings, default_camera},
     common::console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
     server::SeismonListenServerPlugin,
 };
@@ -144,35 +143,21 @@ fn startup(
           mut game_settings: ResMut<SeismonGameSettings>,
           mut console_cmds| {
         let camera_bundle = (
-            Camera3d::default(),
-            Camera::default(),
-            Projection::Perspective(PerspectiveProjection {
-                fov: 90_f32.to_radians(),
-                ..default()
-            }),
+            default_camera(),
             Hdr,
-            // TemporalAntiAliasing::default(),
-            Transform::from_translation(Vec3::new(0.0, 22.0, 0.0)),
             Exposure::INDOOR,
             Msaa::Sample2,
             Bloom::default(),
-            // DepthPrepass,
-            // NormalPrepass,
             SpatialListener3D,
             #[cfg(feature = "dev_tools")]
             dev::DebugCamera,
-            #[cfg(not(feature = "dev_tools"))]
-            Disabled,
         );
         #[cfg(feature = "capture")]
         let camera_bundle = (camera_bundle, CaptureBundle::default());
         // main game camera
         let camera_template = commands.spawn(camera_bundle).id();
 
-        #[cfg(not(feature = "dev_tools"))]
-        {
-            game_settings.camera_template = camera_template;
-        }
+        game_settings.camera_template = camera_template;
 
         console_cmds.write(RunCmd::parse("exec quake.rc").unwrap());
 

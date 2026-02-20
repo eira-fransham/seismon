@@ -17,6 +17,7 @@
 
 use std::{io, time::Duration};
 
+use bevy_transform::components::Transform;
 use futures::AsyncReadExt;
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num_traits::FromPrimitive as _;
@@ -232,8 +233,9 @@ pub enum Animation {
 
 #[derive(Debug, Clone)]
 pub struct RawMdl {
-    origin: Vec3,
     radius: f32,
+    scale: Vec3,
+    scale_origin: Vec3,
     texture_width: u32,
     texture_height: u32,
     textures: Vec<Texture>,
@@ -244,8 +246,19 @@ pub struct RawMdl {
 }
 
 impl RawMdl {
-    pub fn origin(&self) -> Vec3 {
-        self.origin
+    // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L337-L407
+    pub fn transform(&self) -> Transform {
+        // TODO: For some reason this seems to rotate models 180 degrees instead of flipping them as we might
+        // expect. Inverting X seems to do nothing, only inverting Y. This makes e.g. ogres left-handed instead
+        // of right, but at least makes them face the correct direction.
+        const MODEL_FUDGE_SCALE: Vec3 = Vec3::new(1., -1., 1.);
+
+        Transform::from_translation(MODEL_FUDGE_SCALE * self.scale_origin)
+            .with_scale(MODEL_FUDGE_SCALE * self.scale)
+    }
+
+    pub fn scale_origin(&self) -> Vec3 {
+        self.scale_origin
     }
 
     pub fn radius(&self) -> f32 {
@@ -337,7 +350,7 @@ where
     //     magic: i32
     //     version: i32
     //     scale: [f32; 3]
-    //     origin: [f32; 3]
+    //     scale_origin: [f32; 3]
     //     radius: f32
     //     eye_position: [f32; 3]
     //     texture_count: i32,
@@ -361,7 +374,7 @@ where
     }
 
     let scale: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
-    let origin: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
+    let scale_origin: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
     let radius = try_!(reader.read_f32::<LittleEndian>().await);
     // TODO: Expose this
     let _eye_position: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
@@ -532,9 +545,9 @@ where
         for _ in 0..keyframe_count {
             match try_!(reader.read_i32::<LittleEndian>().await) {
                 0 => {
-                    let min = try_!(read_vertex(&mut reader, scale, origin).await);
+                    let min = try_!(read_vertex(&mut reader).await);
                     try_!(reader.read_u8().await); // discard vertex normal
-                    let max = try_!(read_vertex(&mut reader, scale, origin).await);
+                    let max = try_!(read_vertex(&mut reader).await);
                     try_!(reader.read_u8().await); // discard vertex normal
 
                     let name = {
@@ -553,7 +566,7 @@ where
 
                     let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
                     for _ in 0..vertex_count {
-                        vertices.push(try_!(read_vertex(&mut reader, scale, origin).await));
+                        vertices.push(try_!(read_vertex(&mut reader).await));
                         try_!(reader.read_u8().await); // discard vertex normal
                     }
 
@@ -566,9 +579,9 @@ where
                         s => s,
                     };
 
-                    let abs_min = try_!(read_vertex(&mut reader, scale, origin).await);
+                    let abs_min = try_!(read_vertex(&mut reader).await);
                     try_!(reader.read_u8().await); // discard vertex normal
-                    let abs_max = try_!(read_vertex(&mut reader, scale, origin).await);
+                    let abs_max = try_!(read_vertex(&mut reader).await);
                     try_!(reader.read_u8().await); // discard vertex normal
 
                     let mut durations = Vec::new();
@@ -580,9 +593,9 @@ where
 
                     let mut subframes = Vec::new();
                     for subframe_id in 0..subframe_count {
-                        let min = try_!(read_vertex(&mut reader, scale, origin).await);
+                        let min = try_!(read_vertex(&mut reader).await);
                         try_!(reader.read_u8().await); // discard vertex normal
-                        let max = try_!(read_vertex(&mut reader, scale, origin).await);
+                        let max = try_!(read_vertex(&mut reader).await);
                         try_!(reader.read_u8().await); // discard vertex normal
 
                         let name = {
@@ -601,7 +614,7 @@ where
 
                         let mut vertices: Vec<Vec3> = Vec::with_capacity(vertex_count as usize);
                         for _ in 0..vertex_count {
-                            vertices.push(try_!(read_vertex(&mut reader, scale, origin).await));
+                            vertices.push(try_!(read_vertex(&mut reader).await));
                             try_!(reader.read_u8().await); // discard vertex normal
                         }
 
@@ -635,7 +648,8 @@ where
 
     MdlResult {
         value: Some(RawMdl {
-            origin,
+            scale,
+            scale_origin,
             radius,
             texture_width: texture_width as u32,
             texture_height: texture_height as u32,
@@ -649,22 +663,13 @@ where
     }
 }
 
-async fn read_vertex<R>(
-    reader: &mut AsyncReadBytes<'_, R>,
-    scale: Vec3,
-    translate: Vec3,
-) -> Result<Vec3, io::Error>
+async fn read_vertex<R>(reader: &mut AsyncReadBytes<'_, R>) -> Result<Vec3, io::Error>
 where
     R: AsyncReadExt + Unpin,
 {
-    let [x, y, z] = Vec3::new(
+    Ok(Vec3::new(
         reader.read_u8().await? as f32,
         reader.read_u8().await? as f32,
         reader.read_u8().await? as f32,
-    )
-    .mul_add(scale, translate)
-    .into();
-
-    // Convert to bevy coordinate system
-    Ok(Vec3::new(y, z, x))
+    ))
 }
