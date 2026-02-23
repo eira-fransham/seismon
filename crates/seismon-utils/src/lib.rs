@@ -19,17 +19,102 @@ use std::{
     fmt,
     io::{self, BufRead},
     mem,
-    ops::{Deref, Not},
+    ops::{Add, Deref, Mul, Not},
     time::Duration,
 };
 
 use beef::Cow;
+use bevy_math::{EulerRot, Mat3, Quat};
+use bevy_reflect::Reflect;
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::AsyncReadExt;
 use futures_byteorder::AsyncReadBytes;
 use nom::AsBytes;
 
 pub mod model;
+
+const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
+
+impl From<QAngles> for Quat {
+    fn from(angles: QAngles) -> Quat {
+        // TODO: [-roll, -pitch, yaw] seems to be how `bevy_trenchbroom`, but is it correct?
+        // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L364-L369?
+        Quat::from_euler(
+            QUAKE_ROLL_PITCH_YAW,
+            -angles.roll_deg.to_radians(),
+            -angles.pitch_deg.to_radians(),
+            angles.yaw_deg.to_radians(),
+        )
+    }
+}
+
+impl From<QAngles> for Mat3 {
+    fn from(angles: QAngles) -> Mat3 {
+        Mat3::from_quat(angles.into())
+    }
+}
+
+impl From<Quat> for QAngles {
+    fn from(angles: Quat) -> QAngles {
+        let (roll_rad, pitch_rad, yaw_rad) = angles.to_euler(QUAKE_ROLL_PITCH_YAW);
+
+        QAngles {
+            pitch_deg: -pitch_rad.to_degrees(),
+            roll_deg: -roll_rad.to_degrees(),
+            yaw_deg: yaw_rad.to_degrees(),
+        }
+    }
+}
+
+#[derive(Default, Reflect, Copy, Clone, PartialEq)]
+pub struct QAngles {
+    pub pitch_deg: f32,
+    pub roll_deg: f32,
+    pub yaw_deg: f32,
+}
+
+impl Mul<f32> for QAngles {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            pitch_deg: self.pitch_deg * rhs,
+            roll_deg: self.roll_deg * rhs,
+            yaw_deg: self.yaw_deg * rhs,
+        }
+    }
+}
+
+impl Add for QAngles {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            pitch_deg: self.pitch_deg + rhs.pitch_deg,
+            roll_deg: self.roll_deg + rhs.roll_deg,
+            yaw_deg: self.yaw_deg + rhs.yaw_deg,
+        }
+    }
+}
+
+// TODO: Copied from Quake 1 source, can be done better.
+fn angle_mod(quake_angle: f32) -> f32 {
+    const PRECISION: f32 = 65536.;
+    let quake_angle = quake_angle.rem_euclid(360.);
+
+    (360f32 / PRECISION) * (quake_angle * PRECISION / 360.0).floor()
+}
+
+impl QAngles {
+    /// Quantize the precision of each field to 16 bits.
+    pub fn quantize(&self) -> Self {
+        Self {
+            pitch_deg: angle_mod(self.pitch_deg),
+            roll_deg: angle_mod(self.roll_deg),
+            yaw_deg: angle_mod(self.yaw_deg),
+        }
+    }
+}
 
 // TODO: handle this unwrap? i64 can handle ~200,000 years in microseconds
 #[inline]

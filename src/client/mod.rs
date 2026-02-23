@@ -51,10 +51,7 @@ use bevy::{
     time::{Time, Virtual},
     window::PrimaryWindow,
 };
-use bevy_trenchbroom::{
-    TrenchBroomPlugins,
-    config::{TrenchBroomConfig, WriteTrenchBroomConfigOnStartPlugin},
-};
+use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
 use input::InputFocus;
 use menu::Menu;
 use seismon_utils::QString;

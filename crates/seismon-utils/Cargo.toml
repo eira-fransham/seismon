@@ -10,6 +10,7 @@ repository.workspace = true
 beef.workspace = true
 bitflags.workspace = true
 bevy_reflect.workspace = true
+bevy_math.workspace = true
 byteorder.workspace = true
 futures.workspace = true
 futures-byteorder.workspace = true

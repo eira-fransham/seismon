@@ -1,16 +1,13 @@
 use std::{f32::consts::PI, time::Duration};
 
-use crate::common::{
-    console::Registry,
-    math::{self, Angles},
-};
+use crate::common::console::Registry;
 
 use super::IntermissionKind;
 use bevy::{
     log::error,
-    math::{Vec2, Vec3},
+    math::{Mat3, Vec2, Vec3},
 };
-use seismon_utils::{duration_from_f32, duration_to_f32};
+use seismon_utils::{QAngles, duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 
 #[derive(Default, Clone)]
@@ -25,19 +22,19 @@ pub struct View {
     ideal_pitch: f32,
 
     // view angles from client input
-    input_angles: Angles,
+    input_angles: QAngles,
 
     // pitch and roll from damage
-    damage_angles: Angles,
+    damage_angles: QAngles,
 
     // time at which damage punch decays to zero
     damage_time: Duration,
 
     // punch angles from server
-    punch_angles: Angles,
+    punch_angles: QAngles,
 
     // final angles combining all sources
-    final_angles: Angles,
+    final_angles: QAngles,
 
     // final origin accounting for view bob
     final_origin: Vec3,
@@ -72,20 +69,20 @@ impl View {
         self.ideal_pitch = ideal_pitch;
     }
 
-    pub fn punch_angles(&self) -> Angles {
+    pub fn punch_angles(&self) -> QAngles {
         self.punch_angles
     }
 
-    pub fn set_punch_angles(&mut self, punch_angles: Angles) {
+    pub fn set_punch_angles(&mut self, punch_angles: QAngles) {
         self.punch_angles = punch_angles;
     }
 
-    pub fn input_angles(&self) -> Angles {
+    pub fn input_angles(&self) -> QAngles {
         self.input_angles
     }
 
     /// Update the current input angles with a new value.
-    pub fn update_input_angles(&mut self, input_angles: Angles) {
+    pub fn update_input_angles(&mut self, input_angles: QAngles) {
         self.input_angles = input_angles;
     }
 
@@ -118,13 +115,13 @@ impl View {
         if !registry.is_pressed("strafe") {
             let right_factor = registry.is_pressed("right") as i32 as f32;
             let left_factor = registry.is_pressed("left") as i32 as f32;
-            self.input_angles.yaw += speed * cl_yawspeed * (left_factor - right_factor);
-            self.input_angles.yaw = self.input_angles.yaw.rem_euclid(360.);
+            self.input_angles.yaw_deg += speed * cl_yawspeed * (left_factor - right_factor);
+            self.input_angles.yaw_deg = self.input_angles.yaw_deg.rem_euclid(360.);
         }
 
         let lookup_factor = registry.is_pressed("lookup") as i32 as f32;
         let lookdown_factor = registry.is_pressed("lookdown") as i32 as f32;
-        self.input_angles.pitch += speed * cl_pitchspeed * (lookdown_factor - lookup_factor);
+        self.input_angles.pitch_deg += speed * cl_pitchspeed * (lookdown_factor - lookup_factor);
 
         if mlook {
             let pitch_factor = mouse_vars.pitch_factor * mouse_vars.sensitivity;
@@ -132,8 +129,8 @@ impl View {
             match registry.read_cvar::<Vec2>("mousedelta") {
                 Ok(mouse_move) => {
                     let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
-                    self.input_angles.yaw -= mouse_move.x;
-                    self.input_angles.pitch += mouse_move.y;
+                    self.input_angles.yaw_deg -= mouse_move.x;
+                    self.input_angles.pitch_deg += mouse_move.y;
                 }
                 Err(e) => {
                     error!("Could not read mouse delta: {e}");
@@ -146,8 +143,8 @@ impl View {
         }
 
         // clamp pitch to [-70, 80] and roll to [-50, 50]
-        self.input_angles.pitch = math::clamp_deg(self.input_angles.pitch, -70.0, 80.0);
-        self.input_angles.roll = math::clamp_deg(self.input_angles.roll, -50.0, 50.0);
+        self.input_angles.pitch_deg = self.input_angles.pitch_deg.clamp(-70.0, 80.0);
+        self.input_angles.roll_deg = self.input_angles.roll_deg.clamp(-50.0, 50.0);
     }
 
     // TODO: This should be handled by a system, and the `cl_*` should be handled by `read_cvars`.
@@ -159,7 +156,7 @@ impl View {
         armor_dmg: f32,
         health_dmg: f32,
         view_ent_origin: Vec3,
-        view_ent_angles: Angles,
+        view_ent_angles: QAngles,
         src_origin: Vec3,
         vars: KickVars,
     ) {
@@ -168,13 +165,13 @@ impl View {
         // dmg_factor is at most 10.0
         let dmg_factor = (armor_dmg + health_dmg).min(20.0) / 2.0;
         let dmg_vector = (view_ent_origin - src_origin).normalize();
-        let rot = view_ent_angles.mat3_quake();
+        let rot = Mat3::from(view_ent_angles);
 
         let roll_factor = dmg_vector.dot(-rot.x_axis);
-        self.damage_angles.roll = dmg_factor * roll_factor * vars.kick_roll;
+        self.damage_angles.roll_deg = dmg_factor * roll_factor * vars.kick_roll;
 
         let pitch_factor = dmg_vector.dot(rot.y_axis);
-        self.damage_angles.pitch = dmg_factor * pitch_factor * vars.kick_pitch;
+        self.damage_angles.pitch_deg = dmg_factor * pitch_factor * vars.kick_pitch;
     }
 
     pub fn calc_final_angles(
@@ -186,8 +183,10 @@ impl View {
         kick_vars: KickVars,
         roll_vars: RollVars,
     ) {
-        let move_angles =
-            Angles { pitch: 0.0, roll: roll(self.input_angles, velocity, roll_vars), yaw: 0.0 };
+        let move_angles = QAngles {
+            roll_deg: roll(self.input_angles, velocity, roll_vars),
+            ..Default::default()
+        };
 
         let kick_factor = duration_to_f32(self.damage_time - time).max(0.0) / kick_vars.kick_time;
         let damage_angles = self.damage_angles * kick_factor;
@@ -202,7 +201,7 @@ impl View {
             self.input_angles + move_angles + damage_angles + self.punch_angles + idle_angles;
     }
 
-    pub fn final_angles(&self) -> Angles {
+    pub fn final_angles(&self) -> QAngles {
         self.final_angles
     }
 
@@ -224,7 +223,7 @@ impl View {
         self.final_origin
     }
 
-    pub fn viewmodel_angle(&self) -> Angles {
+    pub fn viewmodel_angle(&self) -> QAngles {
         // TODO
         self.final_angles()
     }
@@ -279,8 +278,8 @@ pub struct RollVars {
     pub cl_rollspeed: f32,
 }
 
-pub fn roll(angles: Angles, velocity: Vec3, vars: RollVars) -> f32 {
-    let rot = angles.mat3_quake();
+pub fn roll(angles: QAngles, velocity: Vec3, vars: RollVars) -> f32 {
+    let rot = Mat3::from(angles);
     let side = velocity.dot(rot.y_axis);
     let sign = side.signum();
     let side_abs = side.abs();
@@ -305,11 +304,11 @@ pub struct IdleVars {
     pub v_iyaw_level: f32,
 }
 
-pub fn idle(time: Duration, vars: IdleVars) -> Angles {
+pub fn idle(time: Duration, vars: IdleVars) -> QAngles {
     let time = duration_to_f32(time);
-    let pitch = vars.v_idlescale * (time * vars.v_ipitch_cycle).sin() * vars.v_ipitch_level;
-    let roll = vars.v_idlescale * (time * vars.v_iroll_cycle).sin() * vars.v_iroll_level;
-    let yaw = vars.v_idlescale * (time * vars.v_iyaw_cycle).sin() * vars.v_iyaw_level;
+    let pitch_deg = vars.v_idlescale * (time * vars.v_ipitch_cycle).sin() * vars.v_ipitch_level;
+    let roll_deg = vars.v_idlescale * (time * vars.v_iroll_cycle).sin() * vars.v_iroll_level;
+    let yaw_deg = vars.v_idlescale * (time * vars.v_iyaw_cycle).sin() * vars.v_iyaw_level;
 
-    Angles { pitch, roll, yaw }
+    QAngles { pitch_deg, roll_deg, yaw_deg }
 }

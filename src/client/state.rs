@@ -31,7 +31,7 @@ use bevy_seedling::sample::AudioSample;
 use bevy_trenchbroom::bsp::Bsp;
 use bitvec::vec::BitVec;
 use hashbrown::HashMap;
-use seismon_utils::QString;
+use seismon_utils::{QAngles, QString};
 
 /// When certain temporary entities are spawned, Quake has builtin code to
 /// start sounds without the server instructing it to.
@@ -369,19 +369,18 @@ impl ClientState {
 
                 let new_transform = transform.component.with_translation(new_translation);
 
-                let (mut roll, mut pitch, mut yaw) =
-                    transform.component.rotation.to_euler(QUAKE_ROLL_PITCH_YAW);
+                let mut angles: QAngles = transform.component.rotation.into();
                 if let Some(new_pitch) = update.pitch {
-                    pitch = new_pitch.to_radians();
+                    angles.pitch_deg = new_pitch;
                 }
                 if let Some(new_yaw) = update.yaw {
-                    yaw = new_yaw.to_radians();
+                    angles.yaw_deg = new_yaw;
                 }
                 if let Some(new_roll) = update.roll {
-                    roll = new_roll.to_radians();
+                    angles.roll_deg = new_roll;
                 }
 
-                let new_transform = new_transform.with_rotation(angles_to_quat(roll, pitch, yaw));
+                let new_transform = new_transform.with_rotation(angles.into());
 
                 transform.component = new_transform;
                 transform.elapsed_secs = msg_time;

@@ -1,21 +1,32 @@
-use std::sync::Arc;
+#![expect(dead_code, reason = "TODO: Migrate server to use `bevy_mod_scripting_qcvm`")]
+
+use std::{any::TypeId, sync::Arc};
 
 use bevy::{
-    app::App,
     ecs::{
-        component::Component,
+        component::{Component, ComponentId},
+        entity::Entity,
         query::{QueryData, QueryItem, ROQueryItem},
-        world::Mut,
+        world::{Mut, Ref, World},
     },
     math::{Vec2, Vec3, Vec3Swizzles as _},
     transform::components::Transform,
 };
 use bevy_mod_scripting::{
-    bindings::{ExternalError, InteropError, ReflectBase, ReflectReference, ThreadWorldContainer},
+    bindings::{
+        ExternalError, FunctionCallContext, InteropError, IntoNamespace, MagicFunctions,
+        ReflectBase, ReflectReference, ThreadScriptContext, ThreadWorldContainer, WorldAccessGuard,
+    },
     prelude::*,
 };
+use bevy_mod_scripting_qcvm::{QCEntity, QCWorldspawn};
+use hashbrown::HashMap;
+use seismon_utils::QAngles;
 
-use crate::server::progs::globals::make_vectors;
+use crate::{
+    common::net::ServerCmd,
+    server::{precache::Precache, progs::globals::make_vectors},
+};
 
 // fn makevectors(vector ang) -> void
 // fn setorigin(entity e, vector o) -> void
@@ -110,6 +121,7 @@ where
     }
 }
 
+// TODO: Persistent `QueryState`.
 fn ent_mut<D, O, F>(reference: &ReflectReference, func: F) -> Result<O, InteropError>
 where
     D: QueryData,
@@ -175,23 +187,231 @@ struct GlobalDirections {
     right: Vec3,
 }
 
+#[derive(Component)]
+struct LevelPrecache {
+    sound: Precache,
+    model: Precache,
+}
+
+#[derive(Component)]
+struct MessagesReliable {
+    messages: Vec<u8>,
+}
+
+#[derive(Component)]
+struct EntityAngles {
+    ideal_yaw_deg: f32,
+    yaw_speed_deg: f32,
+}
+
 fn angle(vec: Vec2) -> f32 {
     if vec == Vec2::ZERO { 0. } else { vec.y.atan2(vec.x).to_degrees().rem_euclid(360.) }
 }
 
-pub fn register_builtins_quake1(app: &mut App) -> &mut App {
-    NamespaceBuilder::<bevy_mod_scripting_qcvm::QCBuiltin>::new_unregistered(app.world_mut())
-        // --------------- MUTATE WORLD ---------------
-        .register("makevectors", |angles: [f32; 3]| -> Result<(), InteropError> {
-            worldspawn_mut::<Mut<GlobalDirections>, (), _>(|mut global_directions| {
-                let mat = make_vectors(angles);
-                global_directions.forward = mat.x_axis;
-                global_directions.right = mat.y_axis;
-                global_directions.up = mat.z_axis;
+#[derive(Clone)]
+struct FieldAccessor {
+    component_id: ComponentId,
+    type_id: TypeId,
+    field_name: &'static str,
+}
 
-                Ok(())
-            })
+impl FieldAccessor {
+    fn reflect_reference(&self, entity: Entity) -> ReflectReference {
+        ReflectReference::new_component_ref_by_id(entity, self.component_id, self.type_id)
+    }
+}
+
+struct AccessorBuilder<'a> {
+    fields: HashMap<&'static str, FieldAccessor>,
+    world: &'a World,
+}
+
+impl<'a> AccessorBuilder<'a> {
+    fn new(world: &'a World) -> Self {
+        Self { world, fields: Default::default() }
+    }
+
+    fn field<C>(mut self, field_name: &'static str, component_field_name: &'static str) -> Self
+    where
+        C: Component + 'static,
+    {
+        let component_id = self.world.component_id::<C>().expect("Component was not registered");
+
+        self.fields.insert(
+            field_name,
+            FieldAccessor {
+                component_id,
+                type_id: TypeId::of::<C>(),
+                field_name: component_field_name,
+            },
+        );
+
+        self
+    }
+
+    fn build(self) -> HashMap<&'static str, FieldAccessor> {
+        self.fields
+    }
+}
+
+#[derive(Component)]
+struct Fields {
+    fields: HashMap<&'static str, FieldAccessor>,
+}
+
+#[derive(Component)]
+struct Globals {
+    globals: HashMap<&'static str, FieldAccessor>,
+}
+
+fn field_accessor(
+    ctx: &ThreadScriptContext<'_>,
+    field_name: ScriptValue,
+) -> Result<FieldAccessor, InteropError> {
+    let field_name = field_name.as_string().map_err(|_| InteropError::NotImplemented)?;
+
+    let worldspawn = ctx.attachment.entity().ok_or(InteropError::NotImplemented)?;
+
+    let fields_ref = ReflectReference::new_component_ref::<Fields>(worldspawn, ctx.world.clone())?;
+
+    fields_ref.with_reflect(ctx.world.clone(), |fields| {
+        let fields: &Fields = fields.try_downcast_ref().ok_or(InteropError::NotImplemented)?;
+
+        let accessor = fields.fields.get(&*field_name).ok_or(InteropError::NotImplemented)?.clone();
+
+        Ok(accessor.clone())
+    })?
+}
+
+fn global_accessor(
+    ctx: &ThreadScriptContext<'_>,
+    field_name: ScriptValue,
+) -> Result<FieldAccessor, InteropError> {
+    let field_name = field_name.as_string().map_err(|_| InteropError::NotImplemented)?;
+
+    let worldspawn = ctx.attachment.entity().ok_or(InteropError::NotImplemented)?;
+
+    let fields_ref = ReflectReference::new_component_ref::<Globals>(worldspawn, ctx.world.clone())?;
+
+    fields_ref.with_reflect(ctx.world.clone(), |fields| {
+        let fields: &Globals = fields.try_downcast_ref().ok_or(InteropError::NotImplemented)?;
+
+        let accessor =
+            fields.globals.get(&*field_name).ok_or(InteropError::NotImplemented)?.clone();
+
+        Ok(accessor.clone())
+    })?
+}
+
+fn override_get(
+    ctx: FunctionCallContext,
+    ent: ReflectReference,
+    field_name: ScriptValue,
+) -> Result<ScriptValue, InteropError> {
+    let world_ctx = ThreadWorldContainer.try_get_context()?;
+
+    let qc_entity_id = world_ctx
+        .world
+        .get_component_id(TypeId::of::<QCEntity>())?
+        .ok_or(InteropError::NotImplemented)?;
+
+    let qc_worldspawn_id = world_ctx
+        .world
+        .get_component_id(TypeId::of::<QCWorldspawn>())?
+        .ok_or(InteropError::NotImplemented)?;
+
+    // TODO: We should handle "sub-field" references.
+    let (entity, field_name) = match ent.base.base_id {
+        ReflectBase::Component(entity, component_id) if component_id == qc_entity_id => {
+            let accessor = field_accessor(&world_ctx, field_name)?;
+            (accessor.reflect_reference(entity), accessor.field_name.into())
+        }
+        ReflectBase::Component(entity, component_id) if component_id == qc_worldspawn_id => {
+            let accessor = global_accessor(&world_ctx, field_name)?;
+            (accessor.reflect_reference(entity), accessor.field_name.into())
+        }
+        _ => (ent, field_name),
+    };
+
+    MagicFunctions::default_get(ctx, entity, field_name)
+}
+
+fn override_set(
+    ctx: FunctionCallContext,
+    ent: ReflectReference,
+    field_name: ScriptValue,
+    value: ScriptValue,
+) -> Result<(), InteropError> {
+    let world_ctx = ThreadWorldContainer.try_get_context()?;
+
+    let qc_entity_id = world_ctx
+        .world
+        .get_component_id(TypeId::of::<QCEntity>())?
+        .ok_or(InteropError::NotImplemented)?;
+
+    let qc_worldspawn_id = world_ctx
+        .world
+        .get_component_id(TypeId::of::<QCWorldspawn>())?
+        .ok_or(InteropError::NotImplemented)?;
+
+    // TODO: We should handle "sub-field" references.
+    let (entity, field_name) = match ent.base.base_id {
+        ReflectBase::Component(entity, component_id) if component_id == qc_entity_id => {
+            let accessor = field_accessor(&world_ctx, field_name)?;
+            (accessor.reflect_reference(entity), accessor.field_name.into())
+        }
+        ReflectBase::Component(entity, component_id) if component_id == qc_worldspawn_id => {
+            let accessor = global_accessor(&world_ctx, field_name)?;
+            (accessor.reflect_reference(entity), accessor.field_name.into())
+        }
+        _ => (ent, field_name),
+    };
+
+    MagicFunctions::default_set(ctx, entity, field_name, value)
+}
+
+pub fn fields_and_globals_quake1(world: &mut World, worldspawn: Entity) {
+    let fields = AccessorBuilder::new(world)
+        .field::<Transform>("origin", "translation")
+        .field::<EntityAngles>("ideal_yaw", "ideal_yaw_deg")
+        .field::<EntityAngles>("yaw_speed", "yaw_speed_deg")
+        // TODO: Fill in the rest of the fields
+        .build();
+    let globals = AccessorBuilder::new(world)
+        .field::<GlobalDirections>("v_forward", "forward")
+        .field::<GlobalDirections>("v_up", "up")
+        .field::<GlobalDirections>("v_right", "right")
+        // TODO: Fill in the rest of the globals
+        .build();
+
+    world.entity_mut(worldspawn).insert(Fields { fields }).insert(Globals { globals });
+
+    let mut registry = WorldAccessGuard::new_exclusive(world).script_function_registry();
+
+    registry.write().magic_functions = MagicFunctions { get: override_get, set: override_set };
+}
+
+// TODO: It would probably be useful to implement this in Lua or something similar
+pub fn register_builtins_quake1<'b, 'ns, N: IntoNamespace>(
+    namespace: &'b mut NamespaceBuilder<'ns, N>,
+) -> &'b mut NamespaceBuilder<'ns, N> {
+    fn precache_sound(name: String) -> Result<(), InteropError> {
+        worldspawn_mut::<Mut<LevelPrecache>, (), _>(|mut precache| {
+            precache.sound.precache(name);
+
+            Ok(())
         })
+    }
+
+    fn precache_model(name: String) -> Result<(), InteropError> {
+        worldspawn_mut::<Mut<LevelPrecache>, (), _>(|mut precache| {
+            precache.model.precache(name);
+
+            Ok(())
+        })
+    }
+
+    namespace
         // --------------- MUTATE ENTITY ---------------
         .register(
             "setorigin",
@@ -206,7 +426,45 @@ pub fn register_builtins_quake1(app: &mut App) -> &mut App {
         )
         .register("setmodel", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("setsize", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        // --------------- PURE ---------------
+        .register("ChangeYaw", |entity: ReflectReference| -> Result<(), InteropError> {
+            ent_mut::<(Ref<EntityAngles>, Mut<Transform>), (), _>(
+                &entity,
+                |(ent_angles, mut transform)| {
+                    let EntityAngles { ideal_yaw_deg: ideal, yaw_speed_deg: speed } = *ent_angles;
+                    let angles: QAngles = transform.rotation.into();
+                    let cur_angles @ QAngles { yaw_deg: cur, .. } = angles.quantize();
+
+                    if (cur - ideal).abs() < f32::EPSILON {
+                        return Ok(());
+                    }
+
+                    let angle_delta = ideal - cur;
+
+                    let angle_delta = match angle_delta {
+                        180f32.. => angle_delta - 360.,
+                        ..-180f32 => angle_delta + 360.,
+                        angle_delta => angle_delta,
+                    }
+                    .clamp(-speed, speed);
+
+                    transform.rotation =
+                        QAngles { yaw_deg: cur + angle_delta, ..cur_angles }.quantize().into();
+
+                    Ok(())
+                },
+            )
+        })
+        // --------------- MATHS ---------------
+        .register("makevectors", |angles: [f32; 3]| -> Result<(), InteropError> {
+            worldspawn_mut::<Mut<GlobalDirections>, (), _>(|mut global_directions| {
+                let mat = make_vectors(angles);
+                global_directions.forward = mat.x_axis;
+                global_directions.right = mat.y_axis;
+                global_directions.up = mat.z_axis;
+
+                Ok(())
+            })
+        })
         .register("rint", |value: f32| -> f32 { value.round() })
         .register("floor", |value: f32| -> f32 { value.floor() })
         .register("ceil", |value: f32| -> f32 { value.ceil() })
@@ -221,12 +479,30 @@ pub fn register_builtins_quake1(app: &mut App) -> &mut App {
             let vector = Vec3::from(vector);
             [angle(vector.xy()), angle(vector.yz()), 0.]
         })
+        // --------------- STRING ---------------
         .register("ftos", |value: f32| value.to_string())
         .register("vtos", |[x, y, z]: [f32; 3]| format!("{x} {y} {z}"))
         .register("stof", |value: String| -> Result<f32, InteropError> {
             value.parse().map_err(|e| InteropError::External(ExternalError(Arc::new(e))))
         })
         // --------------- NETWORKING ---------------
+        .register(
+            "stuffcmd",
+            |entity: ReflectReference, text: String| -> Result<(), InteropError> {
+                ent_mut::<Mut<MessagesReliable>, (), _>(&entity, |mut player_msgs| {
+                    ServerCmd::StuffText { text: text.into() }
+                        .serialize(&mut player_msgs.messages)
+                        .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))?;
+
+                    Ok(())
+                })
+            },
+        )
+        .register("multicast", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("bprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("sprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("dprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("eprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("WriteByte", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("WriteChar", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("WriteShort", || -> Result<(), InteropError> {
@@ -245,6 +521,49 @@ pub fn register_builtins_quake1(app: &mut App) -> &mut App {
         .register("WriteEntity", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
+        // --------------- PHYSICS ---------------
+        .register("walkmove", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("droptofloor", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        .register("checkbottom", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        .register("pointcontents", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        .register("traceline", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        // --------------- MUTATE WORLD ---------------
+        .register("spawn", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("remove", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("makestatic", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        // --------------- STARTUP ---------------
+        .register("precache_sound", precache_sound)
+        .register("precache_sound2", precache_sound)
+        .register("precache_model", precache_model)
+        .register("precache_model2", precache_model)
+        .register("setspawnparms", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        // --------------- SOUND ---------------
+        .register("sound", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("ambientsound", || -> Result<(), InteropError> {
+            Err(InteropError::NotImplemented)
+        })
+        // --------------- DEBUGGING ---------------
+        .register("coredump", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("traceon", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("traceoff", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("break", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        // --------------- ERRORS ---------------
+        .register("error", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("objerror", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        // --------------- CONSOLE ---------------
+        .register("cvar", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("cvar_set", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
+        .register("localcmd", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         // --------------- INVALID AT RUNTIME ---------------
         .register("precache_file", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
@@ -254,84 +573,27 @@ pub fn register_builtins_quake1(app: &mut App) -> &mut App {
         })
         // --------------- UNCATEGORIZED ---------------
         // TODO: Categorize these
-        .register("break", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("sound", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("error", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("objerror", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("spawn", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("remove", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("traceline", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("checkclient", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
         .register("find", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("precache_sound", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("precache_sound2", || -> Result<(), InteropError> {
-            // Same as `precache_sound` at runtime
-            Err(InteropError::NotImplemented)
-        })
-        .register("precache_model", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("precache_model2", || -> Result<(), InteropError> {
-            // Same as `precache_model` at runtime
-            Err(InteropError::NotImplemented)
-        })
-        .register("stuffcmd", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("findradius", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("bprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("sprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("dprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("coredump", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("traceon", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("traceoff", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("eprint", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("walkmove", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("droptofloor", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
         .register("lightstyle", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
-        .register("checkbottom", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("pointcontents", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
         .register("aim", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("cvar", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("localcmd", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("nextent", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("ChangeYaw", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("movetogoal", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("makestatic", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
         .register("changelevel", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
-        .register("cvar_set", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("centerprint", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("ambientsound", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        })
-        .register("setspawnparms", || -> Result<(), InteropError> {
             Err(InteropError::NotImplemented)
         })
         .register("logfrag", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
         .register("infokey", || -> Result<(), InteropError> { Err(InteropError::NotImplemented) })
-        .register("multicast", || -> Result<(), InteropError> {
-            Err(InteropError::NotImplemented)
-        });
-
-    app
 }

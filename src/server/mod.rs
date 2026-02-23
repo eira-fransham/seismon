@@ -2953,7 +2953,7 @@ impl LevelState {
 
     pub fn builtin_stuffcmd(&mut self) -> progs::Result<()> {
         let ent_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
-        let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
+        let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let text = self.string_table.get(s_id).unwrap().into_owned();
 
         ServerCmd::StuffText { text }
