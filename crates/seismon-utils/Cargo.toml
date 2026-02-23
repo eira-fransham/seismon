@@ -3,6 +3,7 @@ name = "seismon-utils"
 version = "0.1.0"
 edition = "2024"
 authors = ["Eira Fransham <eira.fransham@gmail.com>"]
+description = "General utilities for Seismon"
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
