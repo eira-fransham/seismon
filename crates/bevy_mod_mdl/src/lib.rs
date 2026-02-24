@@ -14,7 +14,7 @@ use bevy_materialize::{
     prelude::{GenericMaterial, GenericMaterial3d},
 };
 use bevy_math::{Rect, UVec2};
-use bevy_mesh::{Mesh, Mesh3d};
+use bevy_mesh::{Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{Lightmap, StandardMaterial};
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -303,10 +303,8 @@ async fn load_mdl(
         .enumerate()
         .map(|(i, anim)| match anim {
             Animation::Static(raw_mesh) => {
-                let mut mesh = Mesh::new(
-                    bevy_mesh::PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::RENDER_WORLD,
-                );
+                let mut mesh =
+                    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
 
                 mesh.insert_attribute(
                     Mesh::ATTRIBUTE_POSITION,
@@ -353,7 +351,7 @@ async fn load_mdl(
                     .enumerate()
                     .map(|(frame_idx, raw_mesh)| {
                         let mut mesh = Mesh::new(
-                            bevy_mesh::PrimitiveTopology::TriangleList,
+                            PrimitiveTopology::TriangleList,
                             RenderAssetUsages::RENDER_WORLD,
                         );
 
