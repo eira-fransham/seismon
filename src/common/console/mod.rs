@@ -34,7 +34,7 @@ use crate::{
     },
     common::{
         console::gfx::Conchars,
-        wad::{ConcharsLoader, Palette, PaletteLoader, QPicLoader},
+        wad::{Palette, PaletteLoader, QPicLoader, Wad, WadLoader},
     },
 };
 
@@ -68,8 +68,9 @@ impl Plugin for SeismonConsoleCorePlugin {
 
         app.init_asset_loader::<QPicLoader>()
             .init_asset_loader::<PaletteLoader>()
-            .init_asset_loader::<ConcharsLoader>()
+            .init_asset_loader::<WadLoader>()
             .init_asset::<Palette>()
+            .init_asset::<Wad>()
             .init_resource::<Registry>()
             .init_resource::<gfx::Conchars>()
             .add_message::<RunCmd<'static>>()
@@ -1788,7 +1789,7 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
-/// TODO: Properly this with Bevy (needs WAD support somehow)
+// TODO: Properly implement this with Bevy (needs WAD support somehow)
 mod gfx {
     use bevy::prelude::*;
 
@@ -1809,7 +1810,7 @@ mod gfx {
         fn from_world(world: &mut World) -> Self {
             let assets = world.resource::<AssetServer>();
             Self {
-                image: assets.load("gfx.wad"),
+                image: assets.load("gfx.wad#CONCHARS"),
                 layout: assets.add(TextureAtlasLayout::from_grid(
                     UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
                     GLYPH_COLS as _,

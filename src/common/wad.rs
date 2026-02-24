@@ -36,14 +36,17 @@ use bevy::{
     prelude::*,
 };
 use failure::{Backtrace, Context, Fail};
-use futures::{AsyncRead, AsyncSeekExt, TryFutureExt};
+use futures::{AsyncRead, AsyncSeekExt};
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
+use num::FromPrimitive as _;
+use num_derive::FromPrimitive;
+use seismon_utils::QString;
 use serde::{Deserialize, Serialize};
 use wgpu::{Extent3d, TextureDimension};
 
 // see definition of lumpinfo_t:
 // https://github.com/id-Software/Quake/blob/master/WinQuake/wad.h#L54-L63
-const MAGIC: u32 = 'W' as u32 | ('A' as u32) << 8 | ('D' as u32) << 16 | ('2' as u32) << 24;
+const WAD_MAGIC: u32 = 'W' as u32 | ('A' as u32) << 8 | ('D' as u32) << 16 | ('2' as u32) << 24;
 
 #[derive(Debug)]
 pub struct WadError {
@@ -96,6 +99,10 @@ impl Display for WadError {
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
 pub enum WadErrorKind {
+    #[fail(display = "Invalid filetype found in wad")]
+    InvalidFiletype,
+    #[fail(display = "Invalid compression kind found in wad")]
+    InvalidCompression,
     #[fail(display = "Invalid magic number")]
     InvalidMagicNumber,
     #[fail(display = "I/O error")]
@@ -151,13 +158,11 @@ impl Palette {
     /// Translates a set of indices into a list of RGBA values and a list of fullbright
     /// values.
     pub fn translate(&self, indices: &[u8], transparent_color: Option<u8>) -> Vec<u8> {
-        let transparent_color = transparent_color.unwrap_or(0xff);
-
         indices
             .iter()
             .copied()
             .flat_map(|i| {
-                if i == transparent_color {
+                if Some(i) == transparent_color {
                     [0; 4]
                 } else {
                     let [r, g, b] = self.rgb[i as usize];
@@ -190,7 +195,11 @@ pub const DEFAULT_PALETTE_PATH: &str = "gfx/palette.lmp";
 
 impl Default for QPicLoaderSettings {
     fn default() -> Self {
-        Self { palette_path: DEFAULT_PALETTE_PATH.into(), size: None, transparent_color: None }
+        Self {
+            palette_path: DEFAULT_PALETTE_PATH.into(),
+            size: None,
+            transparent_color: Some(0xff),
+        }
     }
 }
 
@@ -279,29 +288,50 @@ impl QPic {
 
 #[derive(Debug, Default, Reflect)]
 #[non_exhaustive]
-pub struct ConcharsLoader {}
+pub struct QPicWadLoader {}
 
 #[derive(Debug, Reflect, Serialize, Deserialize)]
-pub struct ConcharsLoaderSettings {
+pub struct QPicWadLoaderSettings {
+    pub palette_path: AssetPath<'static>,
+    pub transparent_color: Option<u8>,
+}
+
+impl Default for QPicWadLoaderSettings {
+    fn default() -> Self {
+        let default_qpic_loader_settings = QPicLoaderSettings::default();
+
+        Self {
+            palette_path: default_qpic_loader_settings.palette_path,
+            transparent_color: default_qpic_loader_settings.transparent_color,
+        }
+    }
+}
+
+#[derive(Debug, Default, Reflect)]
+#[non_exhaustive]
+pub struct WadLoader {}
+
+#[derive(Debug, Reflect, Serialize, Deserialize)]
+pub struct WadLoaderSettings {
     pub conchars_name: Cow<'static, str>,
     pub palette_path: AssetPath<'static>,
 }
 
-impl Default for ConcharsLoaderSettings {
+impl Default for WadLoaderSettings {
     fn default() -> Self {
         Self { conchars_name: "CONCHARS".into(), palette_path: DEFAULT_PALETTE_PATH.into() }
     }
 }
 
-const CONCHARS_SIZE: u32 = 128;
+/// Handles `CONCHARS`, will not handle other miptexes and may be incorrect for mods using conchars
+/// with different resolution.
+const PRESUMED_MIPTEX_SIZE: u32 = 128;
 
-impl AssetLoader for ConcharsLoader {
-    type Asset = Image;
-    type Settings = ConcharsLoaderSettings;
+impl AssetLoader for WadLoader {
+    type Asset = Wad;
+    type Settings = WadLoaderSettings;
     type Error = failure::Error;
 
-    // TODO: Since this is only used for `gfx.wad`, we can probably make this work for any qpic, with the "size" being a setting
-    // just like for `QPicLoader`.
     fn load(
         &self,
         reader: &mut dyn bevy::asset::io::Reader,
@@ -309,19 +339,74 @@ impl AssetLoader for ConcharsLoader {
         load_context: &mut LoadContext,
     ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
     {
-        Wad::find_file(reader, &*settings.conchars_name).and_then(move |mut file| async move {
-            load_qpic_as_image(
-                &mut file,
-                &QPicLoaderSettings {
-                    palette_path: settings.palette_path.clone(),
-                    size: Some(UVec2::new(CONCHARS_SIZE, CONCHARS_SIZE)),
-                    transparent_color: Some(0),
-                },
-                load_context,
-            )
-            .await
-            .map_err(Into::into)
-        })
+        async move {
+            let mut root_reader = reader.seekable()?;
+            let mut reader = AsyncReadBytes::new(&mut root_reader);
+
+            let magic = reader.read_u32::<LittleEndian>().await?;
+            if magic != WAD_MAGIC {
+                return Err(WadErrorKind::InvalidMagicNumber.into());
+            }
+
+            let lump_count = reader.read_u32::<LittleEndian>().await?;
+            let lumpinfo_ofs = reader.read_u32::<LittleEndian>().await?;
+
+            root_reader.seek(SeekFrom::Start(lumpinfo_ofs as u64)).await?;
+
+            let mut reader = AsyncReadBytes::new(&mut root_reader);
+
+            let mut file_infos = Vec::<LumpHeader>::with_capacity(lump_count as usize);
+
+            for _ in 0..lump_count {
+                file_infos.push(LumpHeader::read(&mut reader).await?);
+            }
+
+            let mut files = HashMap::<String, WadFile>::with_capacity(lump_count as usize);
+
+            for info in file_infos {
+                let name = info.name.to_str().into_owned();
+
+                root_reader.seek(SeekFrom::Start(info.offset as u64)).await?;
+                let mut reader = root_reader.take(info.size as u64);
+                let file = match info.type_ {
+                    WadFiletype::QPic => {
+                        let image = load_qpic_as_image(
+                            &mut reader,
+                            &QPicLoaderSettings {
+                                palette_path: settings.palette_path.clone(),
+                                ..Default::default()
+                            },
+                            load_context,
+                        )
+                        .await?;
+                        let handle = load_context.add_labeled_asset(name.clone(), image);
+
+                        WadFile::Image(handle)
+                    }
+                    WadFiletype::Miptex => {
+                        let image = load_qpic_as_image(
+                            &mut reader,
+                            &QPicLoaderSettings {
+                                palette_path: settings.palette_path.clone(),
+                                size: Some(UVec2::new(PRESUMED_MIPTEX_SIZE, PRESUMED_MIPTEX_SIZE)),
+                                // TODO: Is this correct for anything other than conchars?
+                                transparent_color: Some(0x00),
+                            },
+                            load_context,
+                        )
+                        .await?;
+                        let handle = load_context.add_labeled_asset(name.clone(), image);
+
+                        WadFile::Image(handle)
+                    }
+                    _ => WadFile::Unknown,
+                };
+
+                files.insert(name, file);
+            }
+
+            Ok(Wad { files })
+        }
     }
 
     fn extensions(&self) -> &[&str] {
@@ -329,57 +414,68 @@ impl AssetLoader for ConcharsLoader {
     }
 }
 
-#[derive(Asset, Reflect)]
-pub struct Wad {
-    files: HashMap<String, Vec<u8>>,
+#[derive(Reflect, Clone, Debug)]
+enum WadFile {
+    Palette(Handle<Palette>),
+    Image(Handle<Image>),
+    // TODO: Should we store the bytes in this case? Seems like a waste of memory
+    Unknown,
 }
 
-impl Wad {
-    // TODO: This is a pretty inefficient way to handle this.
-    pub async fn find_file<'a>(
-        root_reader: &'a mut dyn bevy::asset::io::Reader,
-        name: &str,
-    ) -> Result<impl AsyncRead + Unpin + 'a, failure::Error> {
-        let mut root_reader = root_reader.seekable()?;
-        let mut reader = AsyncReadBytes::new(&mut root_reader);
+#[derive(Asset, Reflect, Debug)]
+pub struct Wad {
+    files: HashMap<String, WadFile>,
+}
 
-        let magic = reader.read_u32::<LittleEndian>().await?;
-        if magic != MAGIC {
-            return Err(WadErrorKind::InvalidMagicNumber.into());
-        }
+#[derive(Debug)]
+#[expect(dead_code, reason = "Need to debug these fields")]
+struct LumpHeader {
+    offset: u32,
+    size_on_disk: u32,
+    size: u32,
+    type_: WadFiletype,
+    compression: WadCompression,
+    pad: u16,
+    name: QString,
+}
 
-        let lump_count = reader.read_u32::<LittleEndian>().await?;
-        let lumpinfo_ofs = reader.read_u32::<LittleEndian>().await?;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, FromPrimitive)]
+enum WadCompression {
+    None = 0,
+    LZ2 = 1,
+}
 
-        root_reader.seek(SeekFrom::Start(lumpinfo_ofs as u64)).await?;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, FromPrimitive)]
+enum WadFiletype {
+    None = 0,
+    Label = 1,
+    /// Quake has the same value for both `TYP_LUMPY` and `TYP_PALETTE`
+    PaletteOrLumpy = 64,
+    QTex = 65,
+    QPic = 66,
+    Sound = 67,
+    Miptex = 68,
+}
 
-        let mut reader = AsyncReadBytes::new(&mut root_reader);
+impl LumpHeader {
+    pub async fn read<R>(reader: &mut AsyncReadBytes<'_, R>) -> Result<Self, failure::Error>
+    where
+        R: AsyncRead + Unpin,
+    {
+        // TODO sanity check these values
+        let offset = reader.read_u32::<LittleEndian>().await?;
+        let size_on_disk = reader.read_u32::<LittleEndian>().await?;
+        let size = reader.read_u32::<LittleEndian>().await?;
+        let type_ =
+            WadFiletype::from_u8(reader.read_u8().await?).ok_or(WadErrorKind::InvalidFiletype)?;
+        let compression = WadCompression::from_u8(reader.read_u8().await?)
+            .ok_or(WadErrorKind::InvalidCompression)?;
+        let pad = reader.read_u16::<LittleEndian>().await?;
 
-        let mut file_info = None::<(u32, u32)>;
+        let mut name_bytes = [0u8; 16];
+        reader.read_exact(&mut name_bytes).await?;
+        let name = seismon_utils::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
 
-        for _ in 0..lump_count {
-            // TODO sanity check these values
-            let offset = reader.read_u32::<LittleEndian>().await?;
-            let _size_on_disk = reader.read_u32::<LittleEndian>().await?;
-            let size = reader.read_u32::<LittleEndian>().await?;
-            let _type = reader.read_u8().await?;
-            let _compression = reader.read_u8().await?;
-            let _pad = reader.read_u16::<LittleEndian>().await?;
-            let mut name_bytes = [0u8; 16];
-            reader.read_exact(&mut name_bytes).await?;
-            let lump_name =
-                seismon_utils::read_cstring(&mut BufReader::new(Cursor::new(name_bytes)))?;
-
-            if file_info.is_none() && &*lump_name.to_str() == name {
-                file_info = Some((offset, size))
-            }
-        }
-
-        if let Some((offset, size)) = file_info {
-            root_reader.seek(SeekFrom::Start(dbg!(offset as u64))).await?;
-            Ok(root_reader.take(size as u64))
-        } else {
-            Err(WadErrorKind::NoSuchFile.into())
-        }
+        Ok(Self { offset, size_on_disk, size, type_, compression, pad, name })
     }
 }
