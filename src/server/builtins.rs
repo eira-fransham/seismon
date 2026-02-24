@@ -373,6 +373,8 @@ fn override_set(
 pub fn fields_and_globals_quake1(world: &mut World, worldspawn: Entity) {
     let fields = AccessorBuilder::new(world)
         .field::<Transform>("origin", "translation")
+        // TODO: `Quat` to `QAngles` using `reflect_to_value` in `bevy_mod_scripting_qcvm`
+        .field::<Transform>("angles", "rotation")
         .field::<EntityAngles>("ideal_yaw", "ideal_yaw_deg")
         .field::<EntityAngles>("yaw_speed", "yaw_speed_deg")
         // TODO: Fill in the rest of the fields

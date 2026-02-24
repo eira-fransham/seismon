@@ -127,7 +127,7 @@ strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
-bevy_mod_scripting_qcvm = { version = "0.1", features = ["quake1"] }
+bevy_mod_scripting_qcvm = { version = "0.2", features = ["quake1"] }
 wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
