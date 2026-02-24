@@ -6,12 +6,11 @@ use arrayvec::ArrayVec;
 use bevy::{
     asset::{Asset, AssetLoadError, AssetLoader, Assets, AsyncReadExt, Handle},
     log::warn,
-    math::Vec3,
     reflect::Reflect,
     tasks::ConditionalSendFuture,
 };
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
-use seismon_utils::read_f32_3_async;
+use seismon_utils::{QAngles, read_f32_3_async};
 use thiserror::Error;
 
 /// An error returned by a demo server.
@@ -33,14 +32,14 @@ pub enum DemoError {
 
 #[derive(Clone, Reflect)]
 struct DemoMessage {
-    view_angles: Vec3,
+    view_angles: QAngles,
     msg_range: Range<usize>,
 }
 
 /// A view of a server message from a demo.
 #[derive(Debug, Copy, Clone)]
 pub struct DemoMessageView<'a> {
-    pub view_angles: Vec3,
+    pub view_angles: QAngles,
     pub message: &'a [u8],
     pub track_override: Option<u32>,
 }
@@ -149,7 +148,7 @@ impl Demo {
         // read all messages
         while let Ok(msg_len) = reader.read_u32::<LittleEndian>().await {
             // get view angles
-            let view_angles = read_f32_3_async(&mut reader).await?.into();
+            let view_angles: QAngles = read_f32_3_async(&mut reader).await?.into();
 
             message_data.reserve(msg_len as usize);
 

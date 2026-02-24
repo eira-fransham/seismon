@@ -37,7 +37,7 @@ use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
-use seismon_utils::QString;
+use seismon_utils::{QAngles, QString};
 use snafu::{Backtrace, prelude::*};
 
 pub const MAX_MESSAGE: usize = 8192;
@@ -637,6 +637,33 @@ pub struct EntityUpdate {
 }
 
 impl EntityUpdate {
+    pub const fn empty(ent_id: u16) -> Self {
+        Self {
+            ent_id,
+            model_id: None,
+            frame_id: None,
+            colormap: None,
+            skin_id: None,
+            effects: None,
+            origin_x: None,
+            pitch: None,
+            origin_y: None,
+            yaw: None,
+            origin_z: None,
+            roll: None,
+            no_lerp: false,
+        }
+    }
+
+    pub const fn new_angles(ent_id: u16, angles: QAngles) -> Self {
+        Self {
+            pitch: Some(angles.pitch_deg),
+            roll: Some(angles.roll_deg),
+            yaw: Some(angles.yaw_deg),
+            ..Self::empty(ent_id)
+        }
+    }
+
     pub fn read<R>(reader: &mut R, update_flags: UpdateFlags) -> io::Result<Self>
     where
         R: Read,
@@ -975,7 +1002,7 @@ pub enum GameType {
     Deathmatch = 1,
 }
 
-#[derive(Clone, Message, Debug, PartialEq)]
+#[derive(Message, Clone, Debug, PartialEq)]
 pub enum ServerCmd {
     Bad,
     NoOp,
@@ -1011,7 +1038,7 @@ pub enum ServerCmd {
     },
     /// Set the player's angle directly.
     SetAngle {
-        angles: Vec3,
+        angles: QAngles,
     },
     ServerInfo {
         protocol_version: i32,
@@ -1096,7 +1123,7 @@ pub enum ServerCmd {
         text: QString,
     },
     CdTrack {
-        track: u8,
+        track: u32,
         loop_: u8,
     },
     SellScreen,
@@ -1287,8 +1314,7 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::SetAngle => {
-                let angles =
-                    Vec3::new(read_angle(reader)?, read_angle(reader)?, read_angle(reader)?);
+                let angles = [read_angle(reader)?, read_angle(reader)?, read_angle(reader)?].into();
 
                 ServerCmd::SetAngle { angles }
             }
@@ -1601,7 +1627,7 @@ impl ServerCmd {
             }
 
             BasicServerCmdCode::CdTrack => {
-                let track = reader.read_u8()?;
+                let track = reader.read_u8()? as _;
                 let loop_ = reader.read_u8()?;
                 ServerCmd::CdTrack { track, loop_ }
             }
@@ -1952,7 +1978,10 @@ impl ServerCmd {
             }
 
             ServerCmd::CdTrack { track, loop_ } => {
-                writer.write_u8(track)?;
+                writer.write_u8(track.try_into().map_err(|_| NetError::Other {
+                    msg: format!("Track {track} overflowed u8"),
+                    backtrace: Backtrace::capture(),
+                })?)?;
                 writer.write_u8(loop_)?;
             }
 
@@ -1988,7 +2017,7 @@ pub enum ClientCmd {
     Disconnect,
     Move {
         delta_time: Duration,
-        angles: Vec3,
+        angles: QAngles,
         fwd_move: i16,
         side_move: i16,
         up_move: i16,
@@ -2036,9 +2065,7 @@ impl ClientCmd {
             ClientCmdCode::Move => {
                 let delta_time =
                     seismon_utils::duration_from_f32(reader.read_f32::<LittleEndian>()? / 1000.);
-                let angles =
-                    Vec3::new(read_angle(reader)?, read_angle(reader)?, read_angle(reader)?);
-                let angles = Vec3::new(angles.x, angles.y, angles.z);
+                let angles = [read_angle(reader)?, read_angle(reader)?, read_angle(reader)?].into();
                 let fwd_move = reader.read_i16::<LittleEndian>()?;
                 let side_move = reader.read_i16::<LittleEndian>()?;
                 let up_move = reader.read_i16::<LittleEndian>()?;
@@ -2474,7 +2501,7 @@ where
     Ok(())
 }
 
-fn write_angle_vector3<W>(writer: &mut W, angles: Vec3) -> io::Result<()>
+fn write_angle_vector3<W>(writer: &mut W, angles: QAngles) -> io::Result<()>
 where
     W: Write,
 {
@@ -2725,7 +2752,7 @@ mod test {
         let src = ClientCmd::Move {
             delta_time: Duration::from_millis(1234),
             // have to use angles that won't lose precision from write_angle
-            angles: Vec3::new(90.0, -90.0, 0.0),
+            angles: [90.0, -90.0, 0.0].into(),
             fwd_move: 27,
             side_move: 85,
             up_move: 76,

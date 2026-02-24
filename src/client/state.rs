@@ -78,7 +78,11 @@ fn angles_to_quat(roll: f32, pitch: f32, yaw: f32) -> Quat {
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
 /// server entity ID to local [`Entity`].
 pub struct ClientState {
+    /// The root world entity.
     pub worldspawn: Entity,
+
+    /// The entity that we are viewing the world through.
+    pub view: Option<u16>,
 
     /// Quake 1 deletes any entities that haven't received new messages on a given frame.
     pub frame_keepalive: BitVec,
@@ -162,6 +166,7 @@ impl ClientState {
             .collect();
 
         Ok(ClientState {
+            view: None,
             worldspawn: worldspawn.id(),
             models,
             frame_keepalive: default(),

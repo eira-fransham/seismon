@@ -37,11 +37,11 @@ const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
 
 impl From<QAngles> for Quat {
     fn from(angles: QAngles) -> Quat {
-        // TODO: [-roll, -pitch, yaw] seems to be how `bevy_trenchbroom`, but is it correct?
-        // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L364-L369?
+        // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L364-L369,
+        // pitch (rotation around `right`) is inverted, but yaw and roll are not.
         Quat::from_euler(
             QUAKE_ROLL_PITCH_YAW,
-            -angles.roll_deg.to_radians(),
+            angles.roll_deg.to_radians(),
             -angles.pitch_deg.to_radians(),
             angles.yaw_deg.to_radians(),
         )
@@ -60,17 +60,30 @@ impl From<Quat> for QAngles {
 
         QAngles {
             pitch_deg: -pitch_rad.to_degrees(),
-            roll_deg: -roll_rad.to_degrees(),
+            // TODO: Unclear if this is correct, we might need to invert it.
+            roll_deg: roll_rad.to_degrees(),
             yaw_deg: yaw_rad.to_degrees(),
         }
     }
 }
 
-#[derive(Default, Reflect, Copy, Clone, PartialEq)]
+#[derive(Default, Reflect, Copy, Clone, PartialEq, Debug)]
 pub struct QAngles {
     pub pitch_deg: f32,
-    pub roll_deg: f32,
     pub yaw_deg: f32,
+    pub roll_deg: f32,
+}
+
+impl QAngles {
+    pub fn to_array(&self) -> [f32; 3] {
+        [self.pitch_deg, self.yaw_deg, self.roll_deg]
+    }
+}
+
+impl From<[f32; 3]> for QAngles {
+    fn from([pitch_deg, yaw_deg, roll_deg]: [f32; 3]) -> Self {
+        Self { pitch_deg, yaw_deg, roll_deg }
+    }
 }
 
 impl Mul<f32> for QAngles {

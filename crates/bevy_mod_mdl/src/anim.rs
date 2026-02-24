@@ -23,6 +23,7 @@ pub struct AnimMeshes {
 // TODO: Link this up with `AnimationPlayer`?
 #[derive(Debug, Component, Reflect, Clone)]
 #[reflect(Component)]
+#[require(Mesh3d)]
 pub struct MeshAnimPlayer {
     anim_meshes: Handle<AnimMeshes>,
     dirty: bool,

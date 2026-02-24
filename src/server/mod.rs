@@ -4027,7 +4027,7 @@ pub mod systems {
                                         up_move as f32,
                                     ))
                                     .unwrap();
-                                entity.set_view_angle(angles).unwrap();
+                                entity.set_view_angle(angles.to_array().into()).unwrap();
                                 entity.set_buttons(button_flags).unwrap();
                                 entity.set_impulse(impulse as _).unwrap();
 
@@ -4205,7 +4205,7 @@ pub mod systems {
                     .and_then(|ent_id| level.world.get_mut(ent_id).ok())
                 {
                     if entity.get_bool(FieldAddrFloat::FixAngle as i16).unwrap() {
-                        ServerCmd::SetAngle { angles: entity.angles().unwrap() }
+                        ServerCmd::SetAngle { angles: entity.angles().unwrap().to_array().into() }
                             .serialize(&mut packet)
                             .unwrap();
                         entity.put_float(0., FieldAddrFloat::FixAngle as i16).unwrap();

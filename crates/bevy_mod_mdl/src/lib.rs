@@ -13,9 +13,9 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::UVec2;
+use bevy_math::{Rect, UVec2};
 use bevy_mesh::{Mesh, Mesh3d};
-use bevy_pbr::StandardMaterial;
+use bevy_pbr::{Lightmap, StandardMaterial};
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_scene::Scene;
@@ -128,6 +128,7 @@ impl EntityCommand for MdlFlag {
 pub struct Mdl {
     radius: f32,
     transform: Transform,
+    lightmap: Handle<Image>,
     textures: Vec<Handle<GenericMaterial>>,
     animations: Vec<Handle<AnimMeshes>>,
     flags: HashSet<MdlFlag>,
@@ -150,6 +151,13 @@ async fn load_mdl(
     settings: &MdlLoaderSettings,
     load_context: &mut bevy_asset::LoadContext<'_>,
 ) -> Result<Mdl, MdlFileError> {
+    /// This seems to make the models the expected colour, while also preventing issues
+    /// with `unlit: true` (particularly, exposure-independence). The lightmap exposure
+    /// is taken from `bevy_trenchbroom`, since the exposure should match. It's unclear
+    /// why `2` seems to be the value that looks the best on the models.
+    const MDL_LIGHTMAP_COLOR: [u8; 4] = [2, 2, 2, 255];
+    const TRENCHBROOM_LIGHTMAP_EXPOSURE: f32 = 10_000.;
+
     fn translate_tex(tex: &[u8], width: u32, height: u32, palette: &Palette) -> Image {
         let data = tex
             .iter()
@@ -188,7 +196,11 @@ async fn load_mdl(
                 );
                 let mat = load_context.add_labeled_asset(
                     format!("stdmat{i}"),
-                    StandardMaterial { unlit: true, ..StandardMaterial::from(img) },
+                    StandardMaterial {
+                        perceptual_roughness: 1.,
+                        lightmap_exposure: TRENCHBROOM_LIGHTMAP_EXPOSURE,
+                        ..StandardMaterial::from(img)
+                    },
                 );
 
                 Some(load_context.add_labeled_asset(format!("tex{i}"), GenericMaterial::new(mat)))
@@ -222,7 +234,11 @@ async fn load_mdl(
                             tex,
                             load_context.add_labeled_asset(
                                 format!("stdmat{i}frame{frame_idx}"),
-                                StandardMaterial { unlit: true, ..StandardMaterial::from(img) },
+                                StandardMaterial {
+                                    perceptual_roughness: 1.,
+                                    lightmap_exposure: TRENCHBROOM_LIGHTMAP_EXPOSURE,
+                                    ..StandardMaterial::from(img)
+                                },
                             ),
                         )
                     })
@@ -299,21 +315,22 @@ async fn load_mdl(
                         .flat_map(|poly| poly.indices().map(|i| raw_mesh.vertices()[i as usize]))
                         .collect::<Vec<_>>(),
                 );
-                mesh.insert_attribute(
-                    Mesh::ATTRIBUTE_UV_0,
-                    raw.polygons()
-                        .iter()
-                        .flat_map(|poly| {
-                            poly.indices().map(|i| {
-                                let coord = &raw.texcoords()[i as usize];
-                                coord.to_bevy(
-                                    UVec2::new(raw.texture_width(), raw.texture_height()),
-                                    poly.faces_front(),
-                                )
-                            })
+                let uvs = raw
+                    .polygons()
+                    .iter()
+                    .flat_map(|poly| {
+                        poly.indices().map(|i| {
+                            let coord = &raw.texcoords()[i as usize];
+                            coord.to_bevy(
+                                UVec2::new(raw.texture_width(), raw.texture_height()),
+                                poly.faces_front(),
+                            )
                         })
-                        .collect::<Vec<_>>(),
-                );
+                    })
+                    .collect::<Vec<_>>();
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone());
+                // TODO: Doesn't seem to be possible to configure lightmap UVs?
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uvs);
 
                 let mesh_handle = load_context.add_labeled_asset(format!("anim{i}mesh"), mesh);
 
@@ -349,21 +366,23 @@ async fn load_mdl(
                                 })
                                 .collect::<Vec<_>>(),
                         );
-                        mesh.insert_attribute(
-                            Mesh::ATTRIBUTE_UV_0,
-                            raw.polygons()
-                                .iter()
-                                .flat_map(|poly| {
-                                    poly.indices().map(|i| {
-                                        let coord = &raw.texcoords()[i as usize];
-                                        coord.to_bevy(
-                                            UVec2::new(raw.texture_width(), raw.texture_height()),
-                                            poly.faces_front(),
-                                        )
-                                    })
+
+                        let uvs = raw
+                            .polygons()
+                            .iter()
+                            .flat_map(|poly| {
+                                poly.indices().map(|i| {
+                                    let coord = &raw.texcoords()[i as usize];
+                                    coord.to_bevy(
+                                        UVec2::new(raw.texture_width(), raw.texture_height()),
+                                        poly.faces_front(),
+                                    )
                                 })
-                                .collect::<Vec<_>>(),
-                        );
+                            })
+                            .collect::<Vec<_>>();
+                        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone());
+                        // TODO: Doesn't seem to be possible to configure lightmap UVs?
+                        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uvs);
 
                         let mesh_handle = load_context
                             .add_labeled_asset(format!("anim{i}frame{frame_idx}"), mesh);
@@ -384,6 +403,18 @@ async fn load_mdl(
         .collect();
 
     Ok(Mdl {
+        // TODO: This should be shared between models, but it's such a small texture that it's
+        // unlikely to be a problem.
+        lightmap: load_context.add_labeled_asset(
+            format!("lightmap"),
+            Image::new(
+                Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                TextureDimension::D2,
+                MDL_LIGHTMAP_COLOR.into(),
+                TextureFormat::Rgba8Unorm,
+                RenderAssetUsages::RENDER_WORLD,
+            ),
+        ),
         transform: raw.transform(),
         radius: raw.radius(),
         default_mesh: default_mesh.take().ok_or(MdlFileError::NoMeshes)?,
@@ -436,11 +467,14 @@ async fn load_mdl_as_scene(
 
     let mut world = World::new();
 
+    let lightmap = mdl.lightmap.clone();
+
     let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
 
     world.spawn((
         transform,
         MdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
+        Lightmap { image: lightmap, uv_rect: Rect::new(0., 0., 1., 1.), bicubic_sampling: false },
         anim_player,
         texture,
         mesh,

@@ -2234,9 +2234,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_mod_scripting_qcvm"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8776ac3209f0c90165ce7428c12baddb9a8441183df3330b652fbf33361acce"
+checksum = "2e41adbe4f887308bfa0a14b7b9dc9a5263b3f3335df7dbb5c03b75557027470"
 dependencies = [
  "bevy_app 0.18.0",
  "bevy_asset 0.18.0",
@@ -7555,9 +7555,9 @@ dependencies = [
 
 [[package]]
 name = "qcvm"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63426dcb7d9fbcd3841453d83ac0f0c135d76f0dd22aa11eb01c95458bf8e572"
+checksum = "952aabbe9c086f60deb1a6ba344d497a92bfccb45e161c8fa957c124d88489f2"
 dependencies = [
  "anyhow",
  "arc-slice",

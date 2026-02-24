@@ -31,8 +31,8 @@ use crate::{
         self,
         console::{ConsoleError, ConsoleOutput, RunCmd, SeismonConsolePlugin},
         net::{
-            self, BlockingMode, ClientCmd, ClientMessage, EntityState, GameType, NetError, QSocket,
-            ServerCmd, ServerMessage, SignOnStage,
+            self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
+            QSocket, ServerCmd, ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         vfs::{Vfs, VfsError},
@@ -54,7 +54,7 @@ use bevy::{
 use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
 use input::InputFocus;
 use menu::Menu;
-use seismon_utils::QString;
+use seismon_utils::{QAngles, QString};
 use serde::Deserialize;
 use sound::SoundError;
 use thiserror::Error;
@@ -107,6 +107,8 @@ pub struct SeismonGameSettings {
     default_camera_template: Entity,
 }
 
+const DEFAULT_AMBIENT_LIGHT: f32 = 120.;
+
 /// The default set of components for the camera.
 pub fn default_camera() -> impl Bundle {
     (
@@ -119,6 +121,11 @@ pub fn default_camera() -> impl Bundle {
             0.,
         )),
         Visibility::Visible,
+        AmbientLight {
+            color: Color::WHITE,
+            brightness: DEFAULT_AMBIENT_LIGHT,
+            affects_lightmapped_meshes: false,
+        },
         Disabled,
     )
 }
@@ -297,11 +304,6 @@ pub struct MoveVars {
 //     Custom = 4,
 // }
 
-struct ServerInfo {
-    _max_clients: u8,
-    _game_type: GameType,
-}
-
 #[derive(Clone, Debug)]
 pub enum IntermissionKind {
     Intermission,
@@ -359,24 +361,54 @@ enum ConnectionTarget {
     Demo(DemoServer),
 }
 
-#[derive(Debug)]
-struct ServerUpdate<'a> {
-    message: Cow<'a, [u8]>,
-    angles: Option<Vec3>,
+#[derive(Debug, Clone)]
+struct ServerUpdate<T = ServerCmd> {
+    message: T,
+    angles: Option<QAngles>,
     track_override: Option<u32>,
 }
 
-impl ServerUpdate<'_> {
-    pub fn into_owned(self) -> ServerUpdate<'static> {
+impl ServerUpdate {
+    /// Override angles for view entity and CD track, for demos.
+    fn to_cmd(self, view_id: Option<u16>) -> ServerCmd {
+        match self.message {
+            ServerCmd::CdTrack { track, loop_ } => {
+                ServerCmd::CdTrack { track: self.track_override.unwrap_or(track), loop_ }
+            }
+            ServerCmd::SetAngle { angles } => {
+                ServerCmd::SetAngle { angles: self.angles.unwrap_or(angles) }
+            }
+            ServerCmd::FastUpdate(entity_update) => {
+                if Some(entity_update.ent_id) == view_id
+                    && let Some(angles) = self.angles
+                {
+                    ServerCmd::FastUpdate(EntityUpdate {
+                        pitch: Some(angles.pitch_deg),
+                        roll: Some(angles.roll_deg),
+                        yaw: Some(angles.yaw_deg),
+                        no_lerp: false,
+                        ..entity_update
+                    })
+                } else {
+                    ServerCmd::FastUpdate(entity_update)
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+impl ServerUpdate<Cow<'_, [u8]>> {
+    pub fn into_owned(self) -> ServerUpdate<Vec<u8>> {
         ServerUpdate {
-            message: self.message.into_owned().into(),
+            message: self.message.into_owned(),
             angles: self.angles,
             track_override: self.track_override,
         }
     }
 }
 
-impl Default for ServerUpdate<'_> {
+impl Default for ServerUpdate<Cow<'_, [u8]>> {
     fn default() -> Self {
         Self { message: (&[][..]).into(), angles: None, track_override: None }
     }
@@ -389,7 +421,7 @@ impl ConnectionTarget {
         assets: &AssetServer,
         demos: &'a Assets<Demo>,
         events: &Messages<ServerMessage>,
-    ) -> Result<Result<ServerUpdate<'a>, ConnectionStatus>, ClientError> {
+    ) -> Result<Result<ServerUpdate<Cow<'a, [u8]>>, ConnectionStatus>, ClientError> {
         match self {
             Self::Server { reader, .. } => {
                 let mut out = Vec::new();
@@ -421,15 +453,9 @@ impl ConnectionTarget {
                     }
                 };
 
-                let mut view_angles = msg_view.view_angles;
-                // invert entity angles to get the camera direction right.
-                // yaw is already inverted.
-                view_angles.z = -view_angles.z;
-
-                // TODO: we shouldn't have to copy the message here
                 Ok(Ok(ServerUpdate {
                     message: msg_view.message.into(),
-                    angles: Some(view_angles),
+                    angles: Some(msg_view.view_angles),
                     track_override: msg_view.track_override,
                 }))
             }
@@ -743,7 +769,8 @@ mod systems {
 
             Some(ClientCmd::Move {
                 delta_time: frame_time,
-                angles: Vec3::ZERO,
+                // TODO: Look
+                angles: Default::default(),
                 fwd_move: forwardmove as i16,
                 side_move: sidemove as i16,
                 up_move: upmove as i16,
@@ -764,20 +791,12 @@ mod systems {
 
         // TODO: Error handling
         let move_vars: MoveVars = registry.read_cvars().unwrap();
-        // TODO: Reimplement
-        // let mouse_vars: MouseVars = registry.read_cvars().unwrap();
 
         // TODO: Unclear fromm the bevy documentation if this drops all other events for the frame,
         //       but in this case it's almost certainly fine
         let impulse = impulses.read().next().map(|i| i.0);
 
-        let Some(move_cmd) = handle_input(
-            &registry,
-            frame_time.delta(),
-            move_vars,
-            // mouse_vars,
-            impulse,
-        ) else {
+        let Some(move_cmd) = handle_input(&registry, frame_time.delta(), move_vars, impulse) else {
             return Ok(());
         };
         let mut msg = Vec::new();
@@ -792,14 +811,6 @@ mod systems {
 
         Ok(())
     }
-
-    // #[derive(Deserialize)]
-    // struct NetworkVars {
-    //     #[serde(rename(deserialize = "cl_nolerp"))]
-    //     disable_lerp: f32,
-    //     #[serde(rename(deserialize = "sv_gravity"))]
-    //     gravity: f32,
-    // }
 
     pub fn process_network_messages(
         state: Res<Connection>,
@@ -860,6 +871,7 @@ mod systems {
     pub fn wait_for_load(
         mut conn: ResMut<Connection>,
         assets: Res<Assets<Bsp>>,
+        mut time: ResMut<Time<Virtual>>,
         worldspawn: Query<&Worldspawn>,
         mut next_state: ResMut<NextState<ClientGameState>>,
         mut commands: Commands,
@@ -877,6 +889,12 @@ mod systems {
         if let Some(bsp) = assets.get(&worldspawn.bsp) {
             commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
             client_state.populate_precache(bsp);
+
+            // TODO: The server should be able to communicate this to the client, but the
+            // default is 20fps
+            let max_delta = Duration::from_millis(1000 / 20);
+            *time = Time::from_max_delta(max_delta);
+            time.advance_to(conn.last_msg_time.saturating_sub(max_delta));
             next_state.set(ClientGameState::InGame);
         }
     }
@@ -897,13 +915,13 @@ mod systems {
             demos: Res<Assets<Demo>>,
         ) -> Result<ConnectionStatus, ClientError> {
             // TODO: Calculate from server delta.
-            let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
+            // let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
 
             if time.elapsed() < conn.last_msg_time {
                 return Ok(ConnectionStatus::Maintain);
-            } else if time.elapsed() > expected_next_tick {
-                *time = Time::default();
-                time.advance_to(expected_next_tick);
+            } else if conn.last_msg_time > time.elapsed() + time.max_delta() {
+                *time = Time::from_max_delta(time.max_delta());
+                time.advance_to(conn.last_msg_time);
             }
 
             // TODO: Shuld "wait for demo load" logic be in its own system?
@@ -912,7 +930,7 @@ mod systems {
                 Err(status) => return Ok(status),
             };
 
-            let ServerUpdate { message, .. } = server_update.into_owned();
+            let ServerUpdate { message, angles, track_override } = server_update.into_owned();
 
             // no data available at this time
             if message.is_empty() {
@@ -926,7 +944,10 @@ mod systems {
                     error!("{}", e);
                     None
                 }
-                Ok(Some(cmd)) => Some(cmd),
+                Ok(Some(cmd)) => Some(
+                    ServerUpdate { message: cmd, angles, track_override }
+                        .to_cmd(conn.client_state.as_ref().and_then(|s| s.view)),
+                ),
                 Ok(None) => None,
             });
             server_cmds.write_batch(cmd_iter);
@@ -949,6 +970,8 @@ mod systems {
             mut mixer_events: MessageWriter<MixerMessage>,
             mut console_commands: MessageWriter<RunCmd<'static>>,
             mut console_output: ResMut<ConsoleOutput>,
+            children: Query<&Children>,
+            cameras: Query<(), With<Camera>>,
             transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
@@ -1054,10 +1077,6 @@ mod systems {
 
                         ServerCmd::CdTrack { track, .. } => {
                             mixer_events.write(MixerMessage::StartMusic(Some(
-                                // sound::MusicSource::TrackId(match track_override {
-                                //     Some(t) => t as usize,
-                                //     None => track as usize,
-                                // }),
                                 sound::MusicSource::TrackId(track as usize),
                             )));
                         }
@@ -1097,7 +1116,7 @@ mod systems {
                                 (ent_update, conn.last_msg_time.as_secs_f64()),
                             );
 
-                            // patch view angles in demos
+                            // TODO: patch view angles in demos
                             // if let Some(angles) = demo_view_angles
                             //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as
                             // usize) {
@@ -1124,11 +1143,35 @@ mod systems {
 
                         ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
 
-                        ServerCmd::SetAngle { .. } => msg_todo!("set angle"),
+                        ServerCmd::SetAngle { angles } => {
+                            if let Some(state) = conn.client_state.as_mut()
+                                && let Some(view) = state.view.take()
+                            {
+                                commands.run_system_cached_with(
+                                    ClientState::update_entity,
+                                    (
+                                        EntityUpdate::new_angles(view, angles),
+                                        conn.last_msg_time.as_secs_f64(),
+                                    ),
+                                );
+                            }
+                        }
 
                         ServerCmd::SetView { ent_id } => {
-                            dbg!(ent_id);
                             if let Some(state) = conn.client_state.as_mut() {
+                                if let Some(prev_view) = state.view.take()
+                                    && let Some(prev_view) =
+                                        state.server_entity_to_client_entity.get(&prev_view)
+                                {
+                                    for child in children.iter_descendants::<Children>(*prev_view) {
+                                        if cameras.get(child).is_ok() {
+                                            commands.entity(child).despawn();
+                                        }
+                                    }
+                                }
+
+                                state.view = Some(ent_id);
+
                                 let mut view_entity = match state
                                     .server_entity_to_client_entity
                                     .get(&ent_id)

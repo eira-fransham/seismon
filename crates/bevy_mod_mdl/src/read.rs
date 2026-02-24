@@ -18,7 +18,7 @@
 use std::{io, time::Duration};
 
 use bevy_transform::components::Transform;
-use futures::AsyncReadExt;
+use futures::{AsyncReadExt, AsyncSeekExt as _};
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num_traits::FromPrimitive as _;
 use seismon_utils::{
@@ -34,10 +34,6 @@ use crate::MdlFileError;
 pub const MAGIC: i32 = i32::from_le_bytes(*b"IDPO");
 pub const VERSION: i32 = 6;
 
-#[expect(
-    dead_code,
-    reason = "TODO: For error reporting, but we can't use this as Bevy asset readers don't implement seek"
-)]
 const HEADER_SIZE: u64 = 84;
 
 #[derive(Clone, Debug)]
@@ -172,6 +168,12 @@ pub struct AnimatedMeshFrame {
     max: Vec3,
     duration: Duration,
     vertices: Vec<Vec3>,
+}
+
+impl From<AnimatedMeshFrame> for Mesh {
+    fn from(value: AnimatedMeshFrame) -> Self {
+        Self { name: value.name, min: value.min, max: value.max, vertices: value.vertices }
+    }
 }
 
 impl AnimatedMeshFrame {
@@ -418,12 +420,14 @@ where
     // unused
     let _size = try_!(reader.read_i32::<LittleEndian>().await);
 
-    // Cannot seek with bevy reader
-    // assert_eq!(
-    //     try_!(reader.stream_position()),
-    //     try_!(reader.seek(SeekFrom::Start(HEADER_SIZE))),
-    //     "Misaligned read on MDL header"
-    // );
+    #[cfg(debug_assertions)]
+    if let Ok(reader) = reader.seekable() {
+        assert_eq!(
+            try_!(reader.stream_position().await),
+            try_!(reader.seek(io::SeekFrom::Start(HEADER_SIZE)).await),
+            "Misaligned read on MDL header"
+        );
+    }
 
     let textures = {
         let mut out = Vec::with_capacity(texture_count as usize);
@@ -627,11 +631,16 @@ where
                         })
                     }
 
-                    out.push(Animation::Animated(AnimatedMesh {
-                        min: abs_min,
-                        max: abs_max,
-                        frames: subframes,
-                    }));
+                    if subframe_count == 1 {
+                        // Remove any possible jank from, for example, duration being set incorrectly.
+                        out.push(Animation::Static(subframes.into_iter().next().unwrap().into()));
+                    } else {
+                        out.push(Animation::Animated(AnimatedMesh {
+                            min: abs_min,
+                            max: abs_max,
+                            frames: subframes,
+                        }));
+                    }
                 }
 
                 x => panic!("Bad frame kind value: {x}"),

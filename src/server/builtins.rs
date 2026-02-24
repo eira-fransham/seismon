@@ -17,6 +17,7 @@ use bevy_mod_scripting::{
         ExternalError, FunctionCallContext, InteropError, IntoNamespace, MagicFunctions,
         ReflectBase, ReflectReference, ThreadScriptContext, ThreadWorldContainer, WorldAccessGuard,
     },
+    core::ScriptingPlugin,
     prelude::*,
 };
 use bevy_mod_scripting_qcvm::{QCEntity, QCWorldspawn};
@@ -262,6 +263,28 @@ struct Fields {
 #[derive(Component)]
 struct Globals {
     globals: HashMap<&'static str, FieldAccessor>,
+}
+
+type QCScriptingPlugin = bevy_mod_scripting_qcvm::QCScriptingPlugin<
+    bevy_mod_scripting_qcvm::qcvm::quake1::globals::GlobalAddr,
+    bevy_mod_scripting_qcvm::qcvm::quake1::fields::FieldAddr,
+>;
+
+fn qcvm_plugin() -> QCScriptingPlugin {
+    QCScriptingPlugin {
+        scripting_plugin: ScriptingPlugin {
+            runtime_initializers: vec![],
+            context_policy: Default::default(),
+            language: Language::External { name: "quakec".into(), one_indexed: false },
+            // TODO: Support directly loading quakec?
+            supported_extensions: vec!["dat"],
+            // TODO: Set reflect_to_value
+            context_initializers: vec![|_script_id, _context| Ok(())],
+            context_pre_handling_initializers: vec![],
+            emit_responses: false,
+            processing_pipeline_plugin: Default::default(),
+        },
+    }
 }
 
 fn field_accessor(
