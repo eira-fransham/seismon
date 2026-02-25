@@ -242,7 +242,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
+    #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
     pub struct ItemFlags: u32 {
         const SHOTGUN          = 0x00000001;
         const SUPER_SHOTGUN    = 0x00000002;
@@ -2144,6 +2144,7 @@ pub enum BlockingMode {
     Timeout(Duration),
 }
 
+// TODO: Should not clone
 #[derive(Resource)]
 pub struct QSocket {
     socket: UdpSocket,

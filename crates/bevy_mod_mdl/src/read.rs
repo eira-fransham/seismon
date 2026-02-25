@@ -18,7 +18,7 @@
 use std::{io, time::Duration};
 
 use bevy_transform::components::Transform;
-use futures::{AsyncReadExt, AsyncSeekExt as _};
+use futures::AsyncReadExt;
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num_traits::FromPrimitive as _;
 use seismon_utils::{
@@ -33,8 +33,6 @@ use crate::MdlFileError;
 
 pub const MAGIC: i32 = i32::from_le_bytes(*b"IDPO");
 pub const VERSION: i32 = 6;
-
-const HEADER_SIZE: u64 = 84;
 
 #[derive(Clone, Debug)]
 pub struct StaticTexture {
@@ -422,6 +420,9 @@ where
 
     #[cfg(debug_assertions)]
     if let Ok(reader) = reader.seekable() {
+        use futures::AsyncSeekExt as _;
+        const HEADER_SIZE: u64 = 84;
+
         assert_eq!(
             try_!(reader.stream_position().await),
             try_!(reader.seek(io::SeekFrom::Start(HEADER_SIZE)).await),

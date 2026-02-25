@@ -154,8 +154,10 @@ async fn load_mdl(
     /// This seems to make the models the expected colour, while also preventing issues
     /// with `unlit: true` (particularly, exposure-independence). The lightmap exposure
     /// is taken from `bevy_trenchbroom`, since the exposure should match. It's unclear
-    /// why `2` seems to be the value that looks the best on the models.
-    const MDL_LIGHTMAP_COLOR: [u8; 4] = [2, 2, 2, 255];
+    /// why `3` seems to be the value that looks the best on the models.
+    ///
+    /// > TODO: Revisit this and figure out how to calculate the best lightmap brightness
+    const MDL_LIGHTMAP_COLOR: [u8; 4] = [3, 3, 3, 255];
     const TRENCHBROOM_LIGHTMAP_EXPOSURE: f32 = 10_000.;
 
     fn translate_tex(tex: &[u8], width: u32, height: u32, palette: &Palette) -> Image {
@@ -493,12 +495,12 @@ pub struct MdlSettings {
 
 fn update_mdls(
     entities: Query<
-        (&MdlSettings, &mut MeshAnimPlayer, &mut GenericMaterial3d),
+        (&mut MdlSettings, &mut MeshAnimPlayer, &mut GenericMaterial3d),
         Changed<MdlSettings>,
     >,
     mdls: Res<Assets<Mdl>>,
 ) {
-    for (settings, mut player, mut mat) in entities {
+    for (mut settings, mut player, mut mat) in entities {
         if settings.frame == settings.cur_animation && settings.skin == settings.cur_skin {
             continue;
         }
@@ -512,6 +514,7 @@ fn update_mdls(
                     break 'set_anim;
                 };
 
+                settings.cur_animation = settings.frame;
                 player.set_anim_meshes(anim_mesh.clone());
             }
         }
@@ -523,6 +526,7 @@ fn update_mdls(
                     break 'set_skin;
                 };
 
+                settings.cur_skin = settings.skin;
                 mat.0 = skin.clone();
             }
         }

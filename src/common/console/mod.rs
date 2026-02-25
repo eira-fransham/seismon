@@ -29,13 +29,10 @@ use snafu::{Backtrace, prelude::*};
 
 use crate::{
     client::{
-        Connected,
+        Disconnect, NewConnection,
         input::{InputFocus, game::Trigger},
     },
-    common::{
-        console::gfx::Conchars,
-        wad::{Palette, PaletteLoader, QPicLoader, Wad, WadLoader},
-    },
+    common::console::gfx::Conchars,
 };
 
 use super::{parse, vfs::Vfs};
@@ -66,12 +63,7 @@ impl Plugin for SeismonConsoleCorePlugin {
         #[command(name = "resetall", about = "Reset all cvars to their initial values")]
         struct ResetAll;
 
-        app.init_asset_loader::<QPicLoader>()
-            .init_asset_loader::<PaletteLoader>()
-            .init_asset_loader::<WadLoader>()
-            .init_asset::<Palette>()
-            .init_asset::<Wad>()
-            .init_resource::<Registry>()
+        app.init_resource::<Registry>()
             .init_resource::<gfx::Conchars>()
             .add_message::<RunCmd<'static>>()
             .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
@@ -127,9 +119,9 @@ impl Plugin for SeismonConsoleCorePlugin {
     }
 }
 
-pub struct SeismonConsolePlugin;
+pub struct SeismonClientConsolePlugin;
 
-impl Plugin for SeismonConsolePlugin {
+impl Plugin for SeismonClientConsolePlugin {
     fn build(&self, app: &mut App) {
         let vfs = app.world().resource::<Vfs>();
 
@@ -146,6 +138,18 @@ impl Plugin for SeismonConsolePlugin {
             }
         }
 
+        fn resize_small(mut console_ui: Query<&mut Node, With<ConsoleUi>>) {
+            for mut style in &mut console_ui {
+                style.height = Val::Percent(30.);
+            }
+        }
+
+        fn resize_large(mut console_ui: Query<&mut Node, With<ConsoleUi>>) {
+            for mut style in &mut console_ui {
+                style.height = Val::Percent(100.);
+            }
+        }
+
         app.add_plugins(SeismonConsoleCorePlugin)
             .add_message::<UnhandledCmd>()
             .init_resource::<Conchars>()
@@ -158,15 +162,12 @@ impl Plugin for SeismonConsolePlugin {
                 Startup,
                 (systems::startup::init_alert_output, systems::startup::init_console),
             )
-            .add_observer(
-                |trigger: On<Connected>, mut console_ui: Query<&mut Node, With<ConsoleUi>>| {
-                    let height =
-                        if trigger.event().0 { Val::Percent(30.) } else { Val::Percent(100.) };
-
-                    for mut style in &mut console_ui {
-                        style.height = height;
-                    }
-                },
+            .add_systems(
+                PreUpdate,
+                (
+                    resize_small.run_if(on_message::<Disconnect>),
+                    resize_large.run_if(on_message::<NewConnection>),
+                ),
             )
             .add_systems(
                 Update,
@@ -1789,7 +1790,6 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
-// TODO: Properly implement this with Bevy (needs WAD support somehow)
 mod gfx {
     use bevy::prelude::*;
 
@@ -1963,23 +1963,21 @@ mod systems {
         ) {
             let image = assets.load("gfx/conback.lmp");
 
-            commands
-                .spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: Val::Percent(100.),
-                        height: Val::Percent(30.),
-                        overflow: Overflow::clip(),
-                        flex_direction: FlexDirection::Column,
-                        justify_content: JustifyContent::End,
-                        ..default()
-                    },
-                    Visibility::Hidden,
-                    GlobalZIndex(2),
-                    ConsoleUi,
-                ))
-                .with_children(|commands| {
-                    commands.spawn((
+            commands.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.),
+                    height: Val::Percent(30.),
+                    overflow: Overflow::clip(),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::End,
+                    ..default()
+                },
+                Visibility::Hidden,
+                GlobalZIndex(2),
+                ConsoleUi,
+                children![
+                    (
                         ImageNode { image, ..default() },
                         Node {
                             position_type: PositionType::Absolute,
@@ -1988,16 +1986,16 @@ mod systems {
                             ..default()
                         },
                         ZIndex(-1),
-                    ));
-                    commands
-                        .spawn(Node {
+                    ),
+                    (
+                        Node {
                             flex_direction: FlexDirection::Column,
                             flex_wrap: FlexWrap::NoWrap,
                             justify_content: JustifyContent::End,
                             ..default()
-                        })
-                        .with_children(|commands| {
-                            commands.spawn((
+                        },
+                        children![
+                            (
                                 Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "".into(),
@@ -2008,8 +2006,8 @@ mod systems {
                                     justify: JustifyContent::FlexStart,
                                 },
                                 ConsoleTextOutputUi,
-                            ));
-                            commands.spawn((
+                            ),
+                            (
                                 Node { flex_direction: FlexDirection::Column, ..default() },
                                 AtlasText {
                                     text: "] ".into(),
@@ -2020,9 +2018,11 @@ mod systems {
                                     justify: JustifyContent::FlexStart,
                                 },
                                 ConsoleTextInputUi,
-                            ));
-                        });
-                });
+                            )
+                        ]
+                    )
+                ],
+            ));
         }
     }
 

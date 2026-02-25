@@ -4,10 +4,10 @@ use bevy::prelude::*;
 use clap::Parser;
 
 use crate::{
-    client::ClientGameState,
+    client::NewConnection,
     common::{
         console::{AliasInfo, ExecResult, RegisterCmdExt as _, Registry, RunCmd},
-        net::{ClientCmd, ClientMessage, MessageKind, QSocket, ServerMessage, SignOnStage},
+        net::{ClientCmd, ClientMessage, MessageKind, ServerMessage, SignOnStage},
         vfs::Vfs,
     },
     server::Session,
@@ -103,21 +103,13 @@ pub fn register_commands(app: &mut App) {
     }
 
     // set up connection console commands
-    app.command(
-        |In(Connect { remote }),
-         mut commands: Commands,
-         mut next_focus: ResMut<NextState<InputFocus>>| {
-            match connect(&remote) {
-                Ok((new_conn, new_state)) => {
-                    next_focus.set(InputFocus::Game);
-                    commands.insert_resource(new_conn);
-                    commands.insert_resource(Connection::new_server(new_state));
-                    ExecResult::default()
-                }
-                Err(e) => e.to_string().into(),
-            }
-        },
-    );
+    app.command(|In(Connect { remote }), mut commands: Commands| match connect(&remote) {
+        Ok((new_conn, new_state)) => {
+            commands.write_message(NewConnection::Server(Some(new_conn), new_state));
+            ExecResult::default()
+        }
+        Err(e) => e.to_string().into(),
+    });
 
     #[derive(Parser)]
     #[command(name = "reconnect", about = "Reconnect to the current server")]
@@ -144,21 +136,14 @@ pub fn register_commands(app: &mut App) {
     #[command(name = "reconnect", about = "Disconnect from the current server")]
     struct Disconnect;
 
-    app.command(
-        |In(Disconnect),
-         mut commands: Commands,
-         conn: Option<Res<Connection>>,
-         mut next_focus: ResMut<NextState<InputFocus>>| {
-            if conn.is_some() {
-                commands.remove_resource::<Connection>();
-                commands.remove_resource::<QSocket>();
-                next_focus.set(InputFocus::Console);
-                ExecResult::default()
-            } else {
-                "not connected".into()
-            }
-        },
-    );
+    app.command(|In(Disconnect), mut commands: Commands, conn: Option<Res<Connection>>| {
+        if conn.is_some() {
+            commands.write_message(crate::client::Disconnect);
+            ExecResult::default()
+        } else {
+            "not connected".into()
+        }
+    });
 
     #[derive(Parser)]
     #[command(name = "playdemo", about = "Play a specific demo")]
@@ -171,16 +156,12 @@ pub fn register_commands(app: &mut App) {
         |In(PlayDemo { demo }),
          mut commands: Commands,
          assets: Res<AssetServer>,
-         mut time: ResMut<Time<Virtual>>,
-         mut next_focus: ResMut<NextState<InputFocus>>,
-         mut next_state: ResMut<NextState<ClientGameState>>| {
+         mut time: ResMut<Time<Virtual>>| {
             // TODO: Commands should be async and this should use `wait_for_asset`
             *time = Time::default();
 
             // TODO: This should look for demos in root or `/demos`
-            commands.insert_resource(Connection::new_demo(assets.load(format!("{demo}.dem"))));
-            next_focus.set(InputFocus::Game);
-            next_state.set(ClientGameState::Prespawn);
+            commands.write_message(NewConnection::Demo(assets.load(format!("{demo}.dem"))));
 
             ExecResult::default()
         },
@@ -198,8 +179,6 @@ pub fn register_commands(app: &mut App) {
          assets: Res<AssetServer>,
          mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
-         mut next_focus: ResMut<NextState<InputFocus>>,
-         mut next_state: ResMut<NextState<ClientGameState>>,
          server: Option<Res<Session>>| {
             if demos.is_empty() {
                 demo_queue.reset();
@@ -211,18 +190,11 @@ pub fn register_commands(app: &mut App) {
 
             // Only actually start playing the demos if we aren't already running a server
             // (this appears to be Quake's expected behaviour?)
-            if server.is_none() {
-                let new_conn = match demo_queue.next_demo() {
-                    Some(demo) => {
-                        // TODO: This should look for demos in root or `/demos`
-                        Connection::new_demo(assets.load(format!("{demo}.dem")))
-                    }
-                    None => return "".into(),
-                };
-
-                commands.insert_resource(new_conn);
-                next_focus.set(InputFocus::Game);
-                next_state.set(ClientGameState::Prespawn);
+            if server.is_none()
+                && let Some(demo) = demo_queue.next_demo()
+            {
+                // TODO: This should look for demos in root or `/demos`
+                commands.write_message(NewConnection::Demo(assets.load(format!("{demo}.dem"))));
             }
 
             ExecResult::default()
@@ -450,7 +422,6 @@ pub fn register_commands(app: &mut App) {
     fn cmd_map(
         In(Map { map_name }): In<Map>,
         mut commands: Commands,
-        mut next_focus: ResMut<NextState<InputFocus>>,
         mut client_events: ResMut<Messages<ClientMessage>>,
         mut server_events: ResMut<Messages<ServerMessage>>,
     ) -> ExecResult {
@@ -469,10 +440,10 @@ pub fn register_commands(app: &mut App) {
         });
 
         // TODO: This should not be handled here, server and client should be decoupled
-        commands.insert_resource(Connection::new_server(ConnectionStage::SignOn(
-            SignOnStage::Prespawn,
-        )));
-        next_focus.set(InputFocus::Game);
+        commands.write_message(NewConnection::Server(
+            None,
+            ConnectionStage::SignOn(SignOnStage::Prespawn),
+        ));
 
         Default::default()
     }

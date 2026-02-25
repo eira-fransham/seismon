@@ -5,9 +5,10 @@ use crate::{
     client::{
         ClientError, Connection,
         interpolation::{Next, NoInterpolation},
+        inventory::RemoveWeapon,
         view::{IdleVars, KickVars, RollVars},
     },
-    common::net::{EntityState, EntityUpdate, PlayerColor},
+    common::net::{EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData},
 };
 use bevy::{
     asset::{AssetPath, AssetServer, Handle},
@@ -17,7 +18,7 @@ use bevy::{
         entity::Entity,
         hierarchy::{ChildOf, Children},
         reflect::ReflectComponent,
-        system::{Commands, EntityCommands, In, Query, ResMut},
+        system::{Commands, EntityCommands, In, Query, Res, ResMut},
     },
     log::*,
     math::{EulerRot, Quat, Vec3},
@@ -99,6 +100,11 @@ pub struct ClientState {
     _cached_sounds: Box<[Handle<AudioSample>]>,
 
     pub server_entity_to_client_entity: HashMap<u16, Entity>,
+}
+
+#[derive(Component, Default)]
+pub struct PlayerState {
+    items: ItemFlags,
 }
 
 impl ClientState {
@@ -312,6 +318,85 @@ impl ClientState {
         } else {
             error!("Tried to insert model but it wasn't loaded yet");
         }
+    }
+
+    /// Sets the entity represented by the server-side `ent_id` to be the current player.
+    pub fn update_player(
+        In(player_data): In<PlayerData>,
+        conn: Res<Connection>,
+        mut existing_data: Query<&mut PlayerState>,
+        mut commands: Commands<'_, '_>,
+    ) {
+        use crate::client::inventory::{
+            AddAmmo, AddWeapon, Cells, GrenadeLauncher, Health, LightningGun, Nailgun, Nails,
+            RocketLauncher, Rockets, Shells, Shotgun, SuperNailgun, SuperShotgun,
+        };
+
+        let Some(state) = conn.client_state.as_ref() else {
+            return;
+        };
+
+        let Some(ent) = state
+            .view
+            .and_then(|ent_id| state.server_entity_to_client_entity.get(&ent_id))
+            .copied()
+        else {
+            error!("No view entity to update");
+            return;
+        };
+
+        let existing_flags = if let Ok(mut existing) = existing_data.get_mut(ent) {
+            std::mem::replace(&mut existing.items, player_data.items)
+        } else {
+            commands.entity(ent).insert(PlayerState { items: player_data.items });
+            commands.queue(AddAmmo::<Shells>::new(ent));
+            commands.queue(AddAmmo::<Nails>::new(ent));
+            commands.queue(AddAmmo::<Rockets>::new(ent));
+            commands.queue(AddAmmo::<Cells>::new(ent));
+            Default::default()
+        };
+
+        let new_flags = player_data.items.difference(existing_flags);
+
+        for new_flag in new_flags.iter() {
+            if new_flag == ItemFlags::SHOTGUN {
+                commands.queue(AddWeapon::<Shotgun>::new(ent));
+            } else if new_flag == ItemFlags::SUPER_SHOTGUN {
+                commands.queue(AddWeapon::<SuperShotgun>::new(ent));
+            } else if new_flag == ItemFlags::NAILGUN {
+                commands.queue(AddWeapon::<Nailgun>::new(ent));
+            } else if new_flag == ItemFlags::SUPER_NAILGUN {
+                commands.queue(AddWeapon::<SuperNailgun>::new(ent));
+            } else if new_flag == ItemFlags::ROCKET_LAUNCHER {
+                commands.queue(AddWeapon::<RocketLauncher>::new(ent));
+            } else if new_flag == ItemFlags::GRENADE_LAUNCHER {
+                commands.queue(AddWeapon::<GrenadeLauncher>::new(ent));
+            } else if new_flag == ItemFlags::LIGHTNING {
+                commands.queue(AddWeapon::<LightningGun>::new(ent));
+            }
+        }
+
+        let removed_flags = existing_flags.difference(player_data.items);
+
+        for removed_flag in removed_flags.iter() {
+            if removed_flag == ItemFlags::SHOTGUN {
+                commands.queue(RemoveWeapon::<Shotgun>::new(ent));
+            } else if removed_flag == ItemFlags::SUPER_SHOTGUN {
+                commands.queue(RemoveWeapon::<SuperShotgun>::new(ent));
+            } else if removed_flag == ItemFlags::NAILGUN {
+                commands.queue(RemoveWeapon::<Nailgun>::new(ent));
+            } else if removed_flag == ItemFlags::SUPER_NAILGUN {
+                commands.queue(RemoveWeapon::<SuperNailgun>::new(ent));
+            } else if removed_flag == ItemFlags::ROCKET_LAUNCHER {
+                commands.queue(RemoveWeapon::<RocketLauncher>::new(ent));
+            } else if removed_flag == ItemFlags::GRENADE_LAUNCHER {
+                commands.queue(RemoveWeapon::<GrenadeLauncher>::new(ent));
+            } else if removed_flag == ItemFlags::LIGHTNING {
+                commands.queue(RemoveWeapon::<LightningGun>::new(ent));
+            }
+        }
+
+        commands.entity(ent).insert(Health(player_data.health));
     }
 
     pub fn update_entity(

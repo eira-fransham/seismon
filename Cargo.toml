@@ -137,9 +137,12 @@ fast-compile = ["bevy/dynamic_linking"]
 capture = ["dep:bevy_capture"]
 dev_tools = ["bevy/bevy_dev_tools"]
 
-[profile.release-lto]
+[profile.bin-release]
 inherits = "release"
 strip = "symbols"
+panic = "abort"
+incremental = false
+codegen-units = 1
 
 [profile.dev]
 opt-level = 1

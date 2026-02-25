@@ -2,12 +2,13 @@ use std::mem;
 
 use bevy::{
     animation::animatable::Animatable,
-    app::{App, PostUpdate},
+    app::{App, Last},
     ecs::{
         component::{Component, Mutable},
         entity::Entity,
         query::Changed,
         reflect::ReflectComponent,
+        schedule::IntoScheduleConfigs as _,
         system::{Commands, Query, Res},
     },
     reflect::Reflect,
@@ -27,7 +28,7 @@ impl InterpolateApp for App {
         C: Default + Clone + Component<Mutability = Mutable> + Animatable,
         T: Default + Send + Sync + 'static,
     {
-        self.add_systems(PostUpdate, (interpolate::<C, T>, swap_prev_next::<C>))
+        self.add_systems(Last, (interpolate::<C, T>, swap_prev_next::<C>).chain())
     }
 }
 
@@ -60,7 +61,6 @@ where
 #[reflect(Component)]
 pub struct NoInterpolation;
 
-// TODO: Support `no_lerp`
 fn interpolate<C, T>(
     components: Query<(Option<&Prev<C>>, &Next<C>, &mut C, Option<&NoInterpolation>)>,
     time: Res<Time<T>>,

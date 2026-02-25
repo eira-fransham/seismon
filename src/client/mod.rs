@@ -2,8 +2,10 @@ pub mod commands;
 mod cvars;
 pub mod demo;
 pub mod entity;
+mod hud;
 pub mod input;
 mod interpolation;
+mod inventory;
 pub mod menu;
 pub mod sound;
 pub mod state;
@@ -23,19 +25,21 @@ use crate::{
         demo::{Demo, DemoError, DemoLoader, DemoServer},
         entity::ClientEntity,
         interpolation::InterpolateApp,
+        inventory::InventoryPlugin,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
         state::ClientState,
         view::KickVars,
     },
     common::{
         self,
-        console::{ConsoleError, ConsoleOutput, RunCmd, SeismonConsolePlugin},
+        console::{ConsoleError, ConsoleOutput, RunCmd, SeismonClientConsolePlugin},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
             QSocket, ServerCmd, ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
         vfs::{Vfs, VfsError},
+        wad::{Palette, PaletteLoader, QPicLoader, Wad, WadLoader},
     },
 };
 
@@ -134,7 +138,7 @@ pub fn default_camera() -> impl Bundle {
 enum ClientGameState {
     #[default]
     Disconnected,
-    Prespawn,
+    WaitForServerInfo,
     Loading,
     InGame,
 }
@@ -151,6 +155,11 @@ where
         let camera_template = app.world_mut().spawn(default_camera()).id();
 
         let app = app
+            .init_asset::<Palette>()
+            .init_asset::<Wad>()
+            .init_asset_loader::<QPicLoader>()
+            .init_asset_loader::<PaletteLoader>()
+            .init_asset_loader::<WadLoader>()
             .interpolate_component::<Transform, Virtual>()
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
@@ -165,11 +174,34 @@ where
             .init_asset::<Demo>()
             .init_asset_loader::<DemoLoader>()
             .add_message::<ServerCmd>()
+            .add_message::<Disconnect>()
+            .add_message::<NewConnection>()
             .add_message::<ServerMessage>()
             .add_message::<ClientMessage>()
             .add_message::<Impulse>()
             .add_systems(
-                Main,
+                PreUpdate,
+                (systems::disconnect.run_if(resource_exists::<Connection>), systems::connect)
+                    .chain()
+                    .run_if(on_message::<Disconnect>.or(on_message::<NewConnection>)),
+            )
+            .add_systems(
+                PreUpdate,
+                systems::wait_for_load.run_if(in_state(ClientGameState::Loading)),
+            )
+            .add_systems(
+                PreUpdate,
+                systems::process_network_messages
+                    .pipe(|In(res)| {
+                        // TODO: Error handling
+                        if let Err(e) = res {
+                            error!("Error handling frame: {}", e);
+                        }
+                    })
+                    .run_if(resource_exists::<QSocket>),
+            )
+            .add_systems(
+                Update,
                 (
                     systems::frame::parse_server_message
                         .pipe(systems::frame::execute_server_msg)
@@ -186,26 +218,23 @@ where
                         }
                     }),
                 )
-                    .run_if(resource_exists::<Connection>.and(
-                        in_state(ClientGameState::Prespawn).or(in_state(ClientGameState::InGame)),
-                    )),
+                    .run_if(
+                        resource_exists::<Connection>.and(
+                            in_state(ClientGameState::WaitForServerInfo)
+                                .or(in_state(ClientGameState::InGame)),
+                        ),
+                    ),
             )
-            .add_systems(Main, systems::wait_for_load.run_if(in_state(ClientGameState::Loading)))
-            .add_systems(Main, systems::lock_cursor)
             .add_systems(
-                Main,
-                systems::process_network_messages
-                    .pipe(|In(res)| {
-                        // TODO: Error handling
-                        if let Err(e) = res {
-                            error!("Error handling frame: {}", e);
-                        }
-                    })
-                    .run_if(resource_exists::<QSocket>),
+                Update,
+                systems::lock_cursor.run_if(
+                    state_changed::<InputFocus>.or(resource_changed::<common::console::Registry>),
+                ),
             )
-            .add_plugins(SeismonConsolePlugin)
+            .add_plugins(SeismonClientConsolePlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
+            .add_plugins(InventoryPlugin::default())
             .add_plugins(
                 TrenchBroomPlugins(Default::default())
                     .build()
@@ -336,9 +365,6 @@ pub enum ConnectionStage {
     /// The client is fully connected.
     Connected,
 }
-
-#[derive(Message, Event, Copy, Clone, Default)]
-pub struct Connected(pub bool);
 
 /// Possible targets that a client can be connected to.
 ///
@@ -480,26 +506,43 @@ pub struct Connection {
     connected: bool,
 }
 
-impl Connection {
-    pub fn new_server(connection_state: ConnectionStage) -> Self {
-        Self {
-            target: ConnectionTarget::Server {
-                reader: default(),
-                compose: default(),
-                stage: connection_state,
-            },
-            client_state: default(),
-            last_msg_time: Duration::ZERO,
-            connected: false,
+#[derive(Message)]
+pub enum NewConnection {
+    Demo(Handle<Demo>),
+    Server(Option<QSocket>, ConnectionStage),
+}
+
+impl NewConnection {
+    fn socket(&self) -> Option<&QSocket> {
+        match self {
+            NewConnection::Server(Some(qsocket), _) => Some(qsocket),
+            _ => None,
         }
     }
+}
 
-    pub fn new_demo(demo: Handle<Demo>) -> Self {
-        Self {
-            target: ConnectionTarget::Demo(demo.into()),
-            client_state: default(),
-            last_msg_time: Duration::ZERO,
-            connected: false,
+#[derive(Message)]
+pub struct Disconnect;
+
+impl From<&NewConnection> for Connection {
+    fn from(value: &NewConnection) -> Self {
+        match value {
+            NewConnection::Server(_, connection_state) => Connection {
+                target: ConnectionTarget::Server {
+                    reader: default(),
+                    compose: default(),
+                    stage: *connection_state,
+                },
+                client_state: default(),
+                last_msg_time: Duration::ZERO,
+                connected: false,
+            },
+            NewConnection::Demo(demo) => Connection {
+                target: ConnectionTarget::Demo(demo.clone().into()),
+                client_state: default(),
+                last_msg_time: Duration::ZERO,
+                connected: false,
+            },
         }
     }
 }
@@ -870,7 +913,7 @@ mod systems {
 
     pub fn wait_for_load(
         mut conn: ResMut<Connection>,
-        assets: Res<Assets<Bsp>>,
+        bsp_assets: Res<Assets<Bsp>>,
         mut time: ResMut<Time<Virtual>>,
         worldspawn: Query<&Worldspawn>,
         mut next_state: ResMut<NextState<ClientGameState>>,
@@ -886,7 +929,7 @@ mod systems {
             return;
         };
 
-        if let Some(bsp) = assets.get(&worldspawn.bsp) {
+        if let Some(bsp) = bsp_assets.get(&worldspawn.bsp) {
             commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
             client_state.populate_precache(bsp);
 
@@ -899,12 +942,63 @@ mod systems {
         }
     }
 
+    pub fn disconnect(
+        mut commands: Commands,
+        conn: Res<Connection>,
+        mut next_focus: ResMut<NextState<InputFocus>>,
+        mut next_state: ResMut<NextState<ClientGameState>>,
+    ) {
+        if let Some(state) = &conn.client_state
+            && let Ok(mut worldspawn) = commands.get_entity(state.worldspawn)
+        {
+            worldspawn.try_despawn();
+        }
+
+        commands.remove_resource::<Connection>();
+        commands.remove_resource::<QSocket>();
+        // TODO: We can do this generically rather than manually setting it each time
+        next_state.set(ClientGameState::Disconnected);
+        // don't allow game focus when disconnected
+        next_focus.set(InputFocus::Console);
+    }
+
+    pub fn connect(
+        mut commands: Commands,
+        mut next_focus: ResMut<NextState<InputFocus>>,
+        mut next_state: ResMut<NextState<ClientGameState>>,
+        mut connections: MessageReader<NewConnection>,
+    ) {
+        let Some(new_connection) = connections.read().last() else {
+            return;
+        };
+
+        if let Some(_) = new_connection.socket() {
+            todo!("Need to remove connection from the command and put it here");
+        }
+
+        commands.insert_resource(Connection::from(new_connection));
+        // TODO: We can do this generically rather than manually setting it each time
+        next_state.set(ClientGameState::WaitForServerInfo);
+        // don't allow game focus when disconnected
+        next_focus.set(InputFocus::Game);
+    }
+
     pub mod frame {
         use bevy::ecs::entity_disabling::Disabled;
 
-        use crate::client::state::PrecacheModel;
+        use crate::client::{hud::build_hud, state::PrecacheModel};
 
         use super::*;
+
+        #[derive(Component, Reflect)]
+        #[reflect(Component)]
+        #[relationship(relationship_target = ViewEntities)]
+        pub struct ViewFor(pub Entity);
+
+        #[derive(Component, Reflect)]
+        #[reflect(Component)]
+        #[relationship_target(relationship = ViewFor, linked_spawn)]
+        pub struct ViewEntities(Vec<Entity>);
 
         pub fn parse_server_message(
             mut conn: ResMut<Connection>,
@@ -914,9 +1008,6 @@ mod systems {
             asset_server: Res<AssetServer>,
             demos: Res<Assets<Demo>>,
         ) -> Result<ConnectionStatus, ClientError> {
-            // TODO: Calculate from server delta.
-            // let expected_next_tick = conn.last_msg_time + std::time::Duration::from_millis(50);
-
             if time.elapsed() < conn.last_msg_time {
                 return Ok(ConnectionStatus::Maintain);
             } else if conn.last_msg_time > time.elapsed() + time.max_delta() {
@@ -970,8 +1061,7 @@ mod systems {
             mut mixer_events: MessageWriter<MixerMessage>,
             mut console_commands: MessageWriter<RunCmd<'static>>,
             mut console_output: ResMut<ConsoleOutput>,
-            children: Query<&Children>,
-            cameras: Query<(), With<Camera>>,
+            view_entities: Query<&ViewEntities>,
             transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
@@ -1085,9 +1175,9 @@ mod systems {
                             console_output.set_center_print(text, &time);
                         }
 
-                        ServerCmd::PlayerData(_player_data) => {
-                            // conn.client_state.update_player(player_data);
-                            msg_todo!("player data")
+                        ServerCmd::PlayerData(player_data) => {
+                            commands
+                                .run_system_cached_with(ClientState::update_player, player_data);
                         }
 
                         ServerCmd::Cutscene { text: _ } => {
@@ -1115,13 +1205,6 @@ mod systems {
                                 ClientState::update_entity,
                                 (ent_update, conn.last_msg_time.as_secs_f64()),
                             );
-
-                            // TODO: patch view angles in demos
-                            // if let Some(angles) = demo_view_angles
-                            //     && conn.client_state.view_entity_id() == Some(ent_update.ent_id as
-                            // usize) {
-                            //     conn.client_state.update_view_angles(angles);
-                            // }
                         }
 
                         ServerCmd::Finale { .. } => msg_todo!("intermission"),
@@ -1162,11 +1245,10 @@ mod systems {
                                 if let Some(prev_view) = state.view.take()
                                     && let Some(prev_view) =
                                         state.server_entity_to_client_entity.get(&prev_view)
+                                    && let Ok(view_entities) = view_entities.get(*prev_view)
                                 {
-                                    for child in children.iter_descendants::<Children>(*prev_view) {
-                                        if cameras.get(child).is_ok() {
-                                            commands.entity(child).despawn();
-                                        }
+                                    for view_ent in view_entities.iter() {
+                                        commands.entity(view_ent).despawn();
                                     }
                                 }
 
@@ -1193,7 +1275,7 @@ mod systems {
                                 };
 
                                 // Viewing entity should be invisible (e.g. do not show player model)
-                                view_entity.insert(Visibility::Hidden);
+                                view_entity.insert((Name::new("player"), Visibility::Hidden));
 
                                 let view_entity = view_entity.id();
 
@@ -1216,7 +1298,12 @@ mod systems {
                                     .clone_and_spawn_with_opt_out(|builder| {
                                         builder.deny::<Disabled>();
                                     })
-                                    .insert(ChildOf(view_entity));
+                                    .insert((ViewFor(view_entity), ChildOf(view_entity)));
+
+                                commands.spawn((
+                                    ViewFor(view_entity),
+                                    build_hud(view_entity, &*asset_server),
+                                ));
                             }
                         }
 
@@ -1525,8 +1612,6 @@ mod systems {
             mut commands: Commands,
             asset_server: Res<AssetServer>,
             mut demo_queue: ResMut<DemoQueue>,
-            mut next_focus: ResMut<NextState<InputFocus>>,
-            mut next_state: ResMut<NextState<ClientGameState>>,
         ) -> Result<(), ClientError> {
             use ConnectionStatus as S;
             let new_conn = match status? {
@@ -1537,17 +1622,13 @@ mod systems {
                 // get the next demo from the queue
                 S::NextDemo => demo_queue
                     .next_demo()
-                    .map(|demo| Connection::new_demo(asset_server.load(format!("{demo}.dem")))),
+                    .map(|demo| NewConnection::Demo(asset_server.load(format!("{demo}.dem")))),
             };
 
             if let Some(new_conn) = new_conn {
-                commands.insert_resource(new_conn);
+                commands.write_message(new_conn);
             } else {
-                commands.remove_resource::<Connection>();
-                // TODO: We can do this generically rather than manually setting it each time
-                next_state.set(ClientGameState::Disconnected);
-                // don't allow game focus when disconnected
-                next_focus.set(InputFocus::Console);
+                commands.write_message(Disconnect);
             }
 
             Ok(())
