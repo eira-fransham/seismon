@@ -125,42 +125,6 @@ impl<T: AmmoType> Command for UpdateAmmoCount<T> {
     }
 }
 
-pub struct RemoveAmmo<T> {
-    owner: Entity,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: AmmoType> RemoveAmmo<T> {
-    pub fn new(owner: Entity) -> Self {
-        Self { owner, _phantom: PhantomData }
-    }
-}
-
-impl<T: AmmoType> Command for RemoveAmmo<T> {
-    fn apply(self, world: &mut bevy::ecs::world::World) {
-        let inventory =
-            world.get::<Inventory>(self.owner).expect("No valid target for remove weapon");
-
-        let Some(ammo_to_despawn) = inventory
-            .0
-            .iter()
-            .find(|item| {
-                let Some(ammo) = world.get::<Ammo>(**item) else {
-                    return false;
-                };
-
-                ammo.ammo_type == TypeId::of::<T>()
-            })
-            .copied()
-        else {
-            error!("Tried to remove ammo {} but it did not exist", std::any::type_name::<T>());
-            return;
-        };
-
-        world.despawn(ammo_to_despawn);
-    }
-}
-
 #[derive(Component)]
 pub struct Health(pub u16);
 

@@ -148,7 +148,10 @@ impl Demo {
         // read all messages
         while let Ok(msg_len) = reader.read_u32::<LittleEndian>().await {
             // get view angles
-            let view_angles: QAngles = read_f32_3_async(&mut reader).await?.into();
+            let [pitch_deg, yaw_deg, roll_deg] = read_f32_3_async(&mut reader).await?;
+
+            // Seems like network view angles differ from angles sent over the network, in that pitch is inverted(?)
+            let view_angles: QAngles = [-pitch_deg, yaw_deg, roll_deg].into();
 
             message_data.reserve(msg_len as usize);
 

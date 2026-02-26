@@ -5,7 +5,7 @@ use crate::{
     client::{
         ClientError, Connection,
         interpolation::{Next, NoInterpolation},
-        inventory::{Health, RemoveAmmo, RemoveWeapon, UpdateAmmoCount},
+        inventory::{Health, RemoveWeapon, UpdateAmmoCount},
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData},

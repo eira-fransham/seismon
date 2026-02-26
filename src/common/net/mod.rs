@@ -2494,18 +2494,19 @@ where
     Ok(())
 }
 
+/// Map from `0..256` to `0..360`
 fn read_angle<R>(reader: &mut R) -> io::Result<f32>
 where
     R: Read,
 {
-    Ok(reader.read_i8()? as i32 as f32 * (360.0 / 256.0))
+    Ok(reader.read_i8()? as f32 * (360.0 / 256.0))
 }
 
 fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
 where
     W: Write,
 {
-    writer.write_i8(((angle as i32 * 256 / 360) & 0xFF) as i8)?;
+    writer.write_i8((angle * (256. / 360.)) as i8)?;
     Ok(())
 }
 
