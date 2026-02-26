@@ -1756,6 +1756,7 @@ impl RenderConsoleOutput {
 
 #[derive(Component, Default)]
 struct AlertOutput {
+    // Semantically this is an inclusive range, but `RangeInclusive` does not implement `Default`
     timestamp_range: Range<Option<i64>>,
 }
 
@@ -2014,13 +2015,8 @@ mod systems {
             }
 
             // TODO: Write only extra lines
-            if !text.text.is_empty() {
-                text.text.clear();
-            }
-
-            if !console_in.cur_text.is_empty() {
-                text.text.push_str(&console_in.cur_text);
-            }
+            text.text.clear();
+            text.text.push_str(&console_in.cur_text);
         }
     }
 
@@ -2039,12 +2035,11 @@ mod systems {
             .filter(|(_, line)| line.output_type == OutputType::Alert)
             .map(|(ts, line)| (ts, &line.text));
 
-        // We read `last` first, as the most-recent timestamp is the more important case
-        let last = lines.next_back();
-        let last_timestamp = last.map(|(ts, _)| ts);
-
         let first = lines.next();
         let first_timestamp = first.map(|(ts, _)| ts);
+
+        let last = lines.next_back();
+        let last_timestamp = last.map(|(ts, _)| ts);
 
         let mut lines = Some(lines);
 
