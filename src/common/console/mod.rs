@@ -27,12 +27,9 @@ use serde::{
 use serde_lexpr::Value;
 use snafu::{Backtrace, prelude::*};
 
-use crate::{
-    client::{
-        Disconnect, NewConnection,
-        input::{InputFocus, game::Trigger},
-    },
-    common::console::gfx::Conchars,
+use crate::client::{
+    Disconnect, NewConnection,
+    input::{InputFocus, game::Trigger},
 };
 
 use super::{parse, vfs::Vfs};
@@ -64,7 +61,6 @@ impl Plugin for SeismonConsoleCorePlugin {
         struct ResetAll;
 
         app.init_resource::<Registry>()
-            .init_resource::<gfx::Conchars>()
             .add_message::<RunCmd<'static>>()
             .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
                 ExecResult {
@@ -152,7 +148,6 @@ impl Plugin for SeismonClientConsolePlugin {
 
         app.add_plugins(SeismonConsoleCorePlugin)
             .add_message::<UnhandledCmd>()
-            .init_resource::<Conchars>()
             .init_resource::<ConsoleOutput>()
             .insert_resource(ConsoleInput::new(history).unwrap())
             .init_resource::<RenderConsoleOutput>()
@@ -165,8 +160,8 @@ impl Plugin for SeismonClientConsolePlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    resize_small.run_if(on_message::<Disconnect>),
-                    resize_large.run_if(on_message::<NewConnection>),
+                    resize_large.run_if(on_message::<Disconnect>),
+                    resize_small.run_if(on_message::<NewConnection>),
                 ),
             )
             .add_systems(
@@ -178,7 +173,6 @@ impl Plugin for SeismonClientConsolePlugin {
                         .run_if(resource_changed::<RenderConsoleOutput>),
                     systems::write_console_in.run_if(resource_changed::<RenderConsoleInput>),
                     systems::update_console_visibility.run_if(state_changed::<InputFocus>),
-                    console_text::systems::update_atlas_text,
                 ),
             )
             .add_systems(PostUpdate, systems::send_unhandled_commands_to_server);
@@ -1790,124 +1784,18 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
-mod gfx {
-    use bevy::prelude::*;
-
-    const GLYPH_WIDTH: usize = 8;
-    const GLYPH_HEIGHT: usize = 8;
-    const GLYPH_COLS: usize = 16;
-    const GLYPH_ROWS: usize = 16;
-    const SCALE: f32 = 2.;
-
-    #[derive(Resource, Reflect)]
-    pub struct Conchars {
-        pub image: Handle<Image>,
-        pub layout: Handle<TextureAtlasLayout>,
-        pub glyph_size: [Val; 2],
-    }
-
-    impl FromWorld for Conchars {
-        fn from_world(world: &mut World) -> Self {
-            let assets = world.resource::<AssetServer>();
-            Self {
-                image: assets.load("gfx.wad#CONCHARS"),
-                layout: assets.add(TextureAtlasLayout::from_grid(
-                    UVec2::new(GLYPH_WIDTH as _, GLYPH_HEIGHT as _),
-                    GLYPH_COLS as _,
-                    GLYPH_ROWS as _,
-                    None,
-                    None,
-                )),
-                glyph_size: [Val::Px(GLYPH_WIDTH as _) * SCALE, Val::Px(GLYPH_HEIGHT as _) * SCALE],
-            }
-        }
-    }
-}
-
-// TODO: Extract this so that it can be used elsewhere in the UI
-mod console_text {
-    use super::*;
-
-    #[derive(Component, Debug)]
-    pub struct AtlasText {
-        pub text: QString,
-        pub image: ImageNode,
-        pub line_padding: UiRect,
-        pub layout: Handle<TextureAtlasLayout>,
-        pub glyph_size: (Val, Val),
-        pub justify: JustifyContent,
-    }
-
-    pub mod systems {
-        use super::*;
-
-        pub fn update_atlas_text(
-            mut commands: Commands,
-            text: Query<(Entity, &AtlasText, Option<&Children>), Changed<AtlasText>>,
-        ) {
-            for (entity, text, children) in text.iter() {
-                if let Some(children) = children {
-                    for child in children {
-                        commands.entity(*child).despawn();
-                    }
-                }
-
-                commands.entity(entity).with_children(|commands| {
-                    for line in text.text.lines() {
-                        commands
-                            .spawn(Node {
-                                flex_direction: FlexDirection::Row,
-                                min_height: text.glyph_size.1,
-                                width: Val::Percent(100.),
-                                flex_wrap: FlexWrap::Wrap,
-                                padding: text.line_padding,
-                                justify_content: text.justify,
-                                ..default()
-                            })
-                            .with_children(|commands| {
-                                for chr in &*line.raw {
-                                    if chr.is_ascii_whitespace() {
-                                        commands.spawn(Node {
-                                            width: text.glyph_size.0,
-                                            height: text.glyph_size.1,
-                                            ..default()
-                                        });
-                                    } else {
-                                        commands.spawn((
-                                            ImageNode {
-                                                texture_atlas: Some(TextureAtlas {
-                                                    layout: text.layout.clone(),
-                                                    index: *chr as usize,
-                                                }),
-                                                ..text.image.clone()
-                                            },
-                                            Node {
-                                                width: text.glyph_size.0,
-                                                height: text.glyph_size.1,
-                                                ..default()
-                                            },
-                                        ));
-                                    }
-                                }
-                            });
-                    }
-                });
-            }
-        }
-    }
-}
-
 mod systems {
     use std::collections::VecDeque;
 
-    use crate::common::net::{ClientCmd, ClientMessage, MessageKind};
-
-    use self::console_text::AtlasText;
+    use crate::{
+        client::text::AtlasText,
+        common::net::{ClientCmd, ClientMessage, MessageKind},
+    };
 
     use super::*;
 
     pub mod startup {
-        use crate::common::console::gfx::Conchars;
+        use crate::client::text::{AtlasText, Conchars};
 
         use super::*;
 

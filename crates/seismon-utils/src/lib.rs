@@ -42,7 +42,7 @@ impl From<QAngles> for Quat {
         Quat::from_euler(
             QUAKE_ROLL_PITCH_YAW,
             angles.roll_deg.to_radians(),
-            -angles.pitch_deg.to_radians(),
+            angles.pitch_deg.to_radians(),
             angles.yaw_deg.to_radians(),
         )
     }
@@ -59,7 +59,7 @@ impl From<Quat> for QAngles {
         let (roll_rad, pitch_rad, yaw_rad) = angles.to_euler(QUAKE_ROLL_PITCH_YAW);
 
         QAngles {
-            pitch_deg: -pitch_rad.to_degrees(),
+            pitch_deg: pitch_rad.to_degrees(),
             // TODO: Unclear if this is correct, we might need to invert it.
             roll_deg: roll_rad.to_degrees(),
             yaw_deg: yaw_rad.to_degrees(),

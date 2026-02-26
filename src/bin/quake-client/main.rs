@@ -1,4 +1,4 @@
-#[cfg(feature = "dev_tools")]
+#[cfg(feature = "dev-tools")]
 mod dev;
 mod menu;
 
@@ -149,8 +149,6 @@ fn startup(
             Msaa::Sample2,
             Bloom::default(),
             SpatialListener3D,
-            #[cfg(feature = "dev_tools")]
-            dev::DebugCamera,
         );
         #[cfg(feature = "capture")]
         let camera_bundle = (camera_bundle, CaptureBundle::default());
@@ -279,7 +277,7 @@ fn main() -> ExitCode {
         )// .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 
-    #[cfg(feature = "dev_tools")]
+    #[cfg(feature = "dev-tools")]
     app.add_plugins(dev::DevtoolsPlugins);
 
     #[cfg(feature = "capture")]

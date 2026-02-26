@@ -244,6 +244,7 @@ bitflags! {
 bitflags! {
     #[derive(Default, Copy, Clone, Ord, Debug, Eq, PartialOrd, PartialEq)]
     pub struct ItemFlags: u32 {
+        // WEAPONS
         const SHOTGUN          = 0x00000001;
         const SUPER_SHOTGUN    = 0x00000002;
         const NAILGUN          = 0x00000004;
@@ -252,10 +253,14 @@ bitflags! {
         const ROCKET_LAUNCHER  = 0x00000020;
         const LIGHTNING        = 0x00000040;
         const SUPER_LIGHTNING  = 0x00000080;
+
+        // AMMO
         const SHELLS           = 0x00000100;
         const NAILS            = 0x00000200;
         const ROCKETS          = 0x00000400;
         const CELLS            = 0x00000800;
+
+        // OTHER ITEMS
         const AXE              = 0x00001000;
         const ARMOR_1          = 0x00002000;
         const ARMOR_2          = 0x00004000;
@@ -268,6 +273,7 @@ bitflags! {
         const SUIT             = 0x00200000;
         const QUAD             = 0x00400000;
 
+        // UNUSED
         // We include definitions for unused flags as mods use them (e.g. Rogue)
         const _UNUSED_1         = 0x00800000;
         const _UNUSED_2         = 0x01000000;
@@ -275,6 +281,7 @@ bitflags! {
         const _UNUSED_4         = 0x04000000;
         const _UNUSED_5         = 0x08000000;
 
+        // SIGILS
         const SIGIL_1          = 0x10000000;
         const SIGIL_2          = 0x20000000;
         const SIGIL_3          = 0x40000000;

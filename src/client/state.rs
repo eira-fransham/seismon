@@ -5,7 +5,7 @@ use crate::{
     client::{
         ClientError, Connection,
         interpolation::{Next, NoInterpolation},
-        inventory::RemoveWeapon,
+        inventory::{Health, RemoveAmmo, RemoveWeapon, UpdateAmmoCount},
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData},
@@ -17,6 +17,7 @@ use bevy::{
         component::Component,
         entity::Entity,
         hierarchy::{ChildOf, Children},
+        name::Name,
         reflect::ReflectComponent,
         system::{Commands, EntityCommands, In, Query, Res, ResMut},
     },
@@ -68,14 +69,6 @@ pub struct Worldspawn {
     pub bsp: Handle<Bsp>,
 }
 
-const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
-
-fn angles_to_quat(roll: f32, pitch: f32, yaw: f32) -> Quat {
-    // TODO: [-roll, -pitch, yaw] seems to be how `bevy_trenchbroom`, but is it correct?
-    // See https://github.com/id-Software/Quake/blob/master/WinQuake/r_alias.c#L364-L369?
-    Quat::from_euler(QUAKE_ROLL_PITCH_YAW, -roll, -pitch, yaw)
-}
-
 /// Holder for precached models and sounds, to ensure they don't get unloaded. Plus, a map from
 /// server entity ID to local [`Entity`].
 pub struct ClientState {
@@ -122,7 +115,7 @@ impl ClientState {
         model_precache: Vec<String>,
         sound_precache: Vec<SName>,
     ) -> Result<ClientState, ClientError> {
-        info!("Model precache: {model_precache:?}");
+        trace!("Model precache: {model_precache:?}");
 
         let mut model_precache = model_precache.into_iter();
 
@@ -132,7 +125,10 @@ impl ClientState {
 
         let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned();
 
-        worldspawn.insert(Worldspawn { bsp: asset_server.load(worldspawn_path) });
+        worldspawn.insert((
+            Name::new("worldspawn"),
+            Worldspawn { bsp: asset_server.load(worldspawn_path) },
+        ));
 
         // TODO: validate submodel names
         let models = [PrecacheModel::Invalid, PrecacheModel::WaitingOnWorldspawn(0)]
@@ -286,12 +282,12 @@ impl ClientState {
         let [pitch, yaw, roll] = angles.map(|x| x.to_radians()).into();
 
         if id == 0 {
-            info!("Spawning world: {baseline:?}");
+            trace!("Spawning world: {baseline:?}");
         }
 
         let model = self.models.get(model_id).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
-            .with_rotation(angles_to_quat(roll, pitch, yaw));
+            .with_rotation(QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into());
         let transform = Next { component: transform, elapsed_secs: msg_time };
 
         let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
@@ -304,7 +300,7 @@ impl ClientState {
             let entity =
                 commands.spawn((transform, Visibility::Inherited, ChildOf(self.worldspawn)));
 
-            // Special-case: worldspawn is spawned with `SpawnBaseline` (not `SpawnStatic`) but
+            // Special-case: bsp model is spawned with `SpawnBaseline` (not `SpawnStatic`) but
             // not handled via the regular update loop.
             if id != 0 {
                 self.server_entity_to_client_entity.insert(id, entity.id());
@@ -324,11 +320,11 @@ impl ClientState {
     pub fn update_player(
         In(player_data): In<PlayerData>,
         conn: Res<Connection>,
-        mut existing_data: Query<&mut PlayerState>,
+        mut existing_data: Query<(&mut PlayerState, &mut Health)>,
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
-            AddAmmo, AddWeapon, Cells, GrenadeLauncher, Health, LightningGun, Nailgun, Nails,
+            AddAmmo, AddWeapon, Cells, GrenadeLauncher, LightningGun, Nailgun, Nails,
             RocketLauncher, Rockets, Shells, Shotgun, SuperNailgun, SuperShotgun,
         };
 
@@ -345,10 +341,13 @@ impl ClientState {
             return;
         };
 
-        let existing_flags = if let Ok(mut existing) = existing_data.get_mut(ent) {
+        let existing_flags = if let Ok((mut existing, mut health)) = existing_data.get_mut(ent) {
+            health.0 = player_data.health;
             std::mem::replace(&mut existing.items, player_data.items)
         } else {
-            commands.entity(ent).insert(PlayerState { items: player_data.items });
+            commands
+                .entity(ent)
+                .insert((PlayerState { items: player_data.items }, Health(player_data.health)));
             commands.queue(AddAmmo::<Shells>::new(ent));
             commands.queue(AddAmmo::<Nails>::new(ent));
             commands.queue(AddAmmo::<Rockets>::new(ent));
@@ -396,7 +395,21 @@ impl ClientState {
             }
         }
 
-        commands.entity(ent).insert(Health(player_data.health));
+        if player_data.items.contains(ItemFlags::SHELLS) {
+            commands.queue(UpdateAmmoCount::<Shells>::new(ent, player_data.ammo_shells));
+        }
+
+        if player_data.items.contains(ItemFlags::NAILS) {
+            commands.queue(UpdateAmmoCount::<Nails>::new(ent, player_data.ammo_nails));
+        }
+
+        if player_data.items.contains(ItemFlags::ROCKETS) {
+            commands.queue(UpdateAmmoCount::<Rockets>::new(ent, player_data.ammo_rockets));
+        }
+
+        if player_data.items.contains(ItemFlags::CELLS) {
+            commands.queue(UpdateAmmoCount::<Cells>::new(ent, player_data.ammo_cells));
+        }
     }
 
     pub fn update_entity(
@@ -484,10 +497,9 @@ impl ClientState {
                 let [pitch, yaw, roll] =
                     [update.pitch, update.yaw, update.roll].map(|a| a.unwrap_or(0.).to_radians());
 
-                ent.insert(
-                    Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(angles_to_quat(roll, pitch, yaw)),
-                );
+                ent.insert(Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                    QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
+                ));
             }
         } else {
             let Some(model_id) = update.model_id else {
@@ -506,8 +518,9 @@ impl ClientState {
 
             let mut ent = commands.spawn((
                 Next {
-                    component: Transform::from_xyz(origin.x, origin.y, origin.z)
-                        .with_rotation(angles_to_quat(roll, pitch, yaw)),
+                    component: Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                        QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
+                    ),
                     elapsed_secs: msg_time,
                 },
                 Visibility::Inherited,
