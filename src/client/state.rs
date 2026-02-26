@@ -22,7 +22,7 @@ use bevy::{
         system::{Commands, EntityCommands, In, Query, Res, ResMut},
     },
     log::*,
-    math::{EulerRot, Quat, Vec3},
+    math::Vec3,
     reflect::Reflect,
     scene::{Scene, SceneRoot},
     transform::components::Transform,

@@ -167,7 +167,8 @@ cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
   - [x] Use `bevy_seedling` for audio
   - [ ] Use `hanabi` for particles
   - [x] Use `bevy-ui` for UI
-  - [ ] Use standard Bevy rendering for the world/models
+  - [x] Use standard Bevy rendering for the world/models
+  - [ ] Use `bevy_mod_scripting` for the QuakeC (partially completed)
   - [ ] Support for rollback netcode using `matchbox`
   - [ ] Integrate an optional physics engine
 - Sound

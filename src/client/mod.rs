@@ -6,6 +6,7 @@ mod hud;
 pub mod input;
 mod interpolation;
 mod inventory;
+mod loading_screen;
 pub mod menu;
 pub mod sound;
 pub mod state;
@@ -140,7 +141,7 @@ pub fn default_camera() -> impl Bundle {
 enum ClientGameState {
     #[default]
     Disconnected,
-    WaitForServerInfo,
+    WaitForServer,
     Loading,
     InGame,
 }
@@ -170,6 +171,7 @@ where
                 default_camera_template: camera_template,
             })
             .init_state::<ClientGameState>()
+            .init_state::<SignOn>()
             .init_resource::<Vfs>()
             .init_resource::<Conchars>()
             .init_resource::<MusicPlayer>()
@@ -185,6 +187,12 @@ where
             // TODO: Extract to HUD plugin
             .add_observer(self::hud::add_weapon_hud)
             .add_observer(self::hud::add_ammo_hud)
+            .add_systems(Startup, self::loading_screen::init_loading_screen)
+            .add_systems(
+                Last,
+                self::loading_screen::update_loading_screen_visible
+                    .run_if(state_changed::<ClientGameState>),
+            )
             .add_systems(PostUpdate, self::hud::update_ammo)
             .add_systems(
                 PreUpdate,
@@ -227,7 +235,7 @@ where
                 )
                     .run_if(
                         resource_exists::<Connection>.and(
-                            in_state(ClientGameState::WaitForServerInfo)
+                            in_state(ClientGameState::WaitForServer)
                                 .or(in_state(ClientGameState::InGame)),
                         ),
                     ),
@@ -238,7 +246,23 @@ where
                     state_changed::<InputFocus>.or(resource_changed::<common::console::Registry>),
                 ),
             )
-            .add_systems(Update, text::systems::update_atlas_text)
+            .add_systems(PostUpdate, text::systems::update_atlas_text)
+            .add_systems(
+                PostUpdate,
+                systems::handle_signon
+                    .pipe(|In(res)| {
+                        if let Err(e) = res {
+                            error!("Error handling signon: {e}");
+                        }
+                    })
+                    .run_if(resource_exists::<Connection>.and(state_changed::<SignOn>)),
+            )
+            .add_systems(
+                PostUpdate,
+                systems::enter_game.run_if(
+                    state_changed::<ClientGameState>.and(in_state(ClientGameState::InGame)),
+                ),
+            )
             .add_plugins(SeismonClientConsolePlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
@@ -311,13 +335,6 @@ impl From<ConsoleError> for ClientError {
 
 #[derive(Deserialize, Copy, Clone, Debug)]
 pub struct MoveVars {
-    // TODO
-    // #[serde(rename(deserialize = "cl_anglespeedkey"))]
-    // cl_anglespeedkey: f32,
-    // #[serde(rename(deserialize = "cl_pitchspeed"))]
-    // cl_pitchspeed: f32,
-    // #[serde(rename(deserialize = "cl_yawspeed"))]
-    // cl_yawspeed: f32,
     #[serde(rename(deserialize = "cl_sidespeed"))]
     cl_sidespeed: f32,
     #[serde(rename(deserialize = "cl_upspeed"))]
@@ -330,17 +347,6 @@ pub struct MoveVars {
     cl_movespeedkey: f32,
 }
 
-// TODO
-// #[derive(Debug, FromPrimitive)]
-// enum ColorShiftCode {
-//     Contents = 0,
-//     Damage = 1,
-//     Bonus = 2,
-//     Powerup = 3,
-//     // For `v_cshift`
-//     Custom = 4,
-// }
-
 #[derive(Clone, Debug)]
 pub enum IntermissionKind {
     Intermission,
@@ -351,9 +357,6 @@ pub enum IntermissionKind {
 /// Indicates to the client what should be done with the current connection.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ConnectionStatus {
-    /// Early exit, skip the rest of the logic for this frame
-    Break,
-
     /// Maintain the connection.
     Maintain,
 
@@ -471,7 +474,7 @@ impl ConnectionTarget {
             Self::Demo(demo_srv) => {
                 match assets.load_state(demo_srv.demo()) {
                     LoadState::Loaded => {}
-                    LoadState::Loading => return Ok(Err(ConnectionStatus::Break)),
+                    LoadState::Loading => return Ok(Err(ConnectionStatus::Maintain)),
                     LoadState::NotLoaded => return Ok(Err(ConnectionStatus::NextDemo)),
                     LoadState::Failed(err) => {
                         return Err(ClientError::DemoServer(DemoError::Load(err)));
@@ -731,6 +734,9 @@ where
 #[derive(Message)]
 pub struct Impulse(pub u8);
 
+#[derive(States, Clone, Default, PartialEq, Eq, Hash, Debug)]
+pub struct SignOn(pub SignOnStage);
+
 mod systems {
     use bevy::window::{CursorGrabMode, CursorOptions};
     use bevy_trenchbroom::bsp::Bsp;
@@ -741,6 +747,53 @@ mod systems {
     use self::common::console::Registry;
 
     use super::*;
+
+    pub fn enter_game(
+        mut visibility: Query<&mut Visibility>,
+        mut time: ResMut<Time<Virtual>>,
+        conn: Res<Connection>,
+    ) {
+        let Some(state) = &conn.client_state else {
+            return;
+        };
+
+        let max_delta = time.max_delta();
+        *time = Time::from_max_delta(max_delta);
+        time.advance_to(conn.last_msg_time.saturating_sub(max_delta));
+
+        *visibility.get_mut(state.worldspawn).unwrap() = Visibility::Visible;
+    }
+
+    pub fn handle_signon(
+        mut commands: Commands,
+        stage: Res<State<SignOn>>,
+        mut conn: ResMut<Connection>,
+        registry: Res<Registry>,
+    ) -> Result<(), ClientError> {
+        // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
+        // recognise symbols as valid strings, so we need to use
+        // `.value().as_name()` and can't use `read_cvars`.
+        // TODO: Use `nu` (https://github.com/eira-fransham/seismon/issues/44)
+        let client_vars: ClientVars = ClientVars {
+            name: registry
+                .get_cvar("_cl_name")
+                .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
+                    backtrace: snafu::Backtrace::capture(),
+                }))?
+                .value()
+                .as_name()
+                .unwrap_or("player"),
+            color: registry.read_cvar("_cl_color")?,
+        };
+
+        if stage.0 == SignOnStage::Done {
+            commands.set_state_if_neq(ClientGameState::InGame);
+        }
+
+        conn.handle_signon(stage.0, &client_vars)?;
+
+        Ok(())
+    }
 
     pub fn lock_cursor(
         mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
@@ -757,7 +810,6 @@ mod systems {
     }
 
     pub fn send_input_to_server(
-        // mut console: ResMut<Console>,
         registry: ResMut<Registry>,
         mut conn: ResMut<Connection>,
         frame_time: Res<Time<Virtual>>,
@@ -897,43 +949,19 @@ mod systems {
         Ok(())
     }
 
-    // pub fn send_connected_event(
-    //     conn: Option<Res<Connection>>,
-    //     mut connected: MessageWriter<Connected>,
-    //     mut old_stage: Local<Option<ConnectionStage>>,
-    // ) {
-    //     let Some(conn) = conn.as_ref() else {
-    //         *old_stage = None;
-    //         return;
-    //     };
-
-    //     if !conn.is_changed() {
-    //         return;
-    //     }
-
-    //     let new_stage = conn.target.stage();
-    //     let old_stage = old_stage.replace(new_stage);
-
-    //     if old_stage != Some(ConnectionStage::Connected) {
-    //         connected.write(Connected(new_stage == ConnectionStage::Connected));
-    //     }
-    // }
-
     pub fn wait_for_load(
+        mut commands: Commands,
         mut conn: ResMut<Connection>,
         bsp_assets: Res<Assets<Bsp>>,
-        mut time: ResMut<Time<Virtual>>,
         worldspawn: Query<&Worldspawn>,
-        mut next_state: ResMut<NextState<ClientGameState>>,
-        mut commands: Commands,
     ) {
         let Some(client_state) = &mut conn.client_state else {
-            next_state.set(ClientGameState::Disconnected);
+            commands.set_state_if_neq(ClientGameState::Disconnected);
             return;
         };
 
         let Ok(worldspawn) = worldspawn.get(client_state.worldspawn) else {
-            next_state.set(ClientGameState::Disconnected);
+            commands.set_state_if_neq(ClientGameState::Disconnected);
             return;
         };
 
@@ -941,21 +969,11 @@ mod systems {
             commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
             client_state.populate_precache(bsp);
 
-            // TODO: The server should be able to communicate this to the client, but the
-            // default is 20fps
-            let max_delta = Duration::from_millis(1000 / 20);
-            *time = Time::from_max_delta(max_delta);
-            time.advance_to(conn.last_msg_time.saturating_sub(max_delta));
-            next_state.set(ClientGameState::InGame);
+            commands.set_state_if_neq(ClientGameState::WaitForServer);
         }
     }
 
-    pub fn disconnect(
-        mut commands: Commands,
-        conn: Res<Connection>,
-        mut next_focus: ResMut<NextState<InputFocus>>,
-        mut next_state: ResMut<NextState<ClientGameState>>,
-    ) {
+    pub fn disconnect(mut commands: Commands, conn: Res<Connection>) {
         if let Some(state) = &conn.client_state
             && let Ok(mut worldspawn) = commands.get_entity(state.worldspawn)
         {
@@ -964,18 +982,14 @@ mod systems {
 
         commands.remove_resource::<Connection>();
         commands.remove_resource::<QSocket>();
-        // TODO: We can do this generically rather than manually setting it each time
-        next_state.set(ClientGameState::Disconnected);
+        commands.set_state_if_neq(ClientGameState::Disconnected);
+
         // don't allow game focus when disconnected
-        next_focus.set(InputFocus::Console);
+        commands.set_state_if_neq(InputFocus::Console);
     }
 
-    pub fn connect(
-        mut commands: Commands,
-        mut next_focus: ResMut<NextState<InputFocus>>,
-        mut next_state: ResMut<NextState<ClientGameState>>,
-        mut connections: MessageReader<NewConnection>,
-    ) {
+    pub fn connect(mut commands: Commands, mut connections: MessageReader<NewConnection>) {
+        // If we request multiple connections, we only care about the last one.
         let Some(new_connection) = connections.read().last() else {
             return;
         };
@@ -984,11 +998,12 @@ mod systems {
             todo!("Need to remove connection from the command and put it here");
         }
 
+        // TODO: The server should be able to communicate this to the client, but the
+        // default is 20fps
+        commands.insert_resource(Time::from_max_delta(Duration::from_millis(1000 / 20)));
         commands.insert_resource(Connection::from(new_connection));
-        // TODO: We can do this generically rather than manually setting it each time
-        next_state.set(ClientGameState::WaitForServerInfo);
-        // don't allow game focus when disconnected
-        next_focus.set(InputFocus::Game);
+        commands.set_state_if_neq(ClientGameState::WaitForServer);
+        commands.set_state_if_neq(InputFocus::Game);
     }
 
     pub mod frame {
@@ -1017,12 +1032,15 @@ mod systems {
             server_events: Res<Messages<ServerMessage>>,
             asset_server: Res<AssetServer>,
             demos: Res<Assets<Demo>>,
+            state: Res<State<ClientGameState>>,
         ) -> Result<ConnectionStatus, ClientError> {
-            if time.elapsed() < conn.last_msg_time {
-                return Ok(ConnectionStatus::Maintain);
-            } else if conn.last_msg_time > time.elapsed() + time.max_delta() {
-                *time = Time::from_max_delta(time.max_delta());
-                time.advance_to(conn.last_msg_time);
+            // Fast-forward until we get to the point where we're actually in-game
+            if *state.get() == ClientGameState::InGame {
+                if time.elapsed() < conn.last_msg_time {
+                    return Ok(ConnectionStatus::Maintain);
+                } else if conn.last_msg_time > time.elapsed() {
+                    time.advance_to(conn.last_msg_time);
+                }
             }
 
             // TODO: Shuld "wait for demo load" logic be in its own system?
@@ -1061,16 +1079,15 @@ mod systems {
         #[expect(clippy::too_many_arguments)]
         pub fn execute_server_msg(
             In(status): In<Result<ConnectionStatus, ClientError>>,
-            mut commands: Commands,
-            mut next_state: ResMut<NextState<ClientGameState>>,
-            mut conn: ResMut<Connection>,
-            settings: Res<SeismonGameSettings>,
-            time: Res<Time<Virtual>>,
-            asset_server: Res<AssetServer>,
-            registry: Res<Registry>,
             mut pending_messages: Local<VecDeque<ServerCmd>>,
+            mut commands: Commands,
+            mut conn: ResMut<Connection>,
             mut server_cmds: MessageReader<ServerCmd>,
             mut console_output: ResMut<ConsoleOutput>,
+            settings: Res<SeismonGameSettings>,
+            wall_time: Res<Time<Real>>,
+            asset_server: Res<AssetServer>,
+            registry: Res<Registry>,
             transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
@@ -1081,21 +1098,6 @@ mod systems {
             }
 
             let kick_vars: KickVars = registry.read_cvars()?;
-            // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
-            // recognise symbols as valid strings, so we need to use
-            // `.value().as_name()` and can't use `read_cvars`.
-            // TODO: Use `nu` (https://github.com/eira-fransham/seismon/issues/44)
-            let client_vars: ClientVars = ClientVars {
-                name: registry
-                    .get_cvar("_cl_name")
-                    .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
-                        backtrace: snafu::Backtrace::capture(),
-                    }))?
-                    .value()
-                    .as_name()
-                    .unwrap_or("player"),
-                color: registry.read_cvar("_cl_color")?,
-            };
 
             macro_rules! msg_todo {
                 ($cmd_name:expr) => {{ debug!("TODO: {}", $cmd_name) }};
@@ -1141,15 +1143,15 @@ mod systems {
                             Err(ClientError::UnrecognizedProtocol(protocol_version))?;
                         }
 
-                        console_output.println_alert(CONSOLE_DIVIDER, &time);
-                        console_output.println_alert(message.raw, &time);
-                        console_output.println_alert(CONSOLE_DIVIDER, &time);
+                        console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
+                        console_output.println_alert(message.raw, &wall_time);
+                        console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
 
                         if let Some(state) = conn.client_state.as_ref() {
                             commands.entity(state.worldspawn).despawn();
                         }
 
-                        let mut new_worldspawn = commands.spawn(Visibility::Visible);
+                        let mut new_worldspawn = commands.spawn(Visibility::Hidden);
 
                         conn.client_state = Some(ClientState::from_server_info(
                             &mut new_worldspawn,
@@ -1158,8 +1160,8 @@ mod systems {
                             sound_precache,
                         )?);
 
-                        next_state.set(ClientGameState::Loading);
-                        break S::Break;
+                        commands.set_state_if_neq(ClientGameState::Loading);
+                        break S::Maintain;
                     }
 
                     ServerCmd::Bad => {
@@ -1175,7 +1177,7 @@ mod systems {
                     }
 
                     ServerCmd::CenterPrint { text } => {
-                        console_output.set_center_print(text, &time);
+                        console_output.set_center_print(text, &wall_time);
                     }
 
                     ServerCmd::PlayerData(player_data) => {
@@ -1201,7 +1203,7 @@ mod systems {
 
                     ServerCmd::FastUpdate(ent_update) => {
                         // first update signals the last sign-on stage
-                        conn.handle_signon(SignOnStage::Done, &client_vars)?;
+                        commands.set_state_if_neq(SignOn(SignOnStage::Done));
 
                         commands.run_system_cached_with(
                             ClientState::update_entity,
@@ -1226,7 +1228,7 @@ mod systems {
                         msg_todo!("particle")
                     }
 
-                    ServerCmd::Print { text } => console_output.print_alert(text.raw, &time),
+                    ServerCmd::Print { text } => console_output.print_alert(text.raw, &wall_time),
 
                     ServerCmd::SetAngle { angles } => {
                         if let Some(state) = conn.client_state.as_mut()
@@ -1305,7 +1307,7 @@ mod systems {
                     }
 
                     ServerCmd::SignOnStage { stage } => {
-                        conn.handle_signon(stage, &client_vars)?;
+                        commands.set_state_if_neq(SignOn(stage));
                     }
 
                     ServerCmd::Sound {
@@ -1353,6 +1355,22 @@ mod systems {
                                     origin,
                                 }));
                             }
+                        }
+                    }
+
+                    ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
+                        if let Some(state) = conn.client_state.as_ref()
+                            && let Some(sound) = state.sounds.get(sound_id as usize)
+                        {
+                            commands.write_message(MixerMessage::StartStaticSound(
+                                StartStaticSound {
+                                    world: state.worldspawn,
+                                    src: sound.clone(),
+                                    origin,
+                                    volume: volume as f32 / 255.,
+                                    attenuation: attenuation as f32 / 64.,
+                                },
+                            ));
                         }
                     }
 
@@ -1404,22 +1422,6 @@ mod systems {
                         }
                     }
 
-                    ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
-                        if let Some(state) = conn.client_state.as_ref()
-                            && let Some(sound) = state.sounds.get(sound_id as usize)
-                        {
-                            commands.write_message(MixerMessage::StartStaticSound(
-                                StartStaticSound {
-                                    world: state.worldspawn,
-                                    src: sound.clone(),
-                                    origin,
-                                    volume: volume as f32 / 255.,
-                                    attenuation: attenuation as f32 / 64.,
-                                },
-                            ));
-                        }
-                    }
-
                     ServerCmd::TempEntity { temp_entity: _ } => {
                         msg_todo!("temp entity");
                     }
@@ -1429,7 +1431,7 @@ mod systems {
                             Ok(parsed) => {
                                 commands.write_message(parsed);
                             }
-                            Err(err) => console_output.println(format!("{err}"), &time),
+                            Err(err) => console_output.println(format!("{err}"), &wall_time),
                         }
                     }
 
@@ -1449,73 +1451,18 @@ mod systems {
                     }
 
                     ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // match conn.client_state.player_info[player_id] {
-                        //     Some(ref mut info) => {
-                        //         trace!(
-                        //             "Player {} (ID {}) colors: {:?} -> {:?}",
-                        //             info.name, player_id, info.colors, new_colors,
-                        //         );
-                        //         info.colors = new_colors;
-                        //     }
-
-                        //     None => {
-                        //         error!(
-                        //             "Attempted to set colors on nonexistent player with ID {}",
-                        //             player_id
-                        //         );
-                        //     }
-                        // }
+                        msg_todo!("update colors");
                     }
 
                     ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // match conn.client_state.player_info[player_id] {
-                        //     Some(ref mut info) => {
-                        //         trace!(
-                        //             "Player {} (ID {}) frags: {} -> {}",
-                        //             &info.name, player_id, info.frags, new_frags
-                        //         );
-                        //         info.frags = new_frags as i32;
-                        //     }
-                        //     None => {
-                        //         error!(
-                        //             "Attempted to set frags on nonexistent player with ID {}",
-                        //             player_id
-                        //         );
-                        //     }
-                        // }
+                        msg_todo!("update frags");
                     }
-
                     ServerCmd::UpdateName { player_id: _, new_name: _ } => {
-                        // let player_id = player_id as usize;
-                        // conn.client_state.check_player_id(player_id)?;
-
-                        // if let Some(ref mut info) = conn.client_state.player_info[player_id] {
-                        //     // if this player is already connected, it's a name change
-                        //     debug!("Player {} has changed name to {}", &info.name, &new_name);
-                        //     info.name = new_name.into_string().into();
-                        // } else {
-                        //     // if this player is not connected, it's a join
-                        //     debug!("Player {} with ID {} has joined", &new_name, player_id);
-                        //     conn.client_state.player_info[player_id] = Some(PlayerInfo {
-                        //         name: new_name.into_string().into(),
-                        //         colors: PlayerColor::new(0, 0),
-                        //         frags: 0,
-                        //     });
-                        // }
+                        msg_todo!("update name");
                     }
 
                     ServerCmd::UpdateStat { stat: _, value: _ } => {
-                        // debug!(
-                        //     "{:?}: {} -> {}",
-                        //     stat, conn.client_state.stats[stat as usize], value
-                        // );
-                        // conn.client_state.stats[stat as usize] = value;
+                        msg_todo!("Update stat");
                     }
 
                     ServerCmd::Version { version } => {
@@ -1572,24 +1519,7 @@ mod systems {
                 }
             }
 
-            // these all require the player entity to have spawned
-            // TODO: Need to improve this code - maybe split it out into surrounding function?
-            // if let ConnectionStage::Connected = todo!() {
-            //     // update view
-            //     // conn.client_state.calc_final_view(
-            //     //     idle_vars,
-            //     //     kick_vars,
-            //     //     roll_vars,
-            //     //     if conn.client_state.intermission().is_none() {
-            //     //         bob_vars
-            //     //     } else {
-            //     //         default()
-            //     //     },
-            //     // );
-
-            //     // // update camera color shifts for new position/effects
-            //     // conn.client_state.update_color_shifts(frame_time)?;
-            // }
+            // TODO: Reimplement `calc_final_view` and `update_color_shifts`
 
             Ok(ConnectionStatus::Maintain)
         }
@@ -1604,7 +1534,7 @@ mod systems {
         ) -> Result<(), ClientError> {
             use ConnectionStatus as S;
             let new_conn = match status? {
-                S::Break | S::Maintain => return Ok(()),
+                S::Maintain => return Ok(()),
                 // if client is already disconnected, this is a no-op
                 S::Disconnect => None,
 

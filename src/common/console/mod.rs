@@ -4,6 +4,7 @@ use std::{
     io, iter,
     marker::PhantomData,
     mem,
+    ops::Range,
     str::FromStr,
     time::Duration,
 };
@@ -1595,9 +1596,11 @@ pub struct ConsoleText {
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Timestamp {
-    pub timestamp: i64,
-    pub generation: u16,
+struct Timestamp {
+    timestamp: i64,
+    /// Extra tag to ensure that messages with the same timestamp are still emitted in the order
+    /// they were added
+    generation: u16,
 }
 
 impl Timestamp {
@@ -1618,29 +1621,29 @@ pub struct ConsoleOutput {
 
 #[derive(Resource, Default)]
 pub struct RenderConsoleOutput {
-    pub text_chunks: BTreeMap<Timestamp, ConsoleText>,
-    pub center_print: (Timestamp, QString),
+    text_chunks: BTreeMap<Timestamp, ConsoleText>,
+    center_print: (Timestamp, QString),
 }
 
-fn elapsed_millis(time: &Time<impl Default>) -> i64 {
-    time.elapsed().as_millis().try_into().expect("Elapsed overflowed i64")
+fn millis_i64(duration: Duration) -> i64 {
+    duration.as_millis().try_into().expect("Elapsed overflowed i64")
 }
 
 impl ConsoleOutput {
-    pub fn print<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
-        self.push(s, elapsed_millis(timestamp), OutputType::Console);
+    pub fn print<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<Real>) {
+        self.push(s, millis_i64(timestamp.elapsed()), OutputType::Console);
     }
 
-    pub fn print_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
-        self.push(s, elapsed_millis(timestamp), OutputType::Alert);
+    pub fn print_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<Real>) {
+        self.push(s, millis_i64(timestamp.elapsed()), OutputType::Alert);
     }
 
-    pub fn println<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
-        self.push_line(s, elapsed_millis(timestamp), OutputType::Console);
+    pub fn println<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<Real>) {
+        self.push_line(s, millis_i64(timestamp.elapsed()), OutputType::Console);
     }
 
-    pub fn println_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<impl Default>) {
-        self.push_line(s, elapsed_millis(timestamp), OutputType::Alert);
+    pub fn println_alert<S: AsRef<[u8]>>(&mut self, s: S, timestamp: &Time<Real>) {
+        self.push_line(s, millis_i64(timestamp.elapsed()), OutputType::Alert);
     }
 
     pub fn new() -> ConsoleOutput {
@@ -1708,19 +1711,17 @@ impl ConsoleOutput {
         out
     }
 
-    pub fn set_center_print<S: Into<QString>>(&mut self, print: S, timestamp: &Time<impl Default>) {
+    pub fn set_center_print<S: Into<QString>>(&mut self, print: S, timestamp: &Time<Real>) {
         let generation = self.generation();
         self.center_print =
-            Some((Timestamp::new(elapsed_millis(timestamp), generation), print.into()));
+            Some((Timestamp::new(millis_i64(timestamp.elapsed()), generation), print.into()));
     }
 
-    pub fn drain_center_print(&mut self) -> Option<(Timestamp, QString)> {
+    fn drain_center_print(&mut self) -> Option<(Timestamp, QString)> {
         self.center_print.take()
     }
 
-    pub fn drain_unwritten(
-        &mut self,
-    ) -> impl ExactSizeIterator<Item = (Timestamp, ConsoleText)> + '_ {
+    fn drain_unwritten(&mut self) -> impl ExactSizeIterator<Item = (Timestamp, ConsoleText)> + '_ {
         self.unwritten_chunks.drain(..)
     }
 }
@@ -1731,9 +1732,7 @@ impl RenderConsoleOutput {
     }
 
     pub fn center_print(&self, since: Duration) -> Option<QStr<'_>> {
-        if self.center_print.0.timestamp
-            >= i64::try_from(since.as_millis()).expect("Time overflowed i64")
-        {
+        if self.center_print.0.timestamp >= millis_i64(since) {
             Some(self.center_print.1.reborrow())
         } else {
             None
@@ -1748,7 +1747,7 @@ impl RenderConsoleOutput {
     /// `max_candidates` specifies the maximum number of lines to consider,
     /// while `max_results` specifies the maximum number of lines that should
     /// be returned.
-    pub fn recent(&self, since: i64) -> impl Iterator<Item = (i64, &ConsoleText)> + '_ {
+    pub fn recent(&self, since: i64) -> impl DoubleEndedIterator<Item = (i64, &ConsoleText)> + '_ {
         self.text_chunks
             .range(Timestamp::new(since, 0)..)
             .map(|(Timestamp { timestamp: k, .. }, v)| (*k, v))
@@ -1757,7 +1756,7 @@ impl RenderConsoleOutput {
 
 #[derive(Component, Default)]
 struct AlertOutput {
-    last_timestamp: Option<i64>,
+    timestamp_range: Range<Option<i64>>,
 }
 
 #[derive(Resource)]
@@ -1956,7 +1955,7 @@ mod systems {
 
         let center_time = registry.read_cvar::<f32>("scr_centertime").unwrap_or(2.);
         if !render_out.center_print.1.is_empty()
-            && i64::try_from(time.elapsed().as_millis()).expect("Time overflowed i64")
+            && millis_i64(time.elapsed())
                 > (render_out.center_print.0.timestamp + (center_time * 1000.) as i64)
         {
             render_out.center_print.1.clear();
@@ -2026,41 +2025,56 @@ mod systems {
     }
 
     pub fn write_alert(
+        mut alert: Query<(&mut AtlasText, &mut AlertOutput)>,
         settings: Res<ConsoleAlertSettings>,
         time: Res<Time<Real>>,
         console_out: Res<RenderConsoleOutput>,
-        mut alert: Query<(&mut AtlasText, &mut AlertOutput)>,
     ) {
+        let elapsed = millis_i64(time.elapsed());
+        let timeout = millis_i64(settings.timeout);
+
+        let since = elapsed - timeout;
+        let mut lines = console_out
+            .recent(since)
+            .filter(|(_, line)| line.output_type == OutputType::Alert)
+            .map(|(ts, line)| (ts, &line.text));
+
+        // We read `last` first, as the most-recent timestamp is the more important case
+        let last = lines.next_back();
+        let last_timestamp = last.map(|(ts, _)| ts);
+
+        let first = lines.next();
+        let first_timestamp = first.map(|(ts, _)| ts);
+
+        let mut lines = Some(lines);
+
+        let mut cached_lines = Vec::new();
+
         for (mut text, mut alert) in alert.iter_mut() {
-            let elapsed = i64::try_from(time.elapsed().as_millis()).expect("Time overflowed i64");
-            let timeout =
-                i64::try_from(settings.timeout.as_millis()).expect("Timeout overflowed i64");
-
-            // Need to subtract then negate, as std time doesn't support negative durations.
-            let since = elapsed - timeout;
-            let mut lines = console_out
-                .recent(since)
-                .filter(|(_, line)| line.output_type == OutputType::Alert)
-                .map(|(ts, line)| (ts, &line.text))
-                .take(settings.max_lines);
-
-            let first = lines.next();
-            let last_timestamp = first.map(|(ts, _)| ts);
-
-            if last_timestamp == alert.last_timestamp {
+            if alert.timestamp_range.start == first_timestamp
+                && alert.timestamp_range.end == last_timestamp
+            {
                 continue;
             }
 
-            alert.last_timestamp = last_timestamp;
+            // We do this here in order to avoid reading the iterator and allocating a vec if no alerts need to be updated.
+            if let Some(lines) = lines.take() {
+                cached_lines.reserve(settings.max_lines);
+                // Lines to emit in reverse order. `- 2` because we already popped two items (first and last).
+                cached_lines.extend(
+                    last.into_iter()
+                        .chain(lines.rev().take(settings.max_lines.saturating_sub(2)))
+                        .chain(first),
+                );
+            }
+
+            alert.timestamp_range = first_timestamp..last_timestamp;
 
             text.text.clear();
 
-            let Some((_, first)) = first else {
-                continue;
-            };
-            text.text.push_bytes(first);
-
-            for (_, line) in lines {
+            // Take the last N lines and then emit them in the order that they
+            // were returned from `recent` - so we need to `.rev` twice.
+            for (_, line) in cached_lines.iter().rev() {
                 text.text.push_bytes(&*line.raw);
             }
         }

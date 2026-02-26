@@ -223,8 +223,8 @@ mod systems {
                         DEFAULT_SOUND_PACKET_ATTENUATION
                     };
                     commands.spawn((
-                        ChildOf(sound.entity),
                         Sound,
+                        ChildOf(sound.entity),
                         Channel { channel: sound.ent_channel },
                         SamplePlayer::new(sound.src.clone()),
                         Transform::from_translation(sound.origin.into()),

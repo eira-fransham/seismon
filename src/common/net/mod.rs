@@ -548,7 +548,7 @@ impl TempEntity {
     }
 }
 
-#[derive(Default, Copy, Clone, Ord, Debug, Eq, FromPrimitive, PartialOrd, PartialEq)]
+#[derive(Default, Copy, Clone, Ord, Debug, Eq, FromPrimitive, PartialOrd, PartialEq, Hash)]
 pub enum SignOnStage {
     #[default]
     Not = 0,

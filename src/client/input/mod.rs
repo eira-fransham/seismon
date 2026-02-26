@@ -150,7 +150,7 @@ pub mod systems {
         input: Res<GameInput>,
         mut console_in: ResMut<ConsoleInput>,
         mut console_out: ResMut<ConsoleOutput>,
-        time: Res<Time<Virtual>>,
+        wall_time: Res<Time<Real>>,
         registry: Res<Registry>,
     ) {
         // TODO: Use a thread_local vector instead of reallocating
@@ -196,8 +196,8 @@ pub mod systems {
         ) {
             match exec {
                 Ok(cmd) => {
-                    console_out.print(ConsoleInput::PROMPT, &*time);
-                    console_out.println(&cmd, &*time);
+                    console_out.print(ConsoleInput::PROMPT, &*wall_time);
+                    console_out.println(&cmd, &*wall_time);
 
                     let cmd = RunCmd::parse(&cmd);
 

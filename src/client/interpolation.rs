@@ -6,7 +6,7 @@ use bevy::{
     ecs::{
         component::{Component, Mutable},
         entity::Entity,
-        query::Changed,
+        query::{Changed, Or, With, Without},
         reflect::ReflectComponent,
         schedule::IntoScheduleConfigs as _,
         system::{Commands, Query, Res},
@@ -28,7 +28,10 @@ impl InterpolateApp for App {
         C: Default + Clone + Component<Mutability = Mutable> + Animatable,
         T: Default + Send + Sync + 'static,
     {
-        self.add_systems(Last, (interpolate::<C, T>, swap_prev_next::<C>).chain())
+        self.add_systems(
+            Last,
+            (no_interpolate::<C>, (interpolate::<C, T>, next_to_prev::<C>).chain()),
+        )
     }
 }
 
@@ -61,28 +64,32 @@ where
 #[reflect(Component)]
 pub struct NoInterpolation;
 
+fn no_interpolate<C>(
+    components: Query<(&Next<C>, &mut C), Or<(With<NoInterpolation>, Without<Prev<C>>)>>,
+) where
+    C: Default + Clone + Component<Mutability = Mutable> + Animatable,
+{
+    for (next, mut cur) in components {
+        *cur = next.component.clone();
+    }
+}
+
 fn interpolate<C, T>(
-    components: Query<(Option<&Prev<C>>, &Next<C>, &mut C, Option<&NoInterpolation>)>,
+    components: Query<(&Prev<C>, &Next<C>, &mut C), Without<NoInterpolation>>,
     time: Res<Time<T>>,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
     T: Default + Send + Sync + 'static,
 {
-    for (prev, next, mut cur, no_interp) in components {
-        if no_interp.is_none()
-            && let Some(prev) = prev
-        {
-            let range = next.elapsed_secs - prev.0.elapsed_secs;
-            let factor = ((time.elapsed_secs_f64() - prev.0.elapsed_secs) / range).clamp(0., 1.);
+    for (prev, next, mut cur) in components {
+        let range = next.elapsed_secs - prev.0.elapsed_secs;
+        let factor = ((time.elapsed_secs_f64() - prev.0.elapsed_secs) / range).clamp(0., 1.);
 
-            *cur = C::interpolate(&prev.0.component, &next.component, factor as f32);
-        } else {
-            *cur = next.component.clone();
-        }
+        *cur = C::interpolate(&prev.0.component, &next.component, factor as f32);
     }
 }
 
-fn swap_prev_next<C>(
+fn next_to_prev<C>(
     components: Query<(Entity, Option<&mut OldNext<C>>, &mut Next<C>), Changed<Next<C>>>,
     mut commands: Commands,
 ) where

@@ -24,9 +24,8 @@ pub mod world;
 
 use std::{
     cell::RefCell,
-    ffi::CStr,
     fmt::{self},
-    io::{Read, Write},
+    io::Write,
     ops::{Bound, RangeBounds as _},
     time::Duration,
 };
@@ -77,7 +76,7 @@ use bevy::{
     time::TimePlugin,
 };
 use bitflags::bitflags;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt as _};
+use byteorder::{LittleEndian, WriteBytesExt as _};
 use failure::bail;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;

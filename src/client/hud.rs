@@ -15,7 +15,7 @@ use bevy::{
         reflect::ReflectComponent,
         system::{Command, Commands, Query, Res},
     },
-    log::error,
+    log::{error, warn},
     reflect::Reflect,
     ui::{
         Display, FlexDirection, JustifyContent, JustifySelf, Node, PositionType, UiRect, Val,
@@ -51,8 +51,10 @@ where
     _phantom: PhantomData<Kind>,
 }
 
+// Marker for the HUD weapon container
 pub enum HudWeapons {}
 
+// Marker for the HUD ammo container
 pub enum HudAmmo {}
 
 #[derive(Component, Reflect, Debug)]
@@ -292,11 +294,11 @@ pub fn update_ammo(
         let mut text = [0u8; 3];
 
         if let Err(e) = write!(std::io::Cursor::new(&mut text[..]), "{: >3}", ammo.amount) {
-            error!("Could not fully write ammo counter: {e}");
+            warn!("Could not fully write ammo counter: {e}");
         }
 
         let Ok(mut hud) = atlas_text.get_mut(hud.0) else {
-            error!("HUD element representing ammo does not have a text component");
+            warn!("HUD element representing ammo does not have a text component");
             continue;
         };
 
