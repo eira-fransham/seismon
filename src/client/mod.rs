@@ -34,7 +34,7 @@ use crate::{
         view::KickVars,
     },
     common::{
-        self,
+        self, Template,
         console::{ConsoleError, ConsoleOutput, RunCmd, SeismonClientConsolePlugin},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
@@ -49,8 +49,8 @@ use crate::{
 use beef::Cow;
 use bevy::{
     asset::{AssetServer, LoadState},
+    camera::visibility::{Layer, RenderLayers},
     ecs::{
-        entity_disabling::Disabled,
         message::MessageCursor,
         system::{Res, ResMut},
     },
@@ -65,6 +65,7 @@ use seismon_utils::{QAngles, QString};
 use serde::Deserialize;
 use sound::SoundError;
 use thiserror::Error;
+use wgpu::BlendState;
 
 // connections are tried 3 times, see
 // https://github.com/id-Software/Quake/blob/master/WinQuake/net_dgrm.c#L1248
@@ -106,19 +107,27 @@ impl SeismonClientPlugin {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct CameraTemplates {
+    /// The camera used to render the world
+    pub world: Option<Entity>,
+    /// The camera used to render the viewmodel and HUD
+    pub overlay: Option<Entity>,
+}
+
 #[derive(Clone, Resource)]
 pub struct SeismonGameSettings {
     pub base_dir: PathBuf,
     pub game: Option<String>,
-    pub camera_template: Entity,
-    default_camera_template: Entity,
+    pub camera_templates: CameraTemplates,
+    default_world_camera_template: Entity,
+    default_overlay_camera_template: Entity,
 }
 
-const DEFAULT_AMBIENT_LIGHT: f32 = 120.;
-
-/// The default set of components for the camera.
-pub fn default_camera() -> impl Bundle {
+/// The default set of components for the camera used to render the world.
+pub fn default_world_camera() -> impl Bundle {
     (
+        Name::new("World Camera"),
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection { fov: 90_f32.to_radians(), ..default() }),
         Transform::from_translation(Vec3::new(0.0, 0.0, 22.0)).with_rotation(Quat::from_euler(
@@ -128,12 +137,32 @@ pub fn default_camera() -> impl Bundle {
             0.,
         )),
         Visibility::Visible,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: DEFAULT_AMBIENT_LIGHT,
-            affects_lightmapped_meshes: false,
+        Template,
+    )
+}
+
+pub const OVERLAY_RENDER_LAYER: Layer = 1;
+
+/// The default set of components for the camera used to render the viewmodel and UI.
+pub fn default_overlay_camera() -> impl Bundle {
+    (
+        Name::new("Overlay Camera"),
+        Camera3d::default(),
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::Custom(Color::srgba(0., 0., 0., 0.)),
+            output_mode: bevy::camera::CameraOutputMode::Write {
+                blend_state: Some(BlendState::ALPHA_BLENDING),
+                clear_color: ClearColorConfig::None,
+            },
+            ..Default::default()
         },
-        Disabled,
+        IsDefaultUiCamera,
+        RenderLayers::layer(OVERLAY_RENDER_LAYER),
+        // Approximated from Source engine default FoV
+        Projection::Perspective(PerspectiveProjection { fov: 54_f32.to_radians(), ..default() }),
+        Visibility::Visible,
+        Template,
     )
 }
 
@@ -155,7 +184,10 @@ where
             app.insert_resource(menu);
         }
 
-        let camera_template = app.world_mut().spawn(default_camera()).id();
+        let default_world_camera_template = app.world_mut().spawn(default_world_camera()).id();
+        let default_overlay_camera_template = app.world_mut().spawn(default_overlay_camera()).id();
+
+        app.register_disabling_component::<Template>();
 
         let app = app
             .init_asset::<Palette>()
@@ -167,8 +199,9 @@ where
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
                 game: self.game.clone(),
-                camera_template,
-                default_camera_template: camera_template,
+                camera_templates: Default::default(),
+                default_world_camera_template,
+                default_overlay_camera_template,
             })
             .init_state::<ClientGameState>()
             .init_state::<SignOn>()
@@ -187,6 +220,7 @@ where
             // TODO: Extract to HUD plugin
             .add_observer(self::hud::add_weapon_hud)
             .add_observer(self::hud::add_ammo_hud)
+            .add_observer(observers::apply_render_layers_to_children)
             .add_systems(Startup, self::loading_screen::init_loading_screen)
             .add_systems(
                 Last,
@@ -737,6 +771,38 @@ pub struct Impulse(pub u8);
 #[derive(States, Clone, Default, PartialEq, Eq, Hash, Debug)]
 pub struct SignOn(pub SignOnStage);
 
+mod observers {
+    use bevy::{
+        camera::visibility::RenderLayers,
+        ecs::{
+            hierarchy::Children,
+            observer::On,
+            query::Without,
+            system::{Commands, Query},
+        },
+        scene::SceneInstanceReady,
+        transform::components::Transform,
+    };
+
+    // Somewhat hacky, but applies the `RenderLayers` of a parent entity to its children from a scene
+    pub fn apply_render_layers_to_children(
+        trigger: On<SceneInstanceReady>,
+        mut commands: Commands,
+        children: Query<&Children>,
+        transforms: Query<&Transform, Without<RenderLayers>>,
+        query: Query<&RenderLayers>,
+    ) {
+        let Ok(render_layers) = query.get(trigger.entity) else {
+            return;
+        };
+        children.iter_descendants(trigger.entity).for_each(|entity| {
+            if transforms.contains(entity) {
+                commands.entity(entity).insert(render_layers.clone());
+            }
+        });
+    }
+}
+
 mod systems {
     use bevy::window::{CursorGrabMode, CursorOptions};
     use bevy_trenchbroom::bsp::Bsp;
@@ -760,6 +826,9 @@ mod systems {
         let max_delta = time.max_delta();
         *time = Time::from_max_delta(max_delta);
         time.advance_to(conn.last_msg_time.saturating_sub(max_delta));
+
+        #[cfg(feature = "dev-tools")]
+        time.pause();
 
         *visibility.get_mut(state.worldspawn).unwrap() = Visibility::Visible;
     }
@@ -1278,26 +1347,53 @@ mod systems {
 
                             let view_entity = view_entity.id();
 
-                            let mut camera_entity =
-                                match commands.get_entity(settings.camera_template) {
-                                    Ok(ent) => ent,
-                                    Err(_) => {
-                                        if let Ok(ent) =
-                                            commands.get_entity(settings.default_camera_template)
-                                        {
-                                            ent
-                                        } else {
-                                            warn!("No camera template");
-                                            continue;
-                                        }
+                            let mut world_camera_entity = match settings
+                                .camera_templates
+                                .world
+                                .and_then(|cam| commands.get_entity(cam).ok())
+                            {
+                                Some(ent) => ent,
+                                None => {
+                                    if let Ok(ent) =
+                                        commands.get_entity(settings.default_world_camera_template)
+                                    {
+                                        ent
+                                    } else {
+                                        warn!("No world camera template");
+                                        continue;
                                     }
-                                };
+                                }
+                            };
 
-                            camera_entity
+                            world_camera_entity
                                 .clone_and_spawn_with_opt_out(|builder| {
-                                    builder.deny::<Disabled>();
+                                    builder.deny::<Template>();
                                 })
                                 .insert((ViewFor(view_entity), ChildOf(view_entity)));
+
+                            let mut overlay_camera_entity = match settings
+                                .camera_templates
+                                .overlay
+                                .and_then(|cam| commands.get_entity(cam).ok())
+                            {
+                                Some(ent) => ent,
+                                None => {
+                                    if let Ok(ent) = commands
+                                        .get_entity(settings.default_overlay_camera_template)
+                                    {
+                                        ent
+                                    } else {
+                                        warn!("No overlay camera template");
+                                        continue;
+                                    }
+                                }
+                            };
+
+                            overlay_camera_entity
+                                .clone_and_spawn_with_opt_out(|builder| {
+                                    builder.deny::<Template>();
+                                })
+                                .insert((ViewFor(view_entity), ChildOf(state.worldspawn)));
 
                             commands.queue(MakeHud {
                                 owner: view_entity,

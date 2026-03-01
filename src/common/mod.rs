@@ -33,6 +33,9 @@ pub mod wad;
 
 use bevy::prelude::*;
 
+#[derive(Component, Default, Copy, Clone, Reflect)]
+pub struct Template;
+
 pub fn default_base_dir() -> std::path::PathBuf {
     match std::env::current_dir() {
         Ok(cwd) => cwd,

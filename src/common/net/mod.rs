@@ -572,12 +572,12 @@ bitflags! {
 pub struct EntityState {
     pub origin: Vec3,
     pub angles: Vec3,
-    pub model_id: usize,
-    pub frame_id: usize,
+    pub model_id: u8,
+    pub frame_id: u8,
 
     // TODO: more specific types for these
     pub colormap: u8,
-    pub skin_id: usize,
+    pub skin_id: u8,
     pub effects: EntityEffects,
 }
 
@@ -609,10 +609,10 @@ impl EntityState {
     pub fn make_update(&self, ent_id: u16, baseline: &Self) -> EntityUpdate {
         EntityUpdate {
             ent_id,
-            model_id: Some(self.model_id as _).filter(|v| *v != baseline.model_id as u8),
-            frame_id: Some(self.frame_id as _).filter(|v| *v != baseline.frame_id as u8),
-            colormap: Some(self.colormap as _).filter(|v| *v != baseline.colormap),
-            skin_id: Some(self.skin_id as _).filter(|v| *v != baseline.skin_id as u8),
+            model_id: Some(self.model_id).filter(|v| *v != baseline.model_id),
+            frame_id: Some(self.frame_id).filter(|v| *v != baseline.frame_id),
+            colormap: Some(self.colormap).filter(|v| *v != baseline.colormap),
+            skin_id: Some(self.skin_id).filter(|v| *v != baseline.skin_id),
             effects: Some(self.effects).filter(|v| *v != baseline.effects),
             origin_x: Some(self.origin.x).filter(|v| *v != baseline.origin.x),
             pitch: Some(self.angles.x).filter(|v| *v != baseline.angles.x),
@@ -878,9 +878,9 @@ impl EntityUpdate {
                 self.yaw.unwrap_or(baseline.angles[1]),
                 self.roll.unwrap_or(baseline.angles[2]),
             ),
-            model_id: self.model_id.map_or(baseline.model_id, |m| m as usize),
-            frame_id: self.frame_id.map_or(baseline.frame_id, |f| f as usize),
-            skin_id: self.skin_id.map_or(baseline.skin_id, |s| s as usize),
+            model_id: self.model_id.map_or(baseline.model_id, |m| m),
+            frame_id: self.frame_id.map_or(baseline.frame_id, |f| f),
+            skin_id: self.skin_id.map_or(baseline.skin_id, |s| s),
             effects: self.effects.unwrap_or(baseline.effects),
             colormap: self.colormap.unwrap_or(baseline.colormap),
         }

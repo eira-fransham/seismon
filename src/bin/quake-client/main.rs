@@ -23,8 +23,13 @@ use bevy_mod_pakfile::PakfilePlugin;
 use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
 use seismon::{
-    client::{SeismonClientPlugin, SeismonGameSettings, default_camera},
-    common::console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
+    client::{
+        SeismonClientPlugin, SeismonGameSettings, default_overlay_camera, default_world_camera,
+    },
+    common::{
+        Template,
+        console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
+    },
     server::SeismonListenServerPlugin,
 };
 use serde_lexpr::Value;
@@ -40,7 +45,7 @@ struct Opt {
     commands: Vec<String>,
 }
 
-fn cmd_exposure(In(val): In<Value>, mut exposures: Query<&mut Exposure>) {
+fn cmd_exposure(In(val): In<Value>, mut exposures: Query<(&mut Exposure, Has<Template>)>) {
     let new_exposure = match val.as_name() {
         Some("indoor") => Exposure::INDOOR,
         Some("blender") => Exposure::BLENDER,
@@ -55,12 +60,15 @@ fn cmd_exposure(In(val): In<Value>, mut exposures: Query<&mut Exposure>) {
         },
     };
 
-    for mut exposure in &mut exposures {
+    for (mut exposure, _) in &mut exposures {
         *exposure = new_exposure;
     }
 }
 
-fn cmd_saturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorGrading>) {
+fn cmd_saturation(
+    In(saturation): In<Value>,
+    mut gradings: Query<(&mut ColorGrading, Has<Template>)>,
+) {
     let saturation: f32 = match serde_lexpr::from_value(&saturation) {
         Ok(saturation) => saturation,
         Err(_) => {
@@ -69,14 +77,17 @@ fn cmd_saturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorGradi
         }
     };
 
-    for mut grading in &mut gradings {
+    for (mut grading, _) in &mut gradings {
         grading.highlights.saturation = saturation;
         grading.midtones.saturation = saturation;
         grading.shadows.saturation = saturation;
     }
 }
 
-fn cmd_postsaturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorGrading>) {
+fn cmd_postsaturation(
+    In(saturation): In<Value>,
+    mut gradings: Query<(&mut ColorGrading, Has<Template>)>,
+) {
     let saturation: f32 = match serde_lexpr::from_value(&saturation) {
         Ok(saturation) => saturation,
         Err(_) => {
@@ -85,12 +96,12 @@ fn cmd_postsaturation(In(saturation): In<Value>, mut gradings: Query<&mut ColorG
         }
     };
 
-    for mut grading in &mut gradings {
+    for (mut grading, _) in &mut gradings {
         grading.global.post_saturation = saturation;
     }
 }
 
-fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
+fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<(&mut ColorGrading, Has<Template>)>) {
     let gamma: f32 = match serde_lexpr::from_value(&gamma) {
         Ok(gamma) => gamma,
         Err(_) => {
@@ -99,7 +110,7 @@ fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
         }
     };
 
-    for mut grading in &mut gradings {
+    for (mut grading, _) in &mut gradings {
         grading.highlights.gamma = gamma;
         grading.midtones.gamma = gamma;
         grading.shadows.gamma = gamma;
@@ -107,8 +118,9 @@ fn cmd_gamma(In(gamma): In<Value>, mut gradings: Query<&mut ColorGrading>) {
 }
 
 fn cmd_tonemapping(In(new_tonemapping): In<Value>, mut tonemapping: Query<&mut Tonemapping>) {
-    let new_tonemapping = match new_tonemapping.as_name() {
+    let new_tonemapping = match new_tonemapping.as_name().map(|s| s.to_lowercase()).as_deref() {
         Some("tmmf") => Tonemapping::TonyMcMapface,
+        Some("agx") => Tonemapping::AgX,
         Some("aces") => Tonemapping::AcesFitted,
         Some("blender") => Tonemapping::BlenderFilmic,
         Some("sbdt") => Tonemapping::SomewhatBoringDisplayTransform,
@@ -142,20 +154,22 @@ fn startup(
           mut input: ResMut<ConsoleInput>,
           mut game_settings: ResMut<SeismonGameSettings>,
           mut console_cmds| {
-        let camera_bundle = (
-            default_camera(),
-            Hdr,
-            Exposure::INDOOR,
-            Msaa::Sample2,
-            Bloom::default(),
-            SpatialListener3D,
-        );
-        #[cfg(feature = "capture")]
-        let camera_bundle = (camera_bundle, CaptureBundle::default());
-        // main game camera
-        let camera_template = commands.spawn(camera_bundle).id();
+        let quake_camera_bundle =
+            (Hdr, Tonemapping::TonyMcMapface, Exposure::BLENDER, Msaa::Sample2, Bloom::default());
 
-        game_settings.camera_template = camera_template;
+        let world_camera_bundle =
+            (default_world_camera(), SpatialListener3D, quake_camera_bundle.clone());
+        #[cfg(feature = "capture")]
+        let world_camera_bundle = (world_camera_bundle, CaptureBundle::default());
+        let overlay_camera_bundle = (default_overlay_camera(), quake_camera_bundle);
+
+        // main game camera
+        let world_camera_template = commands.spawn(world_camera_bundle).id();
+        // overlay camera for viewmodel/HUD
+        let overlay_camera_template = commands.spawn(overlay_camera_bundle).id();
+
+        game_settings.camera_templates.world = Some(world_camera_template);
+        game_settings.camera_templates.overlay = Some(overlay_camera_template);
 
         console_cmds.write(RunCmd::parse("exec quake.rc").unwrap());
 
@@ -247,7 +261,7 @@ fn main() -> ExitCode {
         )
         .cvar_on_set(
             "r_exposure",
-            "indoor",
+            "blender",
             cmd_exposure,
             "Set the physically-based exposure of the screen: indoor, sunlight, overcast, blender, or a specific ev100 value",
         )
@@ -271,9 +285,9 @@ fn main() -> ExitCode {
         )
         .cvar_on_set(
             "r_tonemapping",
-            "blender",
+            "tmmf",
             cmd_tonemapping,
-            "Set the tonemapping type - Tony McMapFace (TMMF), ACES, Blender Filmic, Somewhat Boring Display Transform (SBBT), or none",
+            "Set the tonemapping type - Tony McMapFace (tmmf), AgX, ACES, Blender Filmic (blender), Somewhat Boring Display Transform (sbdt), or none",
         )// .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 

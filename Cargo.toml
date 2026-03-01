@@ -106,7 +106,7 @@ arrayvec = "0.7"
 bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { git = "https://github.com/eira-fransham/bevy_seedling.git", branch = "ignore-already-deleted-entities" }
 bevy_mod_scripting.workspace = true
-bevy-inspector-egui = "0.36"
+bevy-inspector-egui = { version = "0.36", optional = true }
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
@@ -135,7 +135,7 @@ winit = "0.29"
 default = []
 fast-compile = ["bevy/dynamic_linking"]
 capture = ["dep:bevy_capture"]
-dev-tools = ["bevy/bevy_dev_tools"]
+dev-tools = ["dep:bevy-inspector-egui", "bevy/bevy_dev_tools"]
 
 [profile.bin-release]
 inherits = "release"

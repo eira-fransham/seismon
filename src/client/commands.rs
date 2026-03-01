@@ -68,6 +68,22 @@ pub fn register_commands(app: &mut App) {
         },
     );
 
+    // TODO: Support server pause
+    #[derive(Parser)]
+    #[command(name = "pausedemo", about = "Pause/unpause demo playback")]
+    struct PauseDemo;
+
+    // set up overlay/ui toggles
+    app.command(|In(PauseDemo), mut time: ResMut<Time<Virtual>>| {
+        if time.is_paused() {
+            time.unpause();
+        } else {
+            time.pause();
+        }
+
+        ExecResult::default()
+    });
+
     #[derive(Parser)]
     #[command(name = "togglemenu", about = "Open or close the menu")]
     struct ToggleMenu;

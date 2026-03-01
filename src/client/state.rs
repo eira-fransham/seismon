@@ -3,26 +3,29 @@ use std::{iter, mem};
 use super::view::BobVars;
 use crate::{
     client::{
-        ClientError, Connection,
+        ClientError, Connection, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
         inventory::{Health, RemoveWeapon, UpdateAmmoCount},
+        systems::frame::{ViewEntities, ViewFor},
         view::{IdleVars, KickVars, RollVars},
     },
     common::net::{EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData},
 };
 use bevy::{
     asset::{AssetPath, AssetServer, Handle},
-    camera::visibility::Visibility,
+    camera::visibility::{RenderLayers, Visibility},
     ecs::{
         component::Component,
         entity::Entity,
-        hierarchy::{ChildOf, Children},
+        hierarchy::ChildOf,
         name::Name,
+        query::With,
         reflect::ReflectComponent,
+        relationship::RelationshipTarget as _,
         system::{Commands, EntityCommands, In, Query, Res, ResMut},
     },
     log::*,
-    math::Vec3,
+    math::{EulerRot, Quat, Vec3},
     reflect::Reflect,
     scene::{Scene, SceneRoot},
     transform::components::Transform,
@@ -61,6 +64,10 @@ pub enum PrecacheModel {
     WaitingOnWorldspawn(usize),
     Loaded(Handle<Scene>),
 }
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct ViewModel;
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -271,11 +278,11 @@ impl ClientState {
             origin,
             angles,
             model_id,
+            frame_id: frame,
+            skin_id: skin,
 
             // TODO
-            frame_id: _,
             colormap: _,
-            skin_id: _,
             effects: _,
         } = baseline;
 
@@ -285,7 +292,7 @@ impl ClientState {
             trace!("Spawning world: {baseline:?}");
         }
 
-        let model = self.models.get(model_id).cloned();
+        let model = self.models.get(model_id as usize).cloned();
         let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
             .with_rotation(QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into());
         let transform = Next { component: transform, elapsed_secs: msg_time };
@@ -310,7 +317,7 @@ impl ClientState {
         };
 
         if let Some(PrecacheModel::Loaded(model)) = model {
-            ent.insert(SceneRoot(model));
+            ent.insert((SceneRoot(model), MdlSettings { frame, skin }));
         } else {
             error!("Tried to insert model but it wasn't loaded yet");
         }
@@ -321,6 +328,10 @@ impl ClientState {
         In(player_data): In<PlayerData>,
         conn: Res<Connection>,
         mut existing_data: Query<(&mut PlayerState, &mut Health)>,
+        // TODO: We should just add a single `IsPlayer` component (or similar) that adds `PlayerState`,
+        // `Health` and `ViewEntities`
+        view_entities: Query<&ViewEntities>,
+        mut view_models: Query<(&mut SceneRoot, &mut MdlSettings), With<ViewModel>>,
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
@@ -341,13 +352,58 @@ impl ClientState {
             return;
         };
 
+        if let Ok(view_entities) = view_entities.get(ent)
+            && let Some(existing_scene) =
+                // TODO: This is pretty jank, it involves fetching the viewmodel 3 times.
+                view_entities.iter().find(|view| view_models.get(*view).is_ok())
+        {
+            let (mut existing_scene, mut existing_settings) = view_models
+                .get_mut(existing_scene)
+                .expect("TODO: We should only need to fetch the viewmodel once");
+
+            if let Some(model_id) = player_data.weapon_model_id
+                && let Some(PrecacheModel::Loaded(model)) =
+                    state.models.get(model_id as usize).cloned()
+                && existing_scene.0 != model
+            {
+                existing_scene.0 = model;
+            }
+
+            let new_frame = player_data.weapon_frame.unwrap_or_default();
+            if existing_settings.frame != new_frame {
+                existing_settings.frame = new_frame;
+            }
+        } else if let Some(model_id) = player_data.weapon_model_id
+            && let Some(PrecacheModel::Loaded(model)) = state.models.get(model_id as usize).cloned()
+        {
+            commands.spawn((
+                Name::new("Viewmodel"),
+                ViewModel,
+                Visibility::Visible,
+                SceneRoot(model),
+                Transform::from_translation(Vec3::new(0., -12., 0.)).with_rotation(
+                    Quat::from_euler(
+                        EulerRot::XYZ,
+                        0.,
+                        -std::f32::consts::FRAC_PI_2,
+                        -std::f32::consts::FRAC_PI_2,
+                    ),
+                ),
+                MdlSettings { frame: player_data.weapon_frame.unwrap_or_default(), skin: 0 },
+                RenderLayers::layer(OVERLAY_RENDER_LAYER),
+                ViewFor(ent),
+            ));
+        }
+
         let existing_flags = if let Ok((mut existing, mut health)) = existing_data.get_mut(ent) {
             health.0 = player_data.health;
+
             std::mem::replace(&mut existing.items, player_data.items)
         } else {
             commands
                 .entity(ent)
                 .insert((PlayerState { items: player_data.items }, Health(player_data.health)));
+
             commands.queue(AddAmmo::<Shells>::new(ent));
             commands.queue(AddAmmo::<Nails>::new(ent));
             commands.queue(AddAmmo::<Rockets>::new(ent));
@@ -416,9 +472,7 @@ impl ClientState {
         In((update, msg_time)): In<(EntityUpdate, f64)>,
         mut commands: Commands<'_, '_>,
         mut conn: ResMut<Connection>,
-        mut existing_entities: Query<&mut Next<Transform>>,
-        children: Query<&Children>,
-        mut models: Query<&mut MdlSettings>,
+        mut existing_entities: Query<(&mut Next<Transform>, Option<&mut MdlSettings>)>,
     ) {
         let Some(state) = conn.client_state.as_mut() else {
             return;
@@ -434,7 +488,13 @@ impl ClientState {
                 && let Some(PrecacheModel::Loaded(model)) =
                     state.models.get(model_id as usize).cloned()
             {
-                commands.entity(*entity).insert(SceneRoot(model));
+                commands.entity(*entity).insert((
+                    SceneRoot(model),
+                    MdlSettings {
+                        frame: update.frame_id.unwrap_or_default(),
+                        skin: update.skin_id.unwrap_or_default(),
+                    },
+                ));
             }
 
             let mut ent = commands.entity(*entity);
@@ -449,12 +509,14 @@ impl ClientState {
                 ent.remove::<NoInterpolation>();
             }
 
-            if let Ok(mut transform) = existing_entities.get_mut(*entity) {
-                if let Some(new_frame) = update.frame_id {
-                    for child in children.iter_descendants(*entity) {
-                        if let Ok(mut mdl) = models.get_mut(child) {
-                            mdl.frame = new_frame as usize;
-                        }
+            if let Ok((mut transform, mdl)) = existing_entities.get_mut(*entity) {
+                if let Some(mut mdl) = mdl {
+                    if let Some(new_frame) = update.frame_id {
+                        mdl.frame = new_frame;
+                    }
+
+                    if let Some(new_skin) = update.skin_id {
+                        mdl.skin = new_skin;
                     }
                 }
 
@@ -530,7 +592,13 @@ impl ClientState {
             if let Some(PrecacheModel::Loaded(model)) =
                 update.model_id.and_then(|model_id| state.models.get(model_id as usize).cloned())
             {
-                ent.insert(SceneRoot(model));
+                ent.insert((
+                    SceneRoot(model),
+                    MdlSettings {
+                        frame: update.frame_id.unwrap_or_default(),
+                        skin: update.skin_id.unwrap_or_default(),
+                    },
+                ));
             } else {
                 warn!("Model {model_id} not found (TODO)");
             }

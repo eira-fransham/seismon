@@ -2,8 +2,10 @@ use bevy_app::{Plugin, PostUpdate};
 use bevy_asset::{Asset, AssetApp, AssetLoader, Assets, Handle, RenderAssetUsages};
 use bevy_ecs::{
     component::Component,
+    hierarchy::ChildOf,
     query::Changed,
     reflect::ReflectComponent,
+    schedule::IntoScheduleConfigs as _,
     system::{EntityCommand, Query, Res},
     world::{EntityWorldMut, World},
 };
@@ -154,10 +156,10 @@ async fn load_mdl(
     /// This seems to make the models the expected colour, while also preventing issues
     /// with `unlit: true` (particularly, exposure-independence). The lightmap exposure
     /// is taken from `bevy_trenchbroom`, since the exposure should match. It's unclear
-    /// why `3` seems to be the value that looks the best on the models.
+    /// why `2` seems to be the value that looks the best on the models.
     ///
     /// > TODO: Revisit this and figure out how to calculate the best lightmap brightness
-    const MDL_LIGHTMAP_COLOR: [u8; 4] = [3, 3, 3, 255];
+    const MDL_LIGHTMAP_COLOR: [u8; 4] = [2, 2, 2, 255];
     const TRENCHBROOM_LIGHTMAP_EXPOSURE: f32 = 10_000.;
 
     fn translate_tex(tex: &[u8], width: u32, height: u32, palette: &Palette) -> Image {
@@ -463,7 +465,7 @@ async fn load_mdl_as_scene(
 
     let texture = GenericMaterial3d(mdl.textures.get(0).ok_or(MdlFileError::NoSkins)?.clone());
 
-    let mesh = Mesh3d(mdl.default_mesh.clone());
+    let mesh = Mesh3d(Handle::default());
 
     let mut world = World::new();
 
@@ -473,7 +475,7 @@ async fn load_mdl_as_scene(
 
     world.spawn((
         transform,
-        MdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
+        CalculatedMdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
         Lightmap { image: lightmap, uv_rect: Rect::new(0., 0., 1., 1.), bicubic_sampling: false },
         anim_player,
         texture,
@@ -486,17 +488,39 @@ async fn load_mdl_as_scene(
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct MdlSettings {
-    pub frame: usize,
-    pub skin: usize,
+    pub frame: u8,
+    pub skin: u8,
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+struct CalculatedMdlSettings {
+    pub frame: u8,
+    pub skin: u8,
     pub mdl: Handle<Mdl>,
-    cur_animation: usize,
-    cur_skin: usize,
+    cur_animation: u8,
+    cur_skin: u8,
+}
+
+pub(crate) fn propagate_mdl_settings(
+    // TODO: This will propagate the wrong mdl settings in case multiple exist
+    mdl_settings: Query<&MdlSettings, Changed<MdlSettings>>,
+    calculated_mdl_settings: Query<(&mut CalculatedMdlSettings, &ChildOf)>,
+) {
+    for (mut calculated, ChildOf(parent)) in calculated_mdl_settings {
+        let Ok(new_settings) = mdl_settings.get(*parent) else {
+            continue;
+        };
+
+        calculated.frame = new_settings.frame;
+        calculated.skin = new_settings.skin;
+    }
 }
 
 fn update_mdls(
     entities: Query<
-        (&mut MdlSettings, &mut MeshAnimPlayer, &mut GenericMaterial3d),
-        Changed<MdlSettings>,
+        (&mut CalculatedMdlSettings, &mut MeshAnimPlayer, &mut GenericMaterial3d),
+        Changed<CalculatedMdlSettings>,
     >,
     mdls: Res<Assets<Mdl>>,
 ) {
@@ -509,7 +533,7 @@ fn update_mdls(
 
         'set_anim: {
             if settings.frame != settings.cur_animation {
-                let Some(anim_mesh) = mdl.animations.get(settings.frame) else {
+                let Some(anim_mesh) = mdl.animations.get(settings.frame as usize) else {
                     error!("Missing animation {}", settings.frame);
                     break 'set_anim;
                 };
@@ -521,7 +545,7 @@ fn update_mdls(
 
         'set_skin: {
             if settings.skin != settings.cur_skin {
-                let Some(skin) = mdl.textures.get(settings.skin) else {
+                let Some(skin) = mdl.textures.get(settings.skin as usize) else {
                     error!("Missing skin {}", settings.skin);
                     break 'set_skin;
                 };
@@ -563,6 +587,9 @@ impl Plugin for MdlPlugin {
             .register_type::<MdlSettings>()
             .register_type::<MeshAnimPlayer>()
             .register_asset_loader(MdlLoader::default())
-            .add_systems(PostUpdate, (update_mdls, anim::animate_mesh_animations));
+            .add_systems(
+                PostUpdate,
+                (propagate_mdl_settings, update_mdls, anim::animate_mesh_animations).chain(),
+            );
     }
 }

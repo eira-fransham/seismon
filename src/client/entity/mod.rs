@@ -54,10 +54,10 @@ pub struct ClientEntity {
     pub origin: Vec3,
     pub msg_angles: [Vec3; 2],
     pub angles: Vec3,
-    pub model_id: usize,
+    pub model_id: u8,
     model_changed: bool,
-    pub frame_id: usize,
-    pub skin_id: usize,
+    pub frame_id: u8,
+    pub skin_id: u8,
     pub colormap: Option<u8>,
     pub sync_base: Duration,
     pub effects: EntityEffects,
@@ -189,15 +189,15 @@ impl ClientEntity {
         self.angles
     }
 
-    pub fn model_id(&self) -> usize {
+    pub fn model_id(&self) -> u8 {
         self.model_id
     }
 
-    pub fn frame_id(&self) -> usize {
+    pub fn frame_id(&self) -> u8 {
         self.frame_id
     }
 
-    pub fn skin_id(&self) -> usize {
+    pub fn skin_id(&self) -> u8 {
         self.skin_id
     }
 }
