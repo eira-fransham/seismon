@@ -1,16 +1,18 @@
 use std::{
+    any::Any,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{self, Write},
     io, iter,
     marker::PhantomData,
     mem,
-    ops::Range,
+    ops::{ControlFlow, Range},
     str::FromStr,
     time::Duration,
 };
 
 use beef::Cow;
 use bevy::{
+    asset::AssetLoader,
     ecs::{prelude::Command, resource::Resource, system::SystemId, world::World},
     prelude::*,
 };
@@ -62,13 +64,17 @@ impl Plugin for SeismonConsoleCorePlugin {
         struct ResetAll;
 
         app.init_resource::<Registry>()
+            .init_resource::<PendingCommands>()
             .add_message::<RunCmd<'static>>()
-            .command(|In(StuffCmds), mut input: ResMut<ConsoleInput>| -> ExecResult {
-                ExecResult {
-                    extra_commands: Box::new(mem::take(&mut input.stuffcmds).into_iter()),
-                    ..default()
-                }
-            })
+            .command(
+                |In(StuffCmds),
+                 mut input: ResMut<ConsoleInput>,
+                 mut pending_commands: ResMut<PendingCommands>| {
+                    for cmd in input.stuffcmds.drain(..).rev() {
+                        pending_commands.0.push_front(cmd);
+                    }
+                },
+            )
             .command(|In(Help { arg_name }), registry: Res<Registry>| -> ExecResult {
                 let args =
                     arg_name.map(|arg| itertools::Either::Left(iter::once(arg))).unwrap_or_else(
@@ -112,13 +118,14 @@ impl Plugin for SeismonConsoleCorePlugin {
 
                 default()
             })
-            .add_systems(PostUpdate, (systems::execute_console, systems::update_cvars));
+            .add_systems(PostUpdate, (systems::populate_pending, systems::execute_console).chain())
+            .add_systems(PostUpdate, systems::update_cvars);
     }
 }
 
-pub struct SeismonClientConsolePlugin;
+pub struct SeismonConsoleRenderPlugin;
 
-impl Plugin for SeismonClientConsolePlugin {
+impl Plugin for SeismonConsoleRenderPlugin {
     fn build(&self, app: &mut App) {
         let vfs = app.world().resource::<Vfs>();
 
@@ -251,7 +258,101 @@ pub fn cvar_error_handler(In(result): In<Result<(), ConsoleError>>) {
     }
 }
 
-type BuiltinSystem = SystemId<In<Box<[String]>>, ExecResult>;
+pub trait FromWithWorld<Other> {
+    fn from_with_world(other: Other, world: &mut World) -> Self;
+}
+
+pub trait IntoWithWorld<Other> {
+    fn into_with_world(self, world: &mut World) -> Other;
+}
+
+impl<T, U> FromWithWorld<T> for U
+where
+    U: From<T>,
+{
+    fn from_with_world(other: T, _: &mut World) -> Self {
+        Self::from(other)
+    }
+}
+
+impl<T, U> IntoWithWorld<T> for U
+where
+    T: FromWithWorld<U>,
+{
+    fn into_with_world(self, world: &mut World) -> T {
+        T::from_with_world(self, world)
+    }
+}
+
+pub struct CommandIncomplete<T, S, O, M>
+where
+    T: ?Sized,
+{
+    pub context: Box<T>,
+    pub system: S,
+    pub marker: PhantomData<(O, M)>,
+}
+
+type ErasedCommandIncomplete = CommandIncomplete<
+    dyn Any + Send,
+    SystemId<In<Box<dyn Any + Send>>, ErasedBuiltinSystemReturn>,
+    ErasedBuiltinSystemReturn,
+    (),
+>;
+
+impl<T, S, O, M> FromWithWorld<CommandIncomplete<T, S, O, M>> for ErasedBuiltinSystemReturn
+where
+    T: Any + Send,
+    S: IntoSystem<In<Box<T>>, O, M> + 'static,
+    O: IntoWithWorld<Self> + 'static,
+{
+    fn from_with_world(other: CommandIncomplete<T, S, O, M>, world: &mut World) -> Self {
+        let erased_system = |In(any): In<Box<dyn Any + Send>>| {
+            any.downcast().expect("Invalid context passed to command continuation")
+        };
+        let erased_system_id = world.register_system_cached(
+            erased_system
+                .pipe(other.system)
+                .pipe(|In(out): In<O>, world: &mut World| out.into_with_world(world)),
+        );
+
+        Self::ContinueWith(CommandIncomplete {
+            context: other.context,
+            system: erased_system_id,
+            marker: PhantomData,
+        })
+    }
+}
+
+impl<Context, Out> From<ControlFlow<Out, Box<Context>>> for ErasedBuiltinSystemReturn
+where
+    Context: Any + Send,
+    Out: Into<ExecResult> + Send,
+{
+    fn from(other: ControlFlow<Out, Box<Context>>) -> Self {
+        match other {
+            ControlFlow::Continue(context) => Self::Continue(context),
+            ControlFlow::Break(exec_result) => Self::Done(exec_result.into()),
+        }
+    }
+}
+
+pub enum ErasedBuiltinSystemReturn {
+    Continue(Box<dyn Any + Send>),
+    ContinueWith(ErasedCommandIncomplete),
+    Done(ExecResult),
+}
+
+impl<T> From<T> for ErasedBuiltinSystemReturn
+where
+    T: Into<ExecResult>,
+{
+    fn from(value: T) -> Self {
+        Self::Done(value.into())
+    }
+}
+
+type BuiltinSystem = SystemId<In<Box<[String]>>, ErasedBuiltinSystemReturn>;
 type ActionSystem = SystemId<In<(Trigger, Box<[String]>)>, ()>;
 type OnSetCvarSystem = SystemId<In<Value>>;
 
@@ -405,10 +506,11 @@ impl From<String> for RunCmd<'static> {
 }
 
 pub trait RegisterCmdExt {
-    fn command<A, S, M>(&mut self, run: S) -> &mut Self
+    fn command<A, O, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static;
+        S: IntoSystem<In<A>, O, M> + 'static,
+        O: IntoWithWorld<ErasedBuiltinSystemReturn> + 'static;
 
     fn action<N>(&mut self, name: N) -> &mut Self
     where
@@ -434,12 +536,13 @@ pub trait RegisterCmdExt {
 }
 
 impl RegisterCmdExt for App {
-    fn command<A, S, M>(&mut self, run: S) -> &mut Self
+    fn command<A, O, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+        S: IntoSystem<In<A>, O, M> + 'static,
+        O: IntoWithWorld<ErasedBuiltinSystemReturn> + 'static,
     {
-        self.world_mut().command::<A, S, M>(run);
+        self.world_mut().command::<A, O, S, M>(run);
 
         self
     }
@@ -486,12 +589,13 @@ impl RegisterCmdExt for App {
 }
 
 impl RegisterCmdExt for SubApp {
-    fn command<A, S, M>(&mut self, run: S) -> &mut Self
+    fn command<A, O, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+        S: IntoSystem<In<A>, O, M> + 'static,
+        O: IntoWithWorld<ErasedBuiltinSystemReturn> + 'static,
     {
-        self.world_mut().command::<A, S, M>(run);
+        self.world_mut().command::<A, O, S, M>(run);
 
         self
     }
@@ -550,10 +654,11 @@ where
 }
 
 impl RegisterCmdExt for World {
-    fn command<A, S, M>(&mut self, run: S) -> &mut Self
+    fn command<A, O, S, M>(&mut self, run: S) -> &mut Self
     where
         A: Parser + 'static,
-        S: IntoSystem<In<A>, ExecResult, M> + 'static,
+        S: IntoSystem<In<A>, O, M> + 'static,
+        O: IntoWithWorld<ErasedBuiltinSystemReturn> + 'static,
     {
         let mut command = A::command().no_binary_name(true);
         let command_name = Cow::from(command.get_name().to_owned());
@@ -562,15 +667,25 @@ impl RegisterCmdExt for World {
         let about = command.render_long_help();
         let run_sys = self.register_system(run);
         let sys = self.register_system(parse_args::<A>(command).pipe(
-            move |In(res): In<Result<A, clap::Error>>, world: &mut World| match res {
-                Ok(val) => world.run_system_with(run_sys, val).unwrap(),
-                Err(clap_err) => match clap_err.kind() {
-                    clap::error::ErrorKind::DisplayHelp
-                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
-                        format!("{short_about}").into()
+            move |In(res): In<Result<A, clap::Error>>,
+                  world: &mut World|
+                  -> ErasedBuiltinSystemReturn {
+                match res {
+                    Ok(val) => {
+                        let out_raw = world
+                            .run_system_with(run_sys, val)
+                            .expect("Tried to run unregistered command");
+
+                        out_raw.into_with_world(world)
                     }
-                    other => format!("{other}\n{usage}").into(),
-                },
+                    Err(clap_err) => match clap_err.kind() {
+                        clap::error::ErrorKind::DisplayHelp
+                        | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+                            format!("{short_about}").into()
+                        }
+                        other => format!("{other}\n{usage}").into(),
+                    },
+                }
             },
         ));
         self.resource_mut::<Registry>().command(command_name, sys, format!("{about}"));
@@ -652,20 +767,43 @@ impl Command for SetCvar {
     }
 }
 
-pub struct ExecResult {
-    pub extra_commands: Box<dyn DoubleEndedIterator<Item = RunCmd<'static>>>,
-    pub output: CName,
-    pub output_ty: OutputType,
+#[derive(Asset, Reflect)]
+pub struct TextAsset {
+    pub text: String,
 }
 
-impl Default for ExecResult {
-    fn default() -> Self {
-        Self {
-            extra_commands: Box::new(<[RunCmd; 0]>::into_iter([])),
-            output: default(),
-            output_ty: default(),
+#[derive(Default, Reflect)]
+#[non_exhaustive]
+pub struct TextLoader {}
+
+impl AssetLoader for TextLoader {
+    type Asset = TextAsset;
+    type Error = io::Error;
+    type Settings = ();
+
+    fn load(
+        &self,
+        reader: &mut dyn bevy::asset::io::Reader,
+        _: &Self::Settings,
+        _: &mut bevy::asset::LoadContext,
+    ) -> impl bevy::tasks::ConditionalSendFuture<Output = std::result::Result<Self::Asset, Self::Error>>
+    {
+        async move {
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).await?;
+            Ok(TextAsset { text: String::from_utf8(bytes).map_err(io::Error::other)? })
         }
     }
+
+    fn extensions(&self) -> &[&str] {
+        &["cfg", "rc"]
+    }
+}
+
+#[derive(Default)]
+pub struct ExecResult {
+    pub output: CName,
+    pub output_ty: OutputType,
 }
 
 impl From<String> for ExecResult {
@@ -683,6 +821,12 @@ impl From<&'static str> for ExecResult {
 impl From<CName> for ExecResult {
     fn from(value: CName) -> Self {
         Self { output: value, ..default() }
+    }
+}
+
+impl From<()> for ExecResult {
+    fn from(_: ()) -> Self {
+        Default::default()
     }
 }
 
@@ -765,7 +909,7 @@ impl Registry {
     /// Registers a new command with the given name.
     ///
     /// Returns an error if a command with the specified name already exists.
-    fn command<N, H>(&mut self, name: N, cmd: SystemId<In<Box<[String]>>, ExecResult>, help: H)
+    fn command<N, H>(&mut self, name: N, cmd: BuiltinSystem, help: H)
     where
         N: Into<CName>,
         H: Into<CName>,
@@ -1784,12 +1928,10 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct PendingCommands(pub VecDeque<RunCmd<'static>>);
 
 mod systems {
-    use std::collections::VecDeque;
-
     use crate::{
         client::text::AtlasText,
         common::net::{ClientCmd, ClientMessage, MessageKind},
@@ -2078,156 +2220,186 @@ mod systems {
         }
     }
 
-    pub fn execute_console(world: &mut World, mut pending: Local<VecDeque<RunCmd>>) {
-        pending.extend(world.resource_mut::<Messages<RunCmd>>().drain());
+    pub fn populate_pending(
+        mut messages: ResMut<Messages<RunCmd<'static>>>,
+        mut pending: ResMut<PendingCommands>,
+    ) {
+        pending.0.extend(messages.drain());
+    }
 
+    pub fn execute_console(
+        world: &mut World,
+        mut currently_running_command: Local<Option<ErasedCommandIncomplete>>,
+    ) {
         let mut changed_cvars = Vec::new();
 
         let mut unhandled_messages = Some(Vec::<UnhandledCmd>::new())
             .filter(|_| world.get_resource::<Messages<UnhandledCmd>>().is_some());
 
-        while let Some(cmd) = pending.pop_front() {
-            debug!(target: "console", "{cmd}");
-            let RunCmd(CmdName { mut name, trigger }, args) = cmd;
-            loop {
-                let (output, output_ty) = match world.resource_mut::<Registry>().get_mut(&*name) {
-                    Some(CommandImpl { kind, .. }) => {
-                        match (trigger, kind) {
-                            (None, CmdKind::Cvar { cvar, on_set }) => match args.split_first() {
-                                None => (
-                                    Cow::from(format!("\"{}\" is \"{}\"", name, cvar.value())),
-                                    OutputType::Console,
-                                ),
-                                Some((new_value, [])) => {
-                                    let new_value =
-                                        Value::from_str(new_value).unwrap_or_else(|_| {
-                                            Value::String(new_value.clone().into())
-                                        });
-
-                                    if cvar.value() != &new_value {
-                                        if let Some(on_set) = on_set {
-                                            changed_cvars
-                                                .push((EqHack(*on_set), new_value.clone()));
-                                        }
-
-                                        cvar.value = Some(new_value);
-                                    }
-
-                                    break;
-                                }
-                                Some(_) => (
-                                    Cow::from("Too many arguments, expected 1"),
-                                    OutputType::Console,
-                                ),
-                            },
-                            (Some(_), CmdKind::Cvar { .. }) => {
-                                (Cow::from(format!("{name} is a cvar")), OutputType::Console)
-                            }
-                            // Currently this allows action aliases - do we want that?
-                            (_, CmdKind::Alias(alias)) => {
-                                name = alias.clone();
-                                continue;
-                            }
-                            (None, CmdKind::Builtin(cmd)) => {
-                                let args = args.clone();
-                                let cmd = *cmd;
-
-                                match world.run_system_with(cmd, args) {
-                                    Err(_) => {
-                                        error!(
-                                            "Command handler was registered in console but not in world"
-                                        );
-                                        break;
-                                    }
-
-                                    Ok(ExecResult { extra_commands, output, output_ty }) => {
-                                        for command in extra_commands.rev() {
-                                            pending.push_front(command);
-                                        }
-
-                                        (output, output_ty)
-                                    }
-                                }
-                            }
-                            (Some(_), CmdKind::Builtin(_)) => (
-                                Cow::from(format!(
-                                    "{name} is a command, and cannot be invoked with +/-"
-                                )),
-                                OutputType::Console,
-                            ),
-                            (Some(trigger), CmdKind::Action { system, state }) => {
-                                if *state == trigger {
-                                    break;
-                                }
-
-                                let args = args.clone();
-                                *state = trigger;
-
-                                let Some(cmd) = system else {
-                                    // No invocation handler, just mark the pressed/released state
-                                    break;
-                                };
-
-                                let cmd = *cmd;
-
-                                match world.run_system_with(cmd, (trigger, args)) {
-                                    Err(_) => {
-                                        error!(
-                                            "Command handler was registered in console but not in world"
-                                        );
-                                        break;
-                                    }
-
-                                    Ok(()) => break,
-                                }
-                            }
-                            (None, CmdKind::Action { .. }) => (
-                                Cow::from(format!(
-                                    "{name} is an action, and must be invoked with +/-",
-                                )),
-                                OutputType::Console,
-                            ),
-                        }
-                    }
-                    None => {
-                        if let Some(unhandled_messages) = &mut unhandled_messages {
-                            // TODO: Receive cmd output from server(?)
-                            let output = Cow::from(format!("Sending \"{name}\" to server..."));
-                            unhandled_messages
-                                .push(UnhandledCmd(RunCmd(CmdName { name, trigger }, args)));
-                            (output, OutputType::Console)
-                        } else {
-                            (
-                                Cow::from(format!("Unrecognized comand \"{name}\"")),
-                                OutputType::Console,
-                            )
-                        }
-                    }
+        'execute: loop {
+            let ExecResult { output, output_ty } = if let Some(cmd) =
+                currently_running_command.take()
+            {
+                let Ok(result) = world.run_system_with(cmd.system, cmd.context) else {
+                    error!("Failure while running command continuation");
+                    continue;
                 };
 
-                if !output.is_empty() {
-                    let time = *world.resource::<Time<Real>>();
+                match result {
+                    ErasedBuiltinSystemReturn::Continue(context) => {
+                        *currently_running_command = Some(CommandIncomplete {
+                            context,
+                            system: cmd.system,
+                            marker: PhantomData,
+                        });
+                        break;
+                    }
+                    ErasedBuiltinSystemReturn::ContinueWith(command_incomplete) => {
+                        *currently_running_command = Some(command_incomplete);
+                        break;
+                    }
+                    ErasedBuiltinSystemReturn::Done(result) => result,
+                }
+            } else {
+                let Some(RunCmd(CmdName { mut name, trigger }, args)) =
+                    world.resource_mut::<PendingCommands>().0.pop_front()
+                else {
+                    break;
+                };
 
-                    if let Some(mut console_out) = world.get_resource_mut::<ConsoleOutput>() {
-                        match output_ty {
-                            OutputType::Console => console_out.println(output.as_bytes(), &time),
-                            OutputType::Alert => {
-                                console_out.println_alert(output.as_bytes(), &time)
+                loop {
+                    break match world.resource_mut::<Registry>().get_mut(&*name) {
+                        Some(CommandImpl { kind, .. }) => {
+                            match (trigger, kind) {
+                                (None, CmdKind::Cvar { cvar, on_set }) => {
+                                    match args.split_first() {
+                                        None => Cow::from(format!(
+                                            "\"{}\" is \"{}\"",
+                                            name,
+                                            cvar.value()
+                                        ))
+                                        .into(),
+                                        Some((new_value, [])) => {
+                                            let new_value = Value::from_str(new_value)
+                                                .unwrap_or_else(|_| {
+                                                    Value::String(new_value.clone().into())
+                                                });
+
+                                            if cvar.value() != &new_value {
+                                                if let Some(on_set) = on_set {
+                                                    changed_cvars
+                                                        .push((EqHack(*on_set), new_value.clone()));
+                                                }
+
+                                                cvar.value = Some(new_value);
+                                            }
+
+                                            break 'execute;
+                                        }
+                                        Some(_) => {
+                                            Cow::from("Too many arguments, expected 1").into()
+                                        }
+                                    }
+                                }
+                                (Some(_), CmdKind::Cvar { .. }) => {
+                                    Cow::from(format!("{name} is a cvar")).into()
+                                }
+                                // Currently this allows action aliases - do we want that?
+                                (_, CmdKind::Alias(alias)) => {
+                                    name = alias.clone();
+                                    continue;
+                                }
+                                (None, CmdKind::Builtin(cmd)) => {
+                                    let args = args.clone();
+                                    let cmd = *cmd;
+
+                                    let Ok(result) = world.run_system_with(cmd, args) else {
+                                        error!("Failure while running command continuation");
+                                        continue;
+                                    };
+
+                                    match result {
+                                        ErasedBuiltinSystemReturn::Continue(_) => panic!(
+                                            "Misconfigured command: returned `Continue` without a first continuation"
+                                        ),
+                                        ErasedBuiltinSystemReturn::ContinueWith(
+                                            command_incomplete,
+                                        ) => {
+                                            *currently_running_command = Some(command_incomplete);
+                                            return;
+                                        }
+                                        ErasedBuiltinSystemReturn::Done(result) => result,
+                                    }
+                                }
+                                (Some(_), CmdKind::Builtin(_)) => {
+                                    format!("{name} is a command, and cannot be invoked with +/-")
+                                        .into()
+                                }
+                                (Some(trigger), CmdKind::Action { system, state }) => {
+                                    if *state == trigger {
+                                        continue 'execute;
+                                    }
+
+                                    let args = args.clone();
+                                    *state = trigger;
+
+                                    let Some(cmd) = system else {
+                                        // No invocation handler, just mark the pressed/released state
+                                        continue 'execute;
+                                    };
+
+                                    let cmd = *cmd;
+
+                                    match world.run_system_with(cmd, (trigger, args)) {
+                                        Err(_) => {
+                                            error!(
+                                                "Command handler was registered in console but not in world"
+                                            );
+                                            continue 'execute;
+                                        }
+
+                                        Ok(()) => continue 'execute,
+                                    }
+                                }
+                                (None, CmdKind::Action { .. }) => {
+                                    format!("{name} is an action, and must be invoked with +/-",)
+                                        .into()
+                                }
                             }
                         }
-                    } else {
-                        match output_ty {
-                            OutputType::Console => {
-                                info!("{output}");
+                        None => {
+                            if let Some(unhandled_messages) = &mut unhandled_messages {
+                                // TODO: Receive cmd output from server(?)
+                                let output = Cow::from(format!("Sending \"{name}\" to server..."));
+                                unhandled_messages
+                                    .push(UnhandledCmd(RunCmd(CmdName { name, trigger }, args)));
+                                output.into()
+                            } else {
+                                format!("Unrecognized comand \"{name}\"").into()
                             }
-                            OutputType::Alert => {
-                                warn!("{output}");
-                            }
+                        }
+                    };
+                }
+            };
+
+            if !output.is_empty() {
+                let time = *world.resource::<Time<Real>>();
+
+                if let Some(mut console_out) = world.get_resource_mut::<ConsoleOutput>() {
+                    match output_ty {
+                        OutputType::Console => console_out.println(output.as_bytes(), &time),
+                        OutputType::Alert => console_out.println_alert(output.as_bytes(), &time),
+                    }
+                } else {
+                    match output_ty {
+                        OutputType::Console => {
+                            info!("{output}");
+                        }
+                        OutputType::Alert => {
+                            warn!("{output}");
                         }
                     }
                 }
-
-                break;
             }
         }
 

@@ -71,7 +71,7 @@ snafu = { version = "0.8" }
 strip-ansi-escapes = "0.2"
 termion = "4.0"
 thiserror = "1.0"
-tokio = "1.47"
+tokio = "1.49"
 unicode-width = "0.2"
 qbsp = { version = "0.14", features = ["bevy_reflect", "serde"] }
 

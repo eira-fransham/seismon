@@ -1,14 +1,16 @@
-use std::io::Read as _;
+use std::{marker::PhantomData, ops::ControlFlow};
 
-use bevy::prelude::*;
+use bevy::{asset::LoadState, prelude::*};
 use clap::Parser;
 
 use crate::{
     client::NewConnection,
     common::{
-        console::{AliasInfo, ExecResult, RegisterCmdExt as _, Registry, RunCmd},
+        console::{
+            AliasInfo, CommandIncomplete, ExecResult, PendingCommands, RegisterCmdExt as _,
+            Registry, RunCmd, TextAsset,
+        },
         net::{ClientCmd, ClientMessage, MessageKind, ServerMessage, SignOnStage},
-        vfs::Vfs,
     },
     server::Session,
 };
@@ -64,7 +66,7 @@ pub fn register_commands(app: &mut App) {
                 }
             }
 
-            ExecResult::default()
+            ""
         },
     );
 
@@ -331,36 +333,62 @@ pub fn register_commands(app: &mut App) {
         cfgs: Vec<String>,
     }
 
-    app.command(move |In(Exec { cfgs }), vfs: Res<Vfs>| {
-        let mut script = String::new();
+    app.command(move |In(Exec { cfgs }), world: &mut World| {
+        fn continuation(
+            // Have to double-box because we can't downcast `Box<dyn Any>` to `Box<[..]>`
+            // Handles are in reverse order to allow `pop`
+            In(mut cfg_handles): In<Box<Vec<Handle<TextAsset>>>>,
+            asset_server: Res<AssetServer>,
+            assets: Res<Assets<TextAsset>>,
+            mut pending_commands: ResMut<PendingCommands>,
+        ) -> ControlFlow<ExecResult, Box<Vec<Handle<TextAsset>>>> {
+            while let Some(cfg) = cfg_handles.pop() {
+                match asset_server.load_state(&cfg) {
+                    LoadState::Loaded => {}
+                    LoadState::Loading => {
+                        cfg_handles.push(cfg);
 
-        for cfg in &cfgs {
-            let mut script_file = match vfs.open(cfg) {
-                Ok(s) => s,
-                Err(e) => {
-                    return ExecResult {
-                        output: format!("Couldn't exec {cfg}: {e}").into(),
-                        ..default()
-                    };
+                        return ControlFlow::Continue(cfg_handles);
+                    }
+                    LoadState::NotLoaded => {
+                        return ControlFlow::Break(
+                            "Failed to exec file: load not initiated correctly".into(),
+                        );
+                    }
+                    LoadState::Failed(asset_load_error) => {
+                        return ControlFlow::Break(
+                            format!("Failed to exec file: {asset_load_error}").into(),
+                        );
+                    }
                 }
-            };
 
-            // TODO: Error handling
-            script_file.read_to_string(&mut script).unwrap();
-            script.push('\n');
+                let script_file =
+                    assets.get(&cfg).expect("Asset marked loaded but it was not found");
+
+                match RunCmd::parse_many(&script_file.text) {
+                    Ok(commands) => {
+                        for cmd in commands.into_iter().rev() {
+                            pending_commands.0.push_front(cmd.into_owned());
+                        }
+                    }
+                    Err(e) => {
+                        return ControlFlow::Break(format!("Couldn't parse file: {e}").into());
+                    }
+                }
+            }
+
+            ControlFlow::Break("".into())
         }
 
-        let script = match RunCmd::parse_many(&script) {
-            Ok(commands) => commands,
-            Err(e) => {
-                return ExecResult { output: format!("Couldn't exec: {e}").into(), ..default() };
-            }
-        };
+        let asset_server = world.resource::<AssetServer>();
+        // Reversed order so we can `pop` in the continuation
+        let cfg_handles = cfgs.iter().rev().map(|cfg| asset_server.load(cfg)).collect::<Vec<_>>();
 
-        let extra_commands =
-            Box::new(script.into_iter().map(RunCmd::into_owned).collect::<Vec<_>>().into_iter());
-
-        ExecResult { extra_commands, ..default() }
+        CommandIncomplete {
+            context: Box::new(cfg_handles),
+            system: continuation,
+            marker: PhantomData,
+        }
     });
 
     // #[derive(Parser)]

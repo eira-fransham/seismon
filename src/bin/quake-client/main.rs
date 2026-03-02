@@ -40,12 +40,15 @@ struct Opt {
     commands: Vec<String>,
 }
 
+const DEFAULT_EXPOSURE: Exposure = Exposure { ev100: 7.8 };
+
 fn cmd_exposure(In(val): In<Value>, mut exposures: Query<(&mut Exposure, Has<Template>)>) {
     let new_exposure = match val.as_name() {
         Some("indoor") => Exposure::INDOOR,
         Some("blender") => Exposure::BLENDER,
         Some("sunlight") => Exposure::SUNLIGHT,
         Some("overcast") => Exposure::OVERCAST,
+        Some("default") => DEFAULT_EXPOSURE,
         _ => match serde_lexpr::from_value(&val) {
             Ok(exposure) => Exposure { ev100: exposure },
             Err(_) => {
@@ -250,7 +253,7 @@ fn main() -> ExitCode {
         )
         .cvar_on_set(
             "r_exposure",
-            "blender",
+            "default",
             cmd_exposure,
             "Set the physically-based exposure of the screen: indoor, sunlight, overcast, blender, or a specific ev100 value",
         )
@@ -274,7 +277,7 @@ fn main() -> ExitCode {
         )
         .cvar_on_set(
             "r_tonemapping",
-            "tmmf",
+            "blender",
             cmd_tonemapping,
             "Set the tonemapping type - Tony McMapFace (tmmf), AgX, ACES, Blender Filmic (blender), Somewhat Boring Display Transform (sbdt), or none",
         )// .insert_resource(DefaultOpaqueRendererMethod::deferred())

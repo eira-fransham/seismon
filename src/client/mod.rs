@@ -35,7 +35,9 @@ use crate::{
     },
     common::{
         self, Template,
-        console::{ConsoleError, ConsoleOutput, RunCmd, SeismonClientConsolePlugin},
+        console::{
+            ConsoleError, ConsoleOutput, RunCmd, SeismonConsoleRenderPlugin, TextAsset, TextLoader,
+        },
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
             QSocket, ServerCmd, ServerMessage, SignOnStage,
@@ -192,9 +194,15 @@ where
         let app = app
             .init_asset::<Palette>()
             .init_asset::<Wad>()
+            .init_asset::<TextAsset>()
             .init_asset_loader::<QPicLoader>()
             .init_asset_loader::<PaletteLoader>()
             .init_asset_loader::<WadLoader>()
+            // TODO: We need to do this here to prevent the server and client from both trying to register it,
+            // but realistically we need a better solution. The client is the main focus for now, so we'll put
+            // it here, but eventually we'll need to fix it. We should be able to run the client without the
+            // server and vice versa.
+            .init_asset_loader::<TextLoader>()
             .interpolate_component::<Transform, Virtual>()
             .insert_resource(SeismonGameSettings {
                 base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
@@ -297,7 +305,7 @@ where
                     state_changed::<ClientGameState>.and(in_state(ClientGameState::InGame)),
                 ),
             )
-            .add_plugins(SeismonClientConsolePlugin)
+            .add_plugins(SeismonConsoleRenderPlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
             .add_plugins(InventoryPlugin::default())
