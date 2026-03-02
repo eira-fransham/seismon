@@ -128,7 +128,8 @@ impl<T: AmmoType> Command for UpdateAmmoCount<T> {
 #[derive(Component)]
 pub struct Health(pub u16);
 
-#[derive(Component, Reflect)]
+// TODO: This probably makes more sense as an asset or similar.
+#[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
 pub struct Weapon {
     weapon_type: TypeId,
@@ -137,10 +138,12 @@ pub struct Weapon {
     pub inactive: Handle<Image>,
     pub active: Handle<Image>,
     pub pickup: Vec<Handle<Image>>,
+    // TODO: Maybe put this somewhere else
+    pub pickup_time_secs: f32,
 }
 
 impl Weapon {
-    pub fn load<T: Any + WeaponType>(asset_server: &AssetServer) -> Self {
+    pub fn load<T: Any + WeaponType>(pickup_time_secs: f32, asset_server: &AssetServer) -> Self {
         Self {
             weapon_type: TypeId::of::<T>(),
             ammo_type: TypeId::of::<T::Ammo>(),
@@ -148,18 +151,58 @@ impl Weapon {
             inactive: asset_server.load(T::INACTIVE_FRAME),
             active: asset_server.load(T::ACTIVE_FRAME),
             pickup: T::PICKUP_FRAMES.iter().map(|s| asset_server.load(*s)).collect(),
+            pickup_time_secs,
         }
+    }
+}
+
+pub struct SetActiveWeaponByOrder(pub Entity, pub usize);
+
+impl Command for SetActiveWeaponByOrder {
+    fn apply(self, world: &mut bevy::ecs::world::World) {
+        let maybe_active_weapon = world.get::<ActiveWeapon>(self.0);
+
+        if let Some(ActiveWeapon(active)) = maybe_active_weapon
+            && let Some(weapon) = world.get::<Weapon>(*active)
+            && weapon.order == self.1
+        {
+            return;
+        }
+
+        let inventory = world.get::<Inventory>(self.0).expect("No valid target for remove weapon");
+
+        let Some(new_active_weapon) = inventory
+            .0
+            .iter()
+            .find(|item| {
+                let Some(weapon) = world.get::<Weapon>(**item) else {
+                    return false;
+                };
+
+                weapon.order == self.1
+            })
+            .copied()
+        else {
+            error!(
+                "Tried to set active weapon to weapon #{} but the player did not have it",
+                self.1
+            );
+            return;
+        };
+
+        world.entity_mut(self.0).insert(ActiveWeapon(new_active_weapon));
     }
 }
 
 pub struct AddWeapon<T> {
     owner: Entity,
+    pickup_time_secs: f32,
     _phantom: PhantomData<T>,
 }
 
 impl<T: WeaponType> AddWeapon<T> {
-    pub fn new(owner: Entity) -> Self {
-        Self { owner, _phantom: PhantomData }
+    pub fn new(owner: Entity, pickup_time_secs: f32) -> Self {
+        Self { owner, pickup_time_secs, _phantom: PhantomData }
     }
 }
 
@@ -167,7 +210,7 @@ impl<T: WeaponType> Command for AddWeapon<T> {
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let asset_server = world.resource::<AssetServer>();
 
-        let weapon = Weapon::load::<T>(asset_server);
+        let weapon = Weapon::load::<T>(self.pickup_time_secs, asset_server);
 
         world.spawn((weapon, InventoryItem { owner: self.owner }));
     }
@@ -215,7 +258,7 @@ impl<T: WeaponType> Command for RemoveWeapon<T> {
 #[relationship_target(relationship = ActiveWeapon)]
 pub struct ActiveWeaponFor(Entity);
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
 #[relationship(relationship_target = ActiveWeaponFor)]
 pub struct ActiveWeapon(pub Entity);
@@ -279,8 +322,8 @@ qweapon!(pub Shotgun, Shells, "SHOTGUN", 0);
 qweapon!(pub SuperShotgun, Shells, "SSHOTGUN", 1);
 qweapon!(pub Nailgun, Nails, "NAILGUN", 2);
 qweapon!(pub SuperNailgun, Nails, "SNAILGUN", 3);
-qweapon!(pub RocketLauncher, Rockets, "RLAUNCH", 4);
-qweapon!(pub GrenadeLauncher, Rockets, "SRLAUNCH", 5);
+qweapon!(pub GrenadeLauncher, Rockets, "SRLAUNCH", 4);
+qweapon!(pub RocketLauncher, Rockets, "RLAUNCH", 5);
 qweapon!(pub LightningGun, Cells, "LIGHTNG", 6);
 
 #[non_exhaustive]

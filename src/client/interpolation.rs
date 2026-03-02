@@ -9,7 +9,7 @@ use bevy::{
         query::{Changed, Or, With, Without},
         reflect::ReflectComponent,
         schedule::IntoScheduleConfigs as _,
-        system::{Commands, Query, Res},
+        system::{ParallelCommands, Query, Res},
     },
     reflect::Reflect,
     time::Time,
@@ -65,42 +65,51 @@ where
 pub struct NoInterpolation;
 
 fn no_interpolate<C>(
-    components: Query<(&Next<C>, &mut C), Or<(With<NoInterpolation>, Without<Prev<C>>)>>,
+    commands: ParallelCommands,
+    mut components: Query<
+        (Entity, &Next<C>, &mut C),
+        Or<(With<NoInterpolation>, Without<Prev<C>>)>,
+    >,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
 {
-    for (next, mut cur) in components {
+    components.par_iter_mut().for_each(|(e, next, mut cur)| {
+        commands.command_scope(move |mut commands| {
+            commands.entity(e).remove::<(Prev<C>, OldNext<C>)>();
+        });
         *cur = next.component.clone();
-    }
+    });
 }
 
 fn interpolate<C, T>(
-    components: Query<(&Prev<C>, &Next<C>, &mut C), Without<NoInterpolation>>,
+    mut components: Query<(&Prev<C>, &Next<C>, &mut C), (With<Prev<C>>, Without<NoInterpolation>)>,
     time: Res<Time<T>>,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
     T: Default + Send + Sync + 'static,
 {
-    for (prev, next, mut cur) in components {
+    components.par_iter_mut().for_each(|(prev, next, mut cur)| {
         let range = next.elapsed_secs - prev.0.elapsed_secs;
         let factor = ((time.elapsed_secs_f64() - prev.0.elapsed_secs) / range).clamp(0., 1.);
 
         *cur = C::interpolate(&prev.0.component, &next.component, factor as f32);
-    }
+    });
 }
 
 fn next_to_prev<C>(
-    components: Query<(Entity, Option<&mut OldNext<C>>, &mut Next<C>), Changed<Next<C>>>,
-    mut commands: Commands,
+    mut components: Query<(Entity, Option<&mut OldNext<C>>, &mut Next<C>), Changed<Next<C>>>,
+    commands: ParallelCommands,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
 {
-    for (ent, mut old_next, next) in components {
-        if let Some(OldNext(old_next)) = old_next.as_deref_mut() {
-            let old_next = mem::replace(old_next, next.clone());
-            commands.entity(ent).insert(Prev(old_next));
-        } else {
-            commands.entity(ent).insert(OldNext(next.clone()));
-        }
-    }
+    components.par_iter_mut().for_each(|(ent, mut old_next, next)| {
+        commands.command_scope(|mut commands| {
+            if let Some(OldNext(old_next)) = old_next.as_deref_mut() {
+                let old_next = mem::replace(old_next, next.clone());
+                commands.entity(ent).insert(Prev(old_next));
+            } else {
+                commands.entity(ent).insert(OldNext(next.clone()));
+            }
+        });
+    });
 }

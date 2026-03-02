@@ -5,7 +5,7 @@ use crate::{
     client::{
         ClientError, Connection, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
-        inventory::{Health, RemoveWeapon, UpdateAmmoCount},
+        inventory::{Health, RemoveWeapon, SetActiveWeaponByOrder, UpdateAmmoCount},
         systems::frame::{ViewEntities, ViewFor},
         view::{IdleVars, KickVars, RollVars},
     },
@@ -411,23 +411,25 @@ impl ClientState {
             Default::default()
         };
 
+        let elapsed_secs_f32 = conn.last_msg_time.as_secs_f32();
+
         let new_flags = player_data.items.difference(existing_flags);
 
         for new_flag in new_flags.iter() {
             if new_flag == ItemFlags::SHOTGUN {
-                commands.queue(AddWeapon::<Shotgun>::new(ent));
+                commands.queue(AddWeapon::<Shotgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::SUPER_SHOTGUN {
-                commands.queue(AddWeapon::<SuperShotgun>::new(ent));
+                commands.queue(AddWeapon::<SuperShotgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::NAILGUN {
-                commands.queue(AddWeapon::<Nailgun>::new(ent));
+                commands.queue(AddWeapon::<Nailgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::SUPER_NAILGUN {
-                commands.queue(AddWeapon::<SuperNailgun>::new(ent));
+                commands.queue(AddWeapon::<SuperNailgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::ROCKET_LAUNCHER {
-                commands.queue(AddWeapon::<RocketLauncher>::new(ent));
+                commands.queue(AddWeapon::<RocketLauncher>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::GRENADE_LAUNCHER {
-                commands.queue(AddWeapon::<GrenadeLauncher>::new(ent));
+                commands.queue(AddWeapon::<GrenadeLauncher>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::LIGHTNING {
-                commands.queue(AddWeapon::<LightningGun>::new(ent));
+                commands.queue(AddWeapon::<LightningGun>::new(ent, elapsed_secs_f32));
             }
         }
 
@@ -450,6 +452,9 @@ impl ClientState {
                 commands.queue(RemoveWeapon::<LightningGun>::new(ent));
             }
         }
+
+        // HACK: This does correctly get the order but it's not good
+        commands.queue(SetActiveWeaponByOrder(ent, player_data.active_weapon.ilog2() as usize));
 
         if player_data.items.contains(ItemFlags::SHELLS) {
             commands.queue(UpdateAmmoCount::<Shells>::new(ent, player_data.ammo_shells));

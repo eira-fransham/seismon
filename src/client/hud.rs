@@ -1,6 +1,7 @@
 use std::{io::Write as _, marker::PhantomData};
 
 use bevy::{
+    app::{Main, Plugin},
     asset::AssetServer,
     ecs::{
         bundle::Bundle,
@@ -8,15 +9,16 @@ use bevy::{
         component::Component,
         entity::Entity,
         hierarchy::ChildOf,
-        lifecycle::Insert,
+        lifecycle::{Insert, Remove},
         name::Name,
         observer::On,
-        query::Changed,
+        query::{Changed, Has, With, Without},
         reflect::ReflectComponent,
         system::{Command, Commands, Query, Res},
     },
     log::{error, warn},
     reflect::Reflect,
+    time::{Time, Virtual},
     ui::{
         Display, FlexDirection, JustifyContent, JustifySelf, Node, PositionType, UiRect, Val,
         widget::ImageNode,
@@ -25,9 +27,24 @@ use bevy::{
 use seismon_utils::QStr;
 
 use crate::client::{
-    inventory::{Ammo, InventoryItem, Weapon},
+    inventory::{ActiveWeaponFor, Ammo, InventoryItem, Weapon},
     text::{AtlasText, Conchars},
 };
+
+#[derive(Default)]
+#[non_exhaustive]
+pub struct HudPlugin {}
+
+impl Plugin for HudPlugin {
+    fn build(&self, app: &mut bevy::app::App) {
+        app.add_observer(add_weapon_hud)
+            .add_observer(add_ammo_hud)
+            .add_observer(mark_picking_up)
+            .add_observer(make_weapon_active)
+            .add_observer(make_weapon_inactive)
+            .add_systems(Main, update_pickup_animation);
+    }
+}
 
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
@@ -304,4 +321,94 @@ pub fn update_ammo(
 
         hud.text = QStr::from(&text[..]).into_owned();
     }
+}
+
+const WEAPON_PICKUP_FPS: f32 = 10.;
+
+#[derive(Component)]
+pub struct PickingUp;
+
+pub fn update_pickup_animation(
+    mut commands: Commands,
+    mut weapon_images: Query<&mut ImageNode>,
+    weapons: Query<(Entity, &Weapon, &HudRepresented, Has<ActiveWeaponFor>), With<PickingUp>>,
+    time: Res<Time<Virtual>>,
+) {
+    for (entity, weapon, hud_element, is_active) in weapons {
+        let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+            warn!("Tried to set weapon active but no HUD element for it was found");
+            return;
+        };
+
+        let weapon_frame = (time.elapsed_secs() - weapon.pickup_time_secs) * WEAPON_PICKUP_FPS;
+        let weapon_frame = weapon_frame.clamp(0., weapon.pickup.len() as f32) as usize;
+
+        let new_image = weapon
+            .pickup
+            .get(weapon_frame)
+            .unwrap_or_else(|| {
+                commands.entity(entity).remove::<PickingUp>();
+
+                if is_active { &weapon.active } else { &weapon.inactive }
+            })
+            .clone();
+
+        // TODO: Is this necessary to prevent the change tracking from activating?
+        if hud_element.image != new_image {
+            hud_element.image = new_image;
+        }
+    }
+}
+
+pub fn mark_picking_up(
+    event: On<Insert, Weapon>,
+    mut commands: Commands,
+    weapons: Query<&Weapon, Without<PickingUp>>,
+    time: Res<Time<Virtual>>,
+) {
+    let Ok(weapon) = weapons.get(event.entity) else {
+        return;
+    };
+
+    let weapon_frame = (time.elapsed_secs() - weapon.pickup_time_secs) * WEAPON_PICKUP_FPS;
+    let weapon_frame = weapon_frame.clamp(0., weapon.pickup.len() as f32) as usize;
+    let total_frames = weapon.pickup.len();
+
+    if weapon_frame < total_frames {
+        commands.entity(event.entity).insert(PickingUp);
+    }
+}
+
+pub fn make_weapon_active(
+    event: On<Insert, ActiveWeaponFor>,
+    mut weapon_images: Query<&mut ImageNode>,
+    weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
+) {
+    let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
+        return;
+    };
+
+    let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+        warn!("Tried to set weapon active but no HUD element for it was found");
+        return;
+    };
+
+    hud_element.image = weapon.active.clone();
+}
+
+pub fn make_weapon_inactive(
+    event: On<Remove, ActiveWeaponFor>,
+    mut weapon_images: Query<&mut ImageNode>,
+    weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
+) {
+    let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
+        return;
+    };
+
+    let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+        warn!("Tried to set weapon active but no HUD element for it was found");
+        return;
+    };
+
+    hud_element.image = weapon.inactive.clone();
 }

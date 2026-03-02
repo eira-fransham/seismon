@@ -45,13 +45,13 @@ impl MeshAnimPlayer {
 }
 
 pub(crate) fn animate_mesh_animations(
-    time: Res<Time<Virtual>>,
+    mut entities: Query<(&mut Mesh3d, Mut<MeshAnimPlayer>)>,
     anim_meshes: Res<Assets<AnimMeshes>>,
-    entities: Query<(&mut Mesh3d, Mut<MeshAnimPlayer>)>,
+    time: Res<Time<Virtual>>,
 ) {
-    for (mut mesh, mut anim) in entities {
+    entities.par_iter_mut().for_each(|(mut mesh, mut anim)| {
         let Some(anim_mesh_frames) = anim_meshes.get(&anim.anim_meshes) else {
-            continue;
+            return;
         };
 
         let time = time.elapsed().as_secs_f64();
@@ -61,7 +61,7 @@ pub(crate) fn animate_mesh_animations(
         } else if time >= anim.next_frame_time {
             (anim.next_frame_time, anim.frame + 1)
         } else {
-            continue;
+            return;
         };
 
         let new_frame_index = new_frame_index % anim_mesh_frames.frames.len();
@@ -75,5 +75,5 @@ pub(crate) fn animate_mesh_animations(
         anim.frame = new_frame_index;
         anim.next_frame_time = last_frame_time + new_frame.duration_secs;
         anim.dirty = false;
-    }
+    });
 }

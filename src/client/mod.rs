@@ -26,6 +26,7 @@ use crate::{
     client::{
         demo::{Demo, DemoError, DemoLoader, DemoServer},
         entity::ClientEntity,
+        hud::HudPlugin,
         interpolation::InterpolateApp,
         inventory::InventoryPlugin,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
@@ -226,8 +227,6 @@ where
             .add_message::<ClientMessage>()
             .add_message::<Impulse>()
             // TODO: Extract to HUD plugin
-            .add_observer(self::hud::add_weapon_hud)
-            .add_observer(self::hud::add_ammo_hud)
             .add_observer(observers::apply_render_layers_to_children)
             .add_systems(Startup, self::loading_screen::init_loading_screen)
             .add_systems(
@@ -305,6 +304,7 @@ where
                     state_changed::<ClientGameState>.and(in_state(ClientGameState::InGame)),
                 ),
             )
+            .add_plugins(HudPlugin::default())
             .add_plugins(SeismonConsoleRenderPlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
