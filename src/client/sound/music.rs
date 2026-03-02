@@ -59,14 +59,14 @@ impl MusicPlayer {
             return Ok(());
         }
 
-        let path = Path::new(name);
+        let path = Path::new("music").join(name);
 
         let pathbuf;
         // TODO: there's probably a better way to do this extension check
         let file: Cow<str> = if path.extension().is_none() {
             // TODO: Have some way to do globbing in `bevy_mod_pakfile` so we can try a few
             // different filenames.
-            pathbuf = path.with_extension("mp3");
+            pathbuf = path.with_extension("ogg");
             pathbuf.to_string_lossy().into()
         } else {
             name.into()

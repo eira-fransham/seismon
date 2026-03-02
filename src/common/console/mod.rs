@@ -352,6 +352,9 @@ where
     }
 }
 
+// TODO: Use `On` so this acts like a regular observer, with the only difference being that
+// it can optionally hold up execution of further commands. This is useful for commands like `wait`.
+// This would also make the
 type BuiltinSystem = SystemId<In<Box<[String]>>, ErasedBuiltinSystemReturn>;
 type ActionSystem = SystemId<In<(Trigger, Box<[String]>)>, ()>;
 type OnSetCvarSystem = SystemId<In<Value>>;
