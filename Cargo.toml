@@ -51,7 +51,7 @@ anyhow = "1.0"
 asset-importer = { version = "0.4", features = ["build-assimp"] }
 beef = "0.5"
 bevy_materialize = "0.10"
-bevy_mod_scripting = "0.19"
+bevy_mod_scripting = { version = "0.19", default-features = false }
 bitflags = "2.4"
 byteorder = "1.3"
 clap = { version = "4.5", features = ["derive", "color"] }
@@ -78,7 +78,6 @@ qbsp = { version = "0.14", features = ["bevy_reflect", "serde"] }
 [dependencies]
 seismon-utils.workspace = true
 bevy_mod_mdl.workspace = true
-bevy_trenchbroom = { git = "https://github.com/eira-fransham/bevy_trenchbroom.git", branch = "each-model-separate-sub-asset-bevy-0.18", features = ["bsp"] }
 bevy_mod_pakfile.workspace = true
 lined.workspace = true
 
@@ -103,7 +102,6 @@ thiserror.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
-bevy_capture = { version = "0.4", features = ["gif", "mp4_openh264"], optional = true }
 bevy_seedling = { git = "https://github.com/eira-fransham/bevy_seedling.git", branch = "ignore-already-deleted-entities" }
 bevy_mod_scripting.workspace = true
 bevy-inspector-egui = { version = "0.36", optional = true }
@@ -131,11 +129,19 @@ bevy_mod_scripting_qcvm = { version = "0.3", features = ["quake1"] }
 wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
 winit = "0.29"
 
+tracing = { version = "^0.1", optional = true }
+
+[dependencies.bevy_trenchbroom]
+git = "https://github.com/eira-fransham/bevy_trenchbroom.git"
+branch = "each-model-separate-sub-asset-bevy-0.18"
+default-features = false
+features = ["client", "bsp"]
+
 [features]
 default = []
 fast-compile = ["bevy/dynamic_linking"]
-capture = ["dep:bevy_capture"]
 dev-tools = ["dep:bevy-inspector-egui", "bevy/bevy_dev_tools"]
+bin-release = ["dep:tracing", "tracing/max_level_off"]
 
 [profile.bin-release]
 inherits = "release"

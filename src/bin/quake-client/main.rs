@@ -13,11 +13,6 @@ use bevy::{
     render::view::{ColorGrading, Hdr},
     window::{PresentMode, PrimaryWindow},
 };
-#[cfg(feature = "capture")]
-use bevy_capture::{
-    Capture, CaptureBundle, CapturePlugin,
-    encoder::{gif::GifEncoder, mp4_openh264::Mp4Openh264Encoder},
-};
 use bevy_mod_mdl::MdlPlugin;
 use bevy_mod_pakfile::PakfilePlugin;
 use bevy_seedling::spatial::SpatialListener3D;
@@ -159,8 +154,6 @@ fn startup(
 
         let world_camera_bundle =
             (default_world_camera(), SpatialListener3D, quake_camera_bundle.clone());
-        #[cfg(feature = "capture")]
-        let world_camera_bundle = (world_camera_bundle, CaptureBundle::default());
         let overlay_camera_bundle = (default_overlay_camera(), quake_camera_bundle);
 
         // main game camera
@@ -229,10 +222,6 @@ fn main() -> ExitCode {
         })
         .set(ImagePlugin::default_nearest());
 
-    #[cfg(feature = "capture")]
-    let default_plugins =
-        default_plugins.set(RenderPlugin { synchronous_pipeline_compilation: true, ..default() });
-
     let default_plugins =
         default_plugins.disable::<AudioPlugin>().add(bevy_seedling::SeedlingPlugin::default());
 
@@ -294,54 +283,6 @@ fn main() -> ExitCode {
     #[cfg(feature = "dev-tools")]
     app.add_plugins(dev::DevtoolsPlugins);
 
-    #[cfg(feature = "capture")]
-    {
-        app.add_plugins(CapturePlugin);
-
-        #[derive(Parser)]
-        #[command(name = "startcapture", about = "Starts a new capture.")]
-        struct StartCapture {
-            file: String,
-        }
-
-        #[derive(Parser)]
-        #[command(name = "stopcapture", about = "Stops the current capture.")]
-        struct StopCapture {}
-
-        app.command(|In(StartCapture { file }), mut capture: Query<&mut Capture>| {
-            let mut capture = capture.single_mut().unwrap();
-            let mut filename = Path::new(&file);
-            let filename = if filename.extension().is_none() {
-                filename.with_extension("mp4")
-            } else {
-                filename.to_owned()
-            };
-
-            if !capture.is_capturing() {
-                match filename.extension().and_then(OsStr::to_str) {
-                    Some("mp4") => capture.start(
-                        Mp4Openh264Encoder::new(File::create(filename).unwrap(), 1366, 768)
-                            .unwrap(),
-                    ),
-                    Some("gif") => capture.start(GifEncoder::new(File::create(filename).unwrap())),
-                    Some(other) => {
-                        return format!("Unsupported file extension {other}",).into();
-                    }
-                    None => unreachable!(),
-                }
-            }
-
-            default()
-        })
-        .command(|In(StopCapture {}), mut capture: Query<&mut Capture>| {
-            let mut capture = capture.single_mut().unwrap();
-            if capture.is_capturing() {
-                capture.stop();
-            }
-
-            default()
-        });
-    }
     app.run();
 
     0.into()

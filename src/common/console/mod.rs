@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{self, Write},
     io, iter,
     marker::PhantomData,
@@ -1784,6 +1784,9 @@ struct ConsoleTextCenterPrintUi;
 #[derive(Component)]
 struct ConsoleTextInputUi;
 
+#[derive(Resource)]
+pub struct PendingCommands(pub VecDeque<RunCmd<'static>>);
+
 mod systems {
     use std::collections::VecDeque;
 
@@ -2075,16 +2078,15 @@ mod systems {
         }
     }
 
-    pub fn execute_console(world: &mut World) {
-        let mut commands =
-            world.resource_mut::<Messages<RunCmd>>().drain().collect::<VecDeque<_>>();
+    pub fn execute_console(world: &mut World, mut pending: Local<VecDeque<RunCmd>>) {
+        pending.extend(world.resource_mut::<Messages<RunCmd>>().drain());
 
         let mut changed_cvars = Vec::new();
 
-        let mut unhandled = Some(Vec::<UnhandledCmd>::new())
+        let mut unhandled_messages = Some(Vec::<UnhandledCmd>::new())
             .filter(|_| world.get_resource::<Messages<UnhandledCmd>>().is_some());
 
-        while let Some(cmd) = commands.pop_front() {
+        while let Some(cmd) = pending.pop_front() {
             debug!(target: "console", "{cmd}");
             let RunCmd(CmdName { mut name, trigger }, args) = cmd;
             loop {
@@ -2140,7 +2142,7 @@ mod systems {
 
                                     Ok(ExecResult { extra_commands, output, output_ty }) => {
                                         for command in extra_commands.rev() {
-                                            commands.push_front(command);
+                                            pending.push_front(command);
                                         }
 
                                         (output, output_ty)
@@ -2188,10 +2190,11 @@ mod systems {
                         }
                     }
                     None => {
-                        if let Some(unhandled) = &mut unhandled {
+                        if let Some(unhandled_messages) = &mut unhandled_messages {
                             // TODO: Receive cmd output from server(?)
                             let output = Cow::from(format!("Sending \"{name}\" to server..."));
-                            unhandled.push(UnhandledCmd(RunCmd(CmdName { name, trigger }, args)));
+                            unhandled_messages
+                                .push(UnhandledCmd(RunCmd(CmdName { name, trigger }, args)));
                             (output, OutputType::Console)
                         } else {
                             (
@@ -2226,6 +2229,10 @@ mod systems {
 
                 break;
             }
+        }
+
+        if let Some(unhandled_messages) = unhandled_messages {
+            world.resource_mut::<Messages<UnhandledCmd>>().write_batch(unhandled_messages);
         }
 
         world.resource_mut::<Registry>().changed_cvars.extend(changed_cvars);
