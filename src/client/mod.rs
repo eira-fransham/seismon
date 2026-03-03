@@ -8,6 +8,7 @@ mod interpolation;
 mod inventory;
 mod loading_screen;
 pub mod menu;
+mod post_process;
 pub mod sound;
 pub mod state;
 pub mod text;
@@ -29,6 +30,7 @@ use crate::{
         hud::HudPlugin,
         interpolation::InterpolateApp,
         inventory::InventoryPlugin,
+        post_process::ColorShiftPlugin,
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
         state::ClientState,
         text::Conchars,
@@ -202,7 +204,8 @@ where
             // TODO: We need to do this here to prevent the server and client from both trying to register it,
             // but realistically we need a better solution. The client is the main focus for now, so we'll put
             // it here, but eventually we'll need to fix it. We should be able to run the client without the
-            // server and vice versa.
+            // server and vice versa. Maybe something like `SeismonCorePlugin` which gets added to the app
+            // before `SeismonClientPlugin`?
             .init_asset_loader::<TextLoader>()
             .interpolate_component::<Transform, Virtual>()
             .insert_resource(SeismonGameSettings {
@@ -234,7 +237,6 @@ where
                 self::loading_screen::update_loading_screen_visible
                     .run_if(state_changed::<ClientGameState>),
             )
-            .add_systems(PostUpdate, self::hud::update_ammo)
             .add_systems(
                 PreUpdate,
                 (systems::disconnect.run_if(resource_exists::<Connection>), systems::connect)
@@ -248,10 +250,10 @@ where
             .add_systems(
                 PreUpdate,
                 systems::process_network_messages
-                    .pipe(|In(res)| {
-                        // TODO: Error handling
+                    .pipe(|In(res), mut commands: Commands| {
                         if let Err(e) = res {
                             error!("Error handling frame: {}", e);
+                            commands.write_message(Disconnect);
                         }
                     })
                     .run_if(resource_exists::<QSocket>),
@@ -263,9 +265,10 @@ where
                         .pipe(systems::frame::execute_server_msg)
                         .pipe(systems::frame::advance_frame)
                         .pipe(systems::frame::end_frame)
-                        .pipe(|In(res)| {
+                        .pipe(|In(res), mut commands: Commands| {
                             if let Err(e) = res {
                                 error!("Error handling frame: {e}");
+                                commands.write_message(Disconnect);
                             }
                         }),
                     systems::send_input_to_server.pipe(|In(res)| {
@@ -314,6 +317,11 @@ where
                     .build()
                     .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
             );
+
+        // `cfg!(..)` instead of `#[cfg(..)]` so that it's not marked unused.
+        if cfg!(feature = "color-shift") {
+            app.add_plugins(ColorShiftPlugin::default());
+        }
 
         cvars::register_cvars(app);
         commands::register_commands(app);
@@ -1545,7 +1553,7 @@ mod systems {
                             && let Some(state) = &mut conn.client_state
                         {
                             if !last_msg_time.is_zero() {
-                                for entity in state.dead_entities() {
+                                for entity in state.drain_dead_entities() {
                                     commands.entity(entity).insert_recursive::<Children>(Disabled);
                                 }
                             }
@@ -1571,13 +1579,7 @@ mod systems {
 
                     ServerCmd::Version { version } => {
                         if version != net::PROTOCOL_VERSION as i32 {
-                            // TODO: handle with an error
-                            error!(
-                                "Incompatible server version: server's is {}, client's is {}",
-                                version,
-                                net::PROTOCOL_VERSION,
-                            );
-                            panic!("bad version number");
+                            return Err(ClientError::UnrecognizedProtocol(version));
                         }
                     }
 

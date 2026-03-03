@@ -1,7 +1,7 @@
 use std::{io::Write as _, marker::PhantomData};
 
 use bevy::{
-    app::{Main, Plugin},
+    app::{Plugin, PostUpdate},
     asset::AssetServer,
     ecs::{
         bundle::Bundle,
@@ -37,12 +37,12 @@ pub struct HudPlugin {}
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut bevy::app::App) {
-        app.add_observer(add_weapon_hud)
-            .add_observer(add_ammo_hud)
-            .add_observer(mark_picking_up)
-            .add_observer(make_weapon_active)
-            .add_observer(make_weapon_inactive)
-            .add_systems(Main, update_pickup_animation);
+        app.add_observer(observers::add_weapon_hud)
+            .add_observer(observers::add_ammo_hud)
+            .add_observer(observers::mark_picking_up)
+            .add_observer(observers::make_weapon_active)
+            .add_observer(observers::make_weapon_inactive)
+            .add_systems(PostUpdate, (systems::update_ammo, systems::update_pickup_animation));
     }
 }
 
@@ -203,212 +203,222 @@ where
     }
 }
 
-pub fn add_weapon_hud(
-    trigger: On<Insert, Weapon>,
-    mut commands: Commands,
-    owners: Query<&InventoryItem>,
-    hud_owners: Query<&HasHud>,
-    weapon_containers: Query<&HudContainers<HudWeapons>>,
-    weapons: Query<&Weapon>,
-) {
-    const AMMO_DISPLAY_WIDTH_PX: f32 = 24.;
-
-    let new_weapon = trigger.entity;
-
-    let Ok(weapon) = weapons.get(new_weapon) else {
-        error!("Invalid weapon");
-        return;
-    };
-
-    let Ok(InventoryItem { owner }) = owners.get(new_weapon) else {
-        error!("Weapon added that does not have an owner");
-        return;
-    };
-
-    let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
-        error!("Weapon owner has no HUD");
-        return;
-    };
-
-    let Ok(HudContainers { container: weapon_container, .. }) = weapon_containers.get(*hud_root)
-    else {
-        error!("HUD has no containers");
-        return;
-    };
-
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: status_w_px(AMMO_DISPLAY_WIDTH_PX) * weapon.order as f32,
-            bottom: status_w_px(0.),
-            width: status_w_px(AMMO_DISPLAY_WIDTH_PX),
-            ..Default::default()
-        },
-        HudForItem { representing: new_weapon },
-        ImageNode { image: weapon.inactive.clone(), ..Default::default() },
-        ChildOf(*weapon_container),
-    ));
-}
-
-pub fn add_ammo_hud(
-    trigger: On<Insert, Ammo>,
-    mut commands: Commands,
-    conchars: Res<Conchars>,
-    owners: Query<&InventoryItem>,
-    hud_owners: Query<&HasHud>,
-    ammo_containers: Query<&HudContainers<HudAmmo>>,
-    ammos: Query<&Ammo>,
-) {
-    let new_ammo = trigger.entity;
-
-    let Ok(ammo) = ammos.get(new_ammo) else {
-        error!("Invalid weapon");
-        return;
-    };
-
-    let Ok(InventoryItem { owner }) = owners.get(new_ammo) else {
-        error!("Weapon added that does not have an owner");
-        return;
-    };
-
-    let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
-        error!("Weapon owner has no HUD");
-        return;
-    };
-
-    let Ok(HudContainers { container: ammo_container, .. }) = ammo_containers.get(*hud_root) else {
-        error!("HUD has no containers");
-        return;
-    };
-
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: status_w_px(48.) * ammo.order as f32,
-            top: Val::Px(0.),
-            width: status_w_px(18.),
-            height: status_h_px(8.),
-            ..Default::default()
-        },
-        AtlasText {
-            text: "".into(),
-            image: conchars.image.clone().into(),
-            layout: conchars.layout.clone(),
-            glyph_size: (status_w_px(6.), status_h_px(6.)),
-            line_padding: UiRect { top: Val::Px(4.), ..Default::default() },
-            justify: JustifyContent::FlexEnd,
-        },
-        HudForItem { representing: new_ammo },
-        ChildOf(*ammo_container),
-    ));
-}
-
-pub fn update_ammo(
-    ammos: Query<(&Ammo, &HudRepresented), Changed<Ammo>>,
-    mut atlas_text: Query<&mut AtlasText>,
-) {
-    for (ammo, hud) in ammos {
-        let mut text = [0u8; 3];
-
-        if let Err(e) = write!(std::io::Cursor::new(&mut text[..]), "{: >3}", ammo.amount) {
-            warn!("Could not fully write ammo counter: {e}");
-        }
-
-        let Ok(mut hud) = atlas_text.get_mut(hud.0) else {
-            warn!("HUD element representing ammo does not have a text component");
-            continue;
-        };
-
-        hud.text = QStr::from(&text[..]).into_owned();
-    }
-}
-
 const WEAPON_PICKUP_FPS: f32 = 10.;
 
 #[derive(Component)]
-pub struct PickingUp;
+struct PickingUp;
 
-pub fn update_pickup_animation(
-    mut commands: Commands,
-    mut weapon_images: Query<&mut ImageNode>,
-    weapons: Query<(Entity, &Weapon, &HudRepresented, Has<ActiveWeaponFor>), With<PickingUp>>,
-    time: Res<Time<Virtual>>,
-) {
-    for (entity, weapon, hud_element, is_active) in weapons {
-        let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
-            warn!("Tried to set weapon active but no HUD element for it was found");
+mod systems {
+    use super::*;
+
+    pub fn update_ammo(
+        ammos: Query<(&Ammo, &HudRepresented), Changed<Ammo>>,
+        mut atlas_text: Query<&mut AtlasText>,
+    ) {
+        for (ammo, hud) in ammos {
+            let mut text = [0u8; 3];
+
+            if let Err(e) = write!(std::io::Cursor::new(&mut text[..]), "{: >3}", ammo.amount) {
+                warn!("Could not fully write ammo counter: {e}");
+            }
+
+            let Ok(mut hud) = atlas_text.get_mut(hud.0) else {
+                warn!("HUD element representing ammo does not have a text component");
+                continue;
+            };
+
+            hud.text = QStr::from(&text[..]).into_owned();
+        }
+    }
+
+    pub fn update_pickup_animation(
+        mut commands: Commands,
+        mut weapon_images: Query<&mut ImageNode>,
+        weapons: Query<(Entity, &Weapon, &HudRepresented, Has<ActiveWeaponFor>), With<PickingUp>>,
+        time: Res<Time<Virtual>>,
+    ) {
+        for (entity, weapon, hud_element, is_active) in weapons {
+            let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+                warn!("Tried to set weapon active but no HUD element for it was found");
+                return;
+            };
+
+            let weapon_frame = (time.elapsed_secs() - weapon.pickup_time_secs) * WEAPON_PICKUP_FPS;
+            let weapon_frame = weapon_frame.clamp(0., weapon.pickup.len() as f32) as usize;
+
+            let new_image = weapon
+                .pickup
+                .get(weapon_frame)
+                .unwrap_or_else(|| {
+                    commands.entity(entity).remove::<PickingUp>();
+
+                    if is_active { &weapon.active } else { &weapon.inactive }
+                })
+                .clone();
+
+            // TODO: Is this necessary to prevent the change tracking from activating?
+            if hud_element.image != new_image {
+                hud_element.image = new_image;
+            }
+        }
+    }
+}
+
+mod observers {
+    use super::*;
+
+    pub fn add_weapon_hud(
+        trigger: On<Insert, Weapon>,
+        mut commands: Commands,
+        owners: Query<&InventoryItem>,
+        hud_owners: Query<&HasHud>,
+        weapon_containers: Query<&HudContainers<HudWeapons>>,
+        weapons: Query<&Weapon>,
+    ) {
+        const AMMO_DISPLAY_WIDTH_PX: f32 = 24.;
+
+        let new_weapon = trigger.entity;
+
+        let Ok(weapon) = weapons.get(new_weapon) else {
+            error!("Invalid weapon");
+            return;
+        };
+
+        let Ok(InventoryItem { owner }) = owners.get(new_weapon) else {
+            error!("Weapon added that does not have an owner");
+            return;
+        };
+
+        let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
+            error!("Weapon owner has no HUD");
+            return;
+        };
+
+        let Ok(HudContainers { container: weapon_container, .. }) =
+            weapon_containers.get(*hud_root)
+        else {
+            error!("HUD has no containers");
+            return;
+        };
+
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: status_w_px(AMMO_DISPLAY_WIDTH_PX) * weapon.order as f32,
+                bottom: status_w_px(0.),
+                width: status_w_px(AMMO_DISPLAY_WIDTH_PX),
+                ..Default::default()
+            },
+            HudForItem { representing: new_weapon },
+            ImageNode { image: weapon.inactive.clone(), ..Default::default() },
+            ChildOf(*weapon_container),
+        ));
+    }
+
+    pub fn add_ammo_hud(
+        trigger: On<Insert, Ammo>,
+        mut commands: Commands,
+        conchars: Res<Conchars>,
+        owners: Query<&InventoryItem>,
+        hud_owners: Query<&HasHud>,
+        ammo_containers: Query<&HudContainers<HudAmmo>>,
+        ammos: Query<&Ammo>,
+    ) {
+        let new_ammo = trigger.entity;
+
+        let Ok(ammo) = ammos.get(new_ammo) else {
+            error!("Invalid weapon");
+            return;
+        };
+
+        let Ok(InventoryItem { owner }) = owners.get(new_ammo) else {
+            error!("Weapon added that does not have an owner");
+            return;
+        };
+
+        let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
+            error!("Weapon owner has no HUD");
+            return;
+        };
+
+        let Ok(HudContainers { container: ammo_container, .. }) = ammo_containers.get(*hud_root)
+        else {
+            error!("HUD has no containers");
+            return;
+        };
+
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: status_w_px(48.) * ammo.order as f32,
+                top: Val::Px(0.),
+                width: status_w_px(18.),
+                height: status_h_px(8.),
+                ..Default::default()
+            },
+            AtlasText {
+                text: "".into(),
+                image: conchars.image.clone().into(),
+                layout: conchars.layout.clone(),
+                glyph_size: (status_w_px(6.), status_h_px(6.)),
+                line_padding: UiRect { top: Val::Px(4.), ..Default::default() },
+                justify: JustifyContent::FlexEnd,
+            },
+            HudForItem { representing: new_ammo },
+            ChildOf(*ammo_container),
+        ));
+    }
+
+    pub fn mark_picking_up(
+        event: On<Insert, Weapon>,
+        mut commands: Commands,
+        weapons: Query<&Weapon, Without<PickingUp>>,
+        time: Res<Time<Virtual>>,
+    ) {
+        let Ok(weapon) = weapons.get(event.entity) else {
             return;
         };
 
         let weapon_frame = (time.elapsed_secs() - weapon.pickup_time_secs) * WEAPON_PICKUP_FPS;
         let weapon_frame = weapon_frame.clamp(0., weapon.pickup.len() as f32) as usize;
+        let total_frames = weapon.pickup.len();
 
-        let new_image = weapon
-            .pickup
-            .get(weapon_frame)
-            .unwrap_or_else(|| {
-                commands.entity(entity).remove::<PickingUp>();
-
-                if is_active { &weapon.active } else { &weapon.inactive }
-            })
-            .clone();
-
-        // TODO: Is this necessary to prevent the change tracking from activating?
-        if hud_element.image != new_image {
-            hud_element.image = new_image;
+        if weapon_frame < total_frames {
+            commands.entity(event.entity).insert(PickingUp);
         }
     }
-}
 
-pub fn mark_picking_up(
-    event: On<Insert, Weapon>,
-    mut commands: Commands,
-    weapons: Query<&Weapon, Without<PickingUp>>,
-    time: Res<Time<Virtual>>,
-) {
-    let Ok(weapon) = weapons.get(event.entity) else {
-        return;
-    };
+    pub fn make_weapon_active(
+        event: On<Insert, ActiveWeaponFor>,
+        mut weapon_images: Query<&mut ImageNode>,
+        weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
+    ) {
+        let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
+            return;
+        };
 
-    let weapon_frame = (time.elapsed_secs() - weapon.pickup_time_secs) * WEAPON_PICKUP_FPS;
-    let weapon_frame = weapon_frame.clamp(0., weapon.pickup.len() as f32) as usize;
-    let total_frames = weapon.pickup.len();
+        let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+            warn!("Tried to set weapon active but no HUD element for it was found");
+            return;
+        };
 
-    if weapon_frame < total_frames {
-        commands.entity(event.entity).insert(PickingUp);
+        hud_element.image = weapon.active.clone();
     }
-}
 
-pub fn make_weapon_active(
-    event: On<Insert, ActiveWeaponFor>,
-    mut weapon_images: Query<&mut ImageNode>,
-    weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
-) {
-    let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
-        return;
-    };
+    pub fn make_weapon_inactive(
+        event: On<Remove, ActiveWeaponFor>,
+        mut weapon_images: Query<&mut ImageNode>,
+        weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
+    ) {
+        let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
+            return;
+        };
 
-    let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
-        warn!("Tried to set weapon active but no HUD element for it was found");
-        return;
-    };
+        let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
+            warn!("Tried to set weapon active but no HUD element for it was found");
+            return;
+        };
 
-    hud_element.image = weapon.active.clone();
-}
-
-pub fn make_weapon_inactive(
-    event: On<Remove, ActiveWeaponFor>,
-    mut weapon_images: Query<&mut ImageNode>,
-    weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
-) {
-    let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
-        return;
-    };
-
-    let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
-        warn!("Tried to set weapon active but no HUD element for it was found");
-        return;
-    };
-
-    hud_element.image = weapon.inactive.clone();
+        hud_element.image = weapon.inactive.clone();
+    }
 }

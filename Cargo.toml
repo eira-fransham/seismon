@@ -140,6 +140,8 @@ features = ["client", "bsp"]
 [features]
 default = []
 fast-compile = ["bevy/dynamic_linking"]
+# `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
+color-shift = []
 dev-tools = ["dep:bevy-inspector-egui", "bevy/bevy_dev_tools"]
 bin-release = ["dep:tracing", "tracing/max_level_off"]
 

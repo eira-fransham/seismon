@@ -6,6 +6,7 @@ use crate::{
         ClientError, Connection, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
         inventory::{Health, RemoveWeapon, SetActiveWeaponByOrder, UpdateAmmoCount},
+        post_process::{ColorShift, Powerup},
         systems::frame::{ViewEntities, ViewFor},
         view::{IdleVars, KickVars, RollVars},
     },
@@ -14,6 +15,7 @@ use crate::{
 use bevy::{
     asset::{AssetPath, AssetServer, Handle},
     camera::visibility::{RenderLayers, Visibility},
+    color::Color,
     ecs::{
         component::Component,
         entity::Entity,
@@ -22,7 +24,7 @@ use bevy::{
         query::With,
         reflect::ReflectComponent,
         relationship::RelationshipTarget as _,
-        system::{Commands, EntityCommands, In, Query, Res, ResMut},
+        system::{Commands, EntityCommands, In, ParallelCommands, Query, Res, ResMut},
     },
     log::*,
     math::{EulerRot, Quat, Vec3},
@@ -35,7 +37,7 @@ use bevy_mod_mdl::MdlSettings;
 use bevy_seedling::sample::AudioSample;
 use bevy_trenchbroom::bsp::Bsp;
 use bitvec::vec::BitVec;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, hash_map::Entry};
 use seismon_utils::{QAngles, QString};
 
 /// When certain temporary entities are spawned, Quake has builtin code to
@@ -185,7 +187,7 @@ impl ClientState {
         })
     }
 
-    pub fn dead_entities(&mut self) -> impl Iterator<Item = Entity> {
+    pub fn drain_dead_entities(&mut self) -> impl Iterator<Item = Entity> {
         let keepalive = mem::take(&mut self.frame_keepalive);
 
         self.server_entity_to_client_entity.iter().filter_map(move |(k, v)| {
@@ -196,6 +198,39 @@ impl ClientState {
     pub fn mark_entity_alive(&mut self, ent_id: u16) {
         self.frame_keepalive.resize(self.frame_keepalive.len().max(ent_id as usize + 1), false);
         self.frame_keepalive.set(ent_id as usize, true);
+    }
+
+    pub fn update_color_shifts(
+        mut players: Query<(Entity, &mut PlayerState)>,
+        commands: ParallelCommands,
+    ) {
+        players.par_iter_mut().for_each(|(player_ent, player)| {
+            let overlay = player
+                .items
+                .iter()
+                .find_map(|item_flag| {
+                    Some(match item_flag {
+                        ItemFlags::QUAD => {
+                            ColorShift::<Powerup>::new(Color::linear_rgb(0., 0., 1.), 0.3)
+                        }
+                        ItemFlags::SUIT => {
+                            ColorShift::<Powerup>::new(Color::linear_rgb(0., 1., 0.), 0.2)
+                        }
+                        ItemFlags::INVISIBILITY => {
+                            ColorShift::<Powerup>::new(Color::linear_rgb(0.4, 0.4, 0.4), 1.)
+                        }
+                        ItemFlags::INVULNERABILITY => {
+                            ColorShift::<Powerup>::new(Color::linear_rgb(1., 1., 0.), 0.3)
+                        }
+                        _ => return None,
+                    })
+                })
+                .unwrap_or_default();
+
+            commands.command_scope(|mut commands| {
+                commands.entity(player_ent).insert(overlay);
+            })
+        });
     }
 
     pub fn handle_damage(&mut self, _armor: u8, _health: u8, _source: Vec3, _kick_vars: KickVars) {
@@ -304,14 +339,29 @@ impl ClientState {
 
             entity
         } else {
-            let entity =
-                commands.spawn((transform, Visibility::Inherited, ChildOf(self.worldspawn)));
+            let bundle = (transform, Visibility::Inherited, ChildOf(self.worldspawn));
 
-            // Special-case: bsp model is spawned with `SpawnBaseline` (not `SpawnStatic`) but
-            // not handled via the regular update loop.
-            if id != 0 {
-                self.server_entity_to_client_entity.insert(id, entity.id());
-            }
+            let entity = if id != 0 {
+                match self.server_entity_to_client_entity.entry(id) {
+                    Entry::Occupied(existing) => {
+                        let existing = existing.get();
+                        error!("Tried to spawn duplicate entity (found {existing})");
+                        let mut entity = commands.entity(*existing);
+                        entity.insert(bundle);
+                        entity
+                    }
+                    Entry::Vacant(vacant) => {
+                        let entity = commands.spawn(bundle);
+                        vacant.insert(entity.id());
+
+                        entity
+                    }
+                }
+            } else {
+                // Special-case: bsp model is spawned with `SpawnBaseline` (not `SpawnStatic`) but
+                // not handled via the regular update loop.
+                commands.spawn(bundle)
+            };
 
             entity
         };
@@ -477,7 +527,11 @@ impl ClientState {
         In((update, msg_time)): In<(EntityUpdate, f64)>,
         mut commands: Commands<'_, '_>,
         mut conn: ResMut<Connection>,
-        mut existing_entities: Query<(&mut Next<Transform>, Option<&mut MdlSettings>)>,
+        mut existing_entities: Query<(
+            &mut Next<Transform>,
+            Option<&mut MdlSettings>,
+            Option<&mut SceneRoot>,
+        )>,
     ) {
         let Some(state) = conn.client_state.as_mut() else {
             return;
@@ -488,19 +542,6 @@ impl ClientState {
                 warn!("Server tried to update non-existent entity {}", update.ent_id);
                 return;
             };
-
-            if let Some(model_id) = update.model_id
-                && let Some(PrecacheModel::Loaded(model)) =
-                    state.models.get(model_id as usize).cloned()
-            {
-                commands.entity(*entity).insert((
-                    SceneRoot(model),
-                    MdlSettings {
-                        frame: update.frame_id.unwrap_or_default(),
-                        skin: update.skin_id.unwrap_or_default(),
-                    },
-                ));
-            }
 
             let mut ent = commands.entity(*entity);
 
@@ -514,7 +555,16 @@ impl ClientState {
                 ent.remove::<NoInterpolation>();
             }
 
-            if let Ok((mut transform, mdl)) = existing_entities.get_mut(*entity) {
+            if let Ok((mut transform, mdl, scene)) = existing_entities.get_mut(*entity) {
+                if let Some(model_id) = update.model_id
+                    && let Some(PrecacheModel::Loaded(model)) =
+                        state.models.get(model_id as usize).cloned()
+                {
+                    if scene.as_deref().map(|s| &s.0) != Some(&model) {
+                        commands.entity(*entity).insert(SceneRoot(model));
+                    }
+                }
+
                 if let Some(mut mdl) = mdl {
                     if let Some(new_frame) = update.frame_id {
                         mdl.frame = new_frame;
@@ -523,6 +573,11 @@ impl ClientState {
                     if let Some(new_skin) = update.skin_id {
                         mdl.skin = new_skin;
                     }
+                } else {
+                    commands.entity(*entity).insert(MdlSettings {
+                        frame: update.frame_id.unwrap_or_default(),
+                        skin: update.skin_id.unwrap_or_default(),
+                    });
                 }
 
                 let mut new_translation = transform.component.translation;
@@ -564,8 +619,21 @@ impl ClientState {
                 let [pitch, yaw, roll] =
                     [update.pitch, update.yaw, update.roll].map(|a| a.unwrap_or(0.).to_radians());
 
-                ent.insert(Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                    QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
+                if let Some(model_id) = update.model_id
+                    && let Some(PrecacheModel::Loaded(model)) =
+                        state.models.get(model_id as usize).cloned()
+                {
+                    ent.insert(SceneRoot(model));
+                }
+
+                ent.insert((
+                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
+                        QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
+                    ),
+                    MdlSettings {
+                        frame: update.frame_id.unwrap_or_default(),
+                        skin: update.skin_id.unwrap_or_default(),
+                    },
                 ));
             }
         } else {
