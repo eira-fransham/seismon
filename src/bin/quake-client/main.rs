@@ -15,6 +15,7 @@ use bevy::{
 };
 use bevy_mod_mdl::MdlPlugin;
 use bevy_mod_pakfile::PakfilePlugin;
+use bevy_mod_spr::SprPlugin;
 use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
 use seismon::{
@@ -238,7 +239,9 @@ fn main() -> ExitCode {
         // TODO: Use `BEVY_ASSET_ROOT`
         .add_plugins(PakfilePlugin::from_paths(games))
         .add_plugins(default_plugins)
+        // TODO: These shouldn't be here, we should have `SeismonCorePlugin`
         .add_plugins(MdlPlugin::default())
+        .add_plugins(SprPlugin::default())
         .add_plugins(SeismonClientPlugin{
             base_dir: opt.base_dir.clone(),
             game: opt.game.clone(),

@@ -209,7 +209,29 @@ async fn load_mdl(
 
                 Some(load_context.add_labeled_asset(format!("tex{i}"), GenericMaterial::new(mat)))
             }
-            Texture::Animated(animated_texture) if animated_texture.frames().is_empty() => None,
+            Texture::Animated(animated_texture) if animated_texture.frames().len() <= 1 => {
+                let static_texture = animated_texture.frames().first()?;
+
+                let img = load_context.add_labeled_asset(
+                    format!("img{i}"),
+                    translate_tex(
+                        static_texture.indices(),
+                        raw.texture_width(),
+                        raw.texture_height(),
+                        settings.override_palette.as_ref().unwrap_or(&loader.default_palette),
+                    ),
+                );
+                let mat = load_context.add_labeled_asset(
+                    format!("stdmat{i}"),
+                    StandardMaterial {
+                        perceptual_roughness: 1.,
+                        lightmap_exposure: TRENCHBROOM_LIGHTMAP_EXPOSURE,
+                        ..StandardMaterial::from(img)
+                    },
+                );
+
+                Some(load_context.add_labeled_asset(format!("tex{i}"), GenericMaterial::new(mat)))
+            }
             Texture::Animated(animated_texture) => {
                 let first_frame_name = format!("tex{i}frame0");
                 let first_frame_handle =

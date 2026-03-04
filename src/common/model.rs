@@ -20,10 +20,7 @@ use bevy_mod_mdl::MdlFileError;
 use seismon_utils::model::{ModelFlags, SyncType};
 use thiserror::Error;
 
-use crate::common::{
-    bsp::{BspFileError, BspModel},
-    sprite::SpriteModel,
-};
+use crate::common::bsp::{BspFileError, BspModel};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -37,6 +34,9 @@ pub enum ModelError {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AliasModel;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SpriteModel;
 
 #[derive(Default, Debug, Clone)]
 pub struct Model<A = AliasModel, S = SpriteModel> {
@@ -138,11 +138,9 @@ impl<A> Model<A> {
         match self.kind {
             ModelKind::None => panic!("attempted to take min() of NULL model"),
             ModelKind::Brush(ref bmodel) => bmodel.min(),
-            ModelKind::Sprite(ref smodel) => smodel.min(),
-
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vec3::splat(-16.0),
+            ModelKind::Sprite(_) | ModelKind::Alias(_) => Vec3::splat(-16.0),
         }
     }
 
@@ -152,11 +150,9 @@ impl<A> Model<A> {
         match self.kind {
             ModelKind::None => panic!("attempted to take max() of NULL model"),
             ModelKind::Brush(ref bmodel) => bmodel.max(),
-            ModelKind::Sprite(ref smodel) => smodel.max(),
-
             // TODO: maybe change this?
             // https://github.com/id-Software/Quake/blob/master/WinQuake/gl_model.c#L1625
-            ModelKind::Alias(_) => Vec3::splat(16.0),
+            ModelKind::Sprite(_) | ModelKind::Alias(_) => Vec3::splat(16.0),
         }
     }
 }

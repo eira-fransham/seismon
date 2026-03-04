@@ -503,8 +503,10 @@ impl ClientState {
             }
         }
 
-        // HACK: This does correctly get the order but it's not good
-        commands.queue(SetActiveWeaponByOrder(ent, player_data.active_weapon.ilog2() as usize));
+        if let Some(active_weapon_order) = player_data.active_weapon.checked_ilog2() {
+            // HACK: This does correctly get the order but it's not good
+            commands.queue(SetActiveWeaponByOrder(ent, active_weapon_order as usize));
+        }
 
         if player_data.items.contains(ItemFlags::SHELLS) {
             commands.queue(UpdateAmmoCount::<Shells>::new(ent, player_data.ammo_shells));

@@ -63,6 +63,7 @@ use bevy::{
     time::{Time, Virtual},
     window::PrimaryWindow,
 };
+use bevy_mod_billboard::plugin::BillboardPlugin;
 use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
 use input::InputFocus;
 use menu::Menu;
@@ -316,7 +317,8 @@ where
                 TrenchBroomPlugins(Default::default())
                     .build()
                     .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
-            );
+            )
+            .add_plugins(BillboardPlugin);
 
         // `cfg!(..)` instead of `#[cfg(..)]` so that it's not marked unused.
         if cfg!(feature = "color-shift") {

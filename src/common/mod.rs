@@ -27,7 +27,6 @@ pub mod model;
 pub mod net;
 pub mod pak;
 pub mod parse;
-pub mod sprite;
 pub mod vfs;
 pub mod wad;
 

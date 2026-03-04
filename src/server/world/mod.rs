@@ -40,7 +40,7 @@ use crate::{
     common::{
         bsp::{self, BspCollisionHull, BspLeafContents},
         model::ModelKind,
-        parse, sprite,
+        parse,
         vfs::Vfs,
     },
     server::{
@@ -546,17 +546,8 @@ impl World {
             self.models.extend(brush_models.into_iter().map(|m| m.cast()));
         } else if name.ends_with(b".mdl") {
             todo!()
-            // let data = vfs.open(name.to_str()).unwrap();
-            // let alias_model = bevy_mod_mdl::load(data).into_result().unwrap();
-            // self.models.push(
-            //     crate::common::model::Model::from_alias_model(name.to_str(), alias_model).cast(),
-            // );
         } else if name.ends_with(b".spr") {
-            let data = vfs.open(name.to_str()).unwrap();
-            let sprite_model = sprite::load(data);
-            self.models.push(
-                crate::common::model::Model::from_sprite_model(name.to_str(), sprite_model).cast(),
-            );
+            todo!()
         } else {
             return Err(ProgsError::with_msg(format!("Unrecognized model type: {name}")));
         }
