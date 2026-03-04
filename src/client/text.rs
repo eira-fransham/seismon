@@ -14,7 +14,7 @@ const GLYPH_COLS: usize = 16;
 const GLYPH_ROWS: usize = 16;
 const SCALE: f32 = 2.;
 
-#[derive(Resource, Reflect)]
+#[derive(Resource, Reflect, Clone)]
 pub struct Conchars {
     pub image: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,

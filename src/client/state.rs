@@ -5,7 +5,7 @@ use crate::{
     client::{
         ClientError, Connection, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
-        inventory::{Health, RemoveWeapon, SetActiveWeaponByOrder, UpdateAmmoCount},
+        inventory::Health,
         post_process::{ColorShift, Powerup},
         systems::frame::{ViewEntities, ViewFor},
         view::{IdleVars, KickVars, RollVars},
@@ -38,7 +38,7 @@ use bevy_seedling::sample::AudioSample;
 use bevy_trenchbroom::bsp::Bsp;
 use bitvec::vec::BitVec;
 use hashbrown::{HashMap, hash_map::Entry};
-use seismon_utils::{QAngles, QString};
+use seismon_utils::{QAngles, QString, write_if_neq};
 
 /// When certain temporary entities are spawned, Quake has builtin code to
 /// start sounds without the server instructing it to.
@@ -385,8 +385,9 @@ impl ClientState {
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
-            AddAmmo, AddWeapon, Cells, GrenadeLauncher, LightningGun, Nailgun, Nails,
-            RocketLauncher, Rockets, Shells, Shotgun, SuperNailgun, SuperShotgun,
+            Cells, GrenadeLauncher, InitItem, InsertItem, LightningGun, Nailgun, Nails, RemoveItem,
+            RocketLauncher, Rockets, SetActiveWeaponByOrder, Shells, Shotgun, Sigil1, Sigil2,
+            Sigil3, Sigil4, SuperNailgun, SuperShotgun, UpdateAmmoCount,
         };
 
         let Some(state) = conn.client_state.as_ref() else {
@@ -420,9 +421,8 @@ impl ClientState {
             }
 
             let new_frame = player_data.weapon_frame.unwrap_or_default();
-            if existing_settings.frame != new_frame {
-                existing_settings.frame = new_frame;
-            }
+
+            write_if_neq!(existing_settings.frame, new_frame);
         } else if let Some(model_id) = player_data.weapon_model_id
             && let Some(PrecacheModel::Loaded(model)) = state.models.get(model_id as usize).cloned()
         {
@@ -446,7 +446,7 @@ impl ClientState {
         }
 
         let existing_flags = if let Ok((mut existing, mut health)) = existing_data.get_mut(ent) {
-            health.0 = player_data.health;
+            write_if_neq!(health.0, player_data.health);
 
             std::mem::replace(&mut existing.items, player_data.items)
         } else {
@@ -454,10 +454,10 @@ impl ClientState {
                 .entity(ent)
                 .insert((PlayerState { items: player_data.items }, Health(player_data.health)));
 
-            commands.queue(AddAmmo::<Shells>::new(ent));
-            commands.queue(AddAmmo::<Nails>::new(ent));
-            commands.queue(AddAmmo::<Rockets>::new(ent));
-            commands.queue(AddAmmo::<Cells>::new(ent));
+            commands.queue(InitItem::<Shells>::new(ent));
+            commands.queue(InitItem::<Nails>::new(ent));
+            commands.queue(InitItem::<Rockets>::new(ent));
+            commands.queue(InitItem::<Cells>::new(ent));
             Default::default()
         };
 
@@ -467,19 +467,27 @@ impl ClientState {
 
         for new_flag in new_flags.iter() {
             if new_flag == ItemFlags::SHOTGUN {
-                commands.queue(AddWeapon::<Shotgun>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<Shotgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::SUPER_SHOTGUN {
-                commands.queue(AddWeapon::<SuperShotgun>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<SuperShotgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::NAILGUN {
-                commands.queue(AddWeapon::<Nailgun>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<Nailgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::SUPER_NAILGUN {
-                commands.queue(AddWeapon::<SuperNailgun>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<SuperNailgun>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::ROCKET_LAUNCHER {
-                commands.queue(AddWeapon::<RocketLauncher>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<RocketLauncher>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::GRENADE_LAUNCHER {
-                commands.queue(AddWeapon::<GrenadeLauncher>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<GrenadeLauncher>::new(ent, elapsed_secs_f32));
             } else if new_flag == ItemFlags::LIGHTNING {
-                commands.queue(AddWeapon::<LightningGun>::new(ent, elapsed_secs_f32));
+                commands.queue(InsertItem::<LightningGun>::new(ent, elapsed_secs_f32));
+            } else if new_flag == ItemFlags::SIGIL_1 {
+                commands.queue(InitItem::<Sigil1>::new(ent));
+            } else if new_flag == ItemFlags::SIGIL_2 {
+                commands.queue(InitItem::<Sigil2>::new(ent));
+            } else if new_flag == ItemFlags::SIGIL_3 {
+                commands.queue(InitItem::<Sigil3>::new(ent));
+            } else if new_flag == ItemFlags::SIGIL_4 {
+                commands.queue(InitItem::<Sigil4>::new(ent));
             }
         }
 
@@ -487,19 +495,27 @@ impl ClientState {
 
         for removed_flag in removed_flags.iter() {
             if removed_flag == ItemFlags::SHOTGUN {
-                commands.queue(RemoveWeapon::<Shotgun>::new(ent));
+                commands.queue(RemoveItem::<Shotgun>::new(ent));
             } else if removed_flag == ItemFlags::SUPER_SHOTGUN {
-                commands.queue(RemoveWeapon::<SuperShotgun>::new(ent));
+                commands.queue(RemoveItem::<SuperShotgun>::new(ent));
             } else if removed_flag == ItemFlags::NAILGUN {
-                commands.queue(RemoveWeapon::<Nailgun>::new(ent));
+                commands.queue(RemoveItem::<Nailgun>::new(ent));
             } else if removed_flag == ItemFlags::SUPER_NAILGUN {
-                commands.queue(RemoveWeapon::<SuperNailgun>::new(ent));
+                commands.queue(RemoveItem::<SuperNailgun>::new(ent));
             } else if removed_flag == ItemFlags::ROCKET_LAUNCHER {
-                commands.queue(RemoveWeapon::<RocketLauncher>::new(ent));
+                commands.queue(RemoveItem::<RocketLauncher>::new(ent));
             } else if removed_flag == ItemFlags::GRENADE_LAUNCHER {
-                commands.queue(RemoveWeapon::<GrenadeLauncher>::new(ent));
+                commands.queue(RemoveItem::<GrenadeLauncher>::new(ent));
             } else if removed_flag == ItemFlags::LIGHTNING {
-                commands.queue(RemoveWeapon::<LightningGun>::new(ent));
+                commands.queue(RemoveItem::<LightningGun>::new(ent));
+            } else if removed_flag == ItemFlags::SIGIL_1 {
+                commands.queue(RemoveItem::<Sigil1>::new(ent));
+            } else if removed_flag == ItemFlags::SIGIL_2 {
+                commands.queue(RemoveItem::<Sigil2>::new(ent));
+            } else if removed_flag == ItemFlags::SIGIL_3 {
+                commands.queue(RemoveItem::<Sigil3>::new(ent));
+            } else if removed_flag == ItemFlags::SIGIL_4 {
+                commands.queue(RemoveItem::<Sigil4>::new(ent));
             }
         }
 

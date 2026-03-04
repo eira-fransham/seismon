@@ -26,6 +26,7 @@ use bevy::{
     },
     shader::ShaderRef,
 };
+use seismon_utils::write_if_neq;
 
 use crate::client::systems::frame::ViewEntities;
 
@@ -236,9 +237,7 @@ fn update_color_shift_entities<M>(
 
         let erased = target.erase();
 
-        if *shift != erased {
-            *shift = erased;
-        }
+        write_if_neq!(*shift, erased);
     });
 }
 

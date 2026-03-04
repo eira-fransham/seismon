@@ -1,8 +1,8 @@
 use std::{convert::Infallible, time::Duration};
 
-use bevy_app::Plugin;
-use bevy_asset::{AssetApp, AssetLoader, RenderAssetUsages};
-use bevy_ecs::world::World;
+use bevy_app::{Plugin, PostUpdate};
+use bevy_asset::{Asset, AssetApp, AssetLoader, Handle, RenderAssetUsages};
+use bevy_ecs::{schedule::IntoScheduleConfigs as _, world::World};
 use bevy_image::Image;
 use bevy_log::debug;
 use bevy_math::{Vec3, primitives::Rectangle};
@@ -20,6 +20,10 @@ use qbsp::Palette;
 use seismon_utils::model::SyncType;
 use serde::{Deserialize, Serialize};
 
+use crate::anim::CalculatedSprSettings;
+
+pub mod anim;
+
 const MAGIC: u32 = u32::from_le_bytes(*b"IDSP");
 const VERSION: u32 = 1;
 
@@ -29,7 +33,9 @@ pub struct SprPlugin {}
 
 impl Plugin for SprPlugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_asset_loader::<SpriteLoader>();
+        app.init_asset::<Sprite>()
+            .init_asset_loader::<SpriteLoader>()
+            .add_systems(PostUpdate, (anim::propagate_spr_settings, anim::update_sprs).chain());
     }
 }
 
@@ -77,21 +83,24 @@ impl AssetLoader for SpriteLoader {
         }
 
         async move {
+            const SPRITE_HANDLE_NAME: &str = "sprite";
+
             let raw = load(reader).await;
 
             let billboard_mesh = load_context
                 .add_labeled_asset("billboard".into(), Mesh::from(Rectangle::new(1., 1.)));
 
             // TODO: This is a lot of code, it'd be nice to deduplicate it with `bevy_mod_mdl`
-            let bundles = raw
-                .frames()
+            let processed_sprite_frames = raw
+                .frames
+                .into_iter()
                 .enumerate()
                 .filter_map(|(i, tex)| match tex {
                     SpriteFrame::Static { frame } => {
                         let img = load_context.add_labeled_asset(
                             format!("img{i}"),
                             translate_tex(
-                                &frame.indices,
+                                &frame.image,
                                 frame.width,
                                 frame.height,
                                 settings.override_palette.as_ref().unwrap_or(&self.default_palette),
@@ -101,12 +110,12 @@ impl AssetLoader for SpriteLoader {
                         Some((img, frame.width, frame.height))
                     }
                     SpriteFrame::Animated { subframes, durations } if subframes.len() <= 1 => {
-                        let frame = subframes.first()?;
+                        let frame = subframes.into_iter().next()?;
 
                         let img = load_context.add_labeled_asset(
                             format!("img{i}"),
                             translate_tex(
-                                &frame.indices,
+                                &frame.image,
                                 frame.width,
                                 frame.height,
                                 settings.override_palette.as_ref().unwrap_or(&self.default_palette),
@@ -119,27 +128,51 @@ impl AssetLoader for SpriteLoader {
                         todo!()
                     }
                 })
-                .map(|(image, width, height)| {
-                    (
-                        BillboardTexture(image),
-                        BillboardMesh(billboard_mesh.clone()),
-                        Transform::from_scale(Vec3::new(width as _, height as _, 1.) / 40.),
-                    )
+                .map(|(image, width, height)| SpriteSubframe {
+                    width,
+                    height,
+                    image: image.clone(),
                 });
 
             let mut world = World::new();
 
-            // TODO
-            for bundle in bundles.take(1) {
-                world.spawn(bundle);
+            let out_sprite = Sprite {
+                kind: raw.kind,
+                max_width: raw.max_width,
+                max_height: raw.max_height,
+                radius: raw.radius,
+                frames: processed_sprite_frames
+                    .map(|frame| SpriteFrame::Static { frame })
+                    .collect(),
+            };
+            let out_sprite_model_handle = load_context.get_label_handle(SPRITE_HANDLE_NAME);
+
+            // TODO: Support animated
+            if let Some(SpriteFrame::Static { frame: first_frame }) = out_sprite.frames.first() {
+                world.spawn((
+                    CalculatedSprSettings::from(out_sprite_model_handle.clone()),
+                    BillboardTexture(first_frame.image.clone()),
+                    BillboardMesh(billboard_mesh.clone()),
+                    Transform::from_scale(Vec3::new(
+                        first_frame.width as _,
+                        first_frame.height as _,
+                        1.,
+                    )),
+                ));
             }
+
+            load_context.add_labeled_asset(SPRITE_HANDLE_NAME.into(), out_sprite);
 
             Ok(Scene { world })
         }
     }
+
+    fn extensions(&self) -> &[&str] {
+        &["spr"]
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, FromPrimitive, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, FromPrimitive, PartialEq, Reflect)]
 pub enum SpriteKind {
     ViewPlaneParallelUpright = 0,
     Upright = 1,
@@ -148,16 +181,16 @@ pub enum SpriteKind {
     ViewPlaneParallelOriented = 4,
 }
 
-#[derive(Debug, Clone)]
-pub struct SpriteModel {
+#[derive(Debug, Clone, Reflect, Asset)]
+pub struct Sprite {
     kind: SpriteKind,
     max_width: usize,
     max_height: usize,
     radius: f32,
-    frames: Vec<SpriteFrame>,
+    frames: Vec<SpriteFrame<Handle<Image>>>,
 }
 
-impl SpriteModel {
+impl Sprite {
     pub fn min(&self) -> Vec3 {
         Vec3::new(
             -(self.max_width as f32) / 2.0,
@@ -182,22 +215,33 @@ impl SpriteModel {
         self.kind
     }
 
-    pub fn frames(&self) -> impl Iterator<Item = &SpriteFrame> {
+    pub fn frames(&self) -> impl Iterator<Item = &SpriteFrame<Handle<Image>>> {
         self.frames.iter()
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum SpriteFrame {
-    Static { frame: SpriteSubframe },
-    Animated { subframes: Vec<SpriteSubframe>, durations: Vec<Duration> },
+#[derive(Debug, Clone, Reflect)]
+struct RawSprite {
+    kind: SpriteKind,
+    max_width: usize,
+    max_height: usize,
+    radius: f32,
+    frames: Vec<SpriteFrame>,
 }
 
-#[derive(Debug, Clone)]
-pub struct SpriteSubframe {
+type Indices = Vec<u8>;
+
+#[derive(Debug, Clone, Reflect)]
+pub enum SpriteFrame<Image = Indices> {
+    Static { frame: SpriteSubframe<Image> },
+    Animated { subframes: Vec<SpriteSubframe<Image>>, durations: Vec<Duration> },
+}
+
+#[derive(Debug, Clone, Reflect)]
+pub struct SpriteSubframe<Image = Indices> {
     width: u32,
     height: u32,
-    indices: Box<[u8]>,
+    image: Image,
 }
 
 impl SpriteSubframe {
@@ -210,7 +254,7 @@ impl SpriteSubframe {
     }
 
     pub fn indexed(&self) -> &[u8] {
-        &self.indices
+        &self.image
     }
 }
 
@@ -237,14 +281,10 @@ where
         indices.push(reader.read_u8().await.unwrap());
     }
 
-    SpriteSubframe {
-        width: width as u32,
-        height: height as u32,
-        indices: indices.into_boxed_slice(),
-    }
+    SpriteSubframe { width: width as u32, height: height as u32, image: indices }
 }
 
-pub async fn load<R>(mut reader: &mut R) -> SpriteModel
+async fn load<R>(mut reader: &mut R) -> RawSprite
 where
     R: bevy_asset::io::Reader + ?Sized,
 {
@@ -321,5 +361,5 @@ where
         }
     }
 
-    SpriteModel { kind, max_width, max_height, radius, frames }
+    RawSprite { kind, max_width, max_height, radius, frames }
 }

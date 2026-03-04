@@ -38,6 +38,24 @@ use crate::{
 pub mod anim;
 pub mod read;
 
+#[non_exhaustive]
+#[derive(Default)]
+pub struct MdlPlugin {}
+
+impl Plugin for MdlPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.init_asset::<Mdl>()
+            .init_asset::<AnimMeshes>()
+            .register_type::<MdlSettings>()
+            .register_type::<MeshAnimPlayer>()
+            .register_asset_loader(MdlLoader::default())
+            .add_systems(
+                PostUpdate,
+                (propagate_mdl_settings, update_mdls, anim::animate_mesh_animations).chain(),
+            );
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum MdlFileError {
     #[error("No meshes")]
@@ -595,23 +613,5 @@ impl AssetLoader for MdlLoader {
 
     fn extensions(&self) -> &[&str] {
         &["mdl"]
-    }
-}
-
-#[non_exhaustive]
-#[derive(Default)]
-pub struct MdlPlugin {}
-
-impl Plugin for MdlPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        app.init_asset::<Mdl>()
-            .init_asset::<AnimMeshes>()
-            .register_type::<MdlSettings>()
-            .register_type::<MeshAnimPlayer>()
-            .register_asset_loader(MdlLoader::default())
-            .add_systems(
-                PostUpdate,
-                (propagate_mdl_settings, update_mdls, anim::animate_mesh_animations).chain(),
-            );
     }
 }

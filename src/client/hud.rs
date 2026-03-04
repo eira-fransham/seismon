@@ -27,7 +27,7 @@ use bevy::{
 use seismon_utils::QStr;
 
 use crate::client::{
-    inventory::{ActiveWeaponFor, Ammo, InventoryItem, Weapon},
+    inventory::{ActiveWeaponFor, Ammo, InventoryItem, Item, Sigil, Weapon},
     text::{AtlasText, Conchars},
 };
 
@@ -37,26 +37,33 @@ pub struct HudPlugin {}
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut bevy::app::App) {
-        app.add_observer(observers::add_weapon_hud)
+        app.add_observer(observers::add_item_hud::<Weapon, HudWeapons>(24.))
+            .add_observer(observers::add_item_hud::<Sigil, HudSigils>(8.))
             .add_observer(observers::add_ammo_hud)
             .add_observer(observers::mark_picking_up)
             .add_observer(observers::make_weapon_active)
             .add_observer(observers::make_weapon_inactive)
-            .add_systems(PostUpdate, (systems::update_ammo, systems::update_pickup_animation));
+            .add_systems(
+                PostUpdate,
+                (systems::update_ammo, systems::update_pickup_animation, systems::update_health),
+            );
     }
 }
 
 #[derive(Component, Reflect, Debug)]
+#[component(storage = "SparseSet")]
 #[reflect(Component)]
 #[relationship(relationship_target = HasHud)]
 pub struct HudOf(pub Entity);
 
 #[derive(Component, Reflect, Debug)]
+#[component(storage = "SparseSet")]
 #[reflect(Component)]
 #[relationship_target(relationship = HudOf, linked_spawn)]
 pub struct HasHud(Entity);
 
 #[derive(Component, Reflect, Debug)]
+#[component(storage = "SparseSet")]
 #[reflect(Component)]
 #[relationship(relationship_target = HudContainers<Kind>)]
 pub struct HudContainer<Kind>
@@ -68,14 +75,21 @@ where
     _phantom: PhantomData<Kind>,
 }
 
+// Marker for the HUD health text
+pub enum HudHealth {}
+
 // Marker for the HUD weapon container
 pub enum HudWeapons {}
+
+// Marker for the HUD sigil container
+pub enum HudSigils {}
 
 // Marker for the HUD ammo container
 pub enum HudAmmo {}
 
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
+#[component(storage = "SparseSet")]
 #[relationship_target(relationship = HudContainer<Kind>)]
 pub struct HudContainers<Kind>
 where
@@ -87,6 +101,7 @@ where
 }
 
 #[derive(Component, Reflect, Debug)]
+#[component(storage = "SparseSet")]
 #[reflect(Component)]
 #[relationship(relationship_target = HudRepresented)]
 pub struct HudForItem {
@@ -95,6 +110,7 @@ pub struct HudForItem {
 }
 
 #[derive(Component, Reflect, Debug)]
+#[component(storage = "SparseSet")]
 #[reflect(Component)]
 #[relationship_target(relationship = HudForItem, linked_spawn)]
 pub struct HudRepresented(Entity);
@@ -106,8 +122,10 @@ const STATUS_BAR_SCALE: f32 = 1.8;
 const STATUS_BAR_WIDTH: f32 = 320.;
 const STATUS_BAR_HEIGHT: f32 = 50.;
 
+const HEALTH_CONTAINER_NAME: &str = "health";
 const AMMO_CONTAINER_NAME: &str = "ammo";
 const WEAPONS_CONTAINER_NAME: &str = "weapons";
+const SIGILS_CONTAINER_NAME: &str = "sigils";
 
 fn status_w_px(value: f32) -> Val {
     Val::Px(value * STATUS_BAR_SCALE)
@@ -129,6 +147,7 @@ where
 {
     fn apply(self, world: &mut bevy::ecs::world::World) -> () {
         let asset_server = world.resource::<AssetServer>();
+        let conchars = world.resource::<Conchars>().clone();
         let ibar = asset_server.load("gfx.wad#IBAR");
         let sbar = asset_server.load("gfx.wad#SBAR");
 
@@ -172,7 +191,16 @@ where
                                 position_type: PositionType::Absolute,
                                 left: Val::Px(0.),
                                 bottom: Val::Px(0.),
-                                width: Val::Percent(100.),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            Name::new(SIGILS_CONTAINER_NAME),
+                            HudContainer::<HudSigils> { hud: root, _phantom: PhantomData },
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: status_w_px(288.),
+                                bottom: Val::Px(0.),
                                 ..Default::default()
                             },
                         ),
@@ -183,7 +211,6 @@ where
                                 position_type: PositionType::Absolute,
                                 left: status_w_px(10.),
                                 top: status_h_px(-1.),
-                                width: Val::Percent(100.),
                                 ..Default::default()
                             },
                         )
@@ -197,6 +224,25 @@ where
                         ..Default::default()
                     },
                     ImageNode { image: sbar, ..Default::default() },
+                    children![(
+                        Name::new(HEALTH_CONTAINER_NAME),
+                        HudContainer::<HudHealth> { hud: root, _phantom: PhantomData },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            // TODO: Magic numbers
+                            left: status_w_px(136.),
+                            bottom: status_h_px(3.),
+                            ..Default::default()
+                        },
+                        AtlasText {
+                            text: "".into(),
+                            image: conchars.image.into(),
+                            layout: conchars.layout,
+                            glyph_size: conchars.glyph_size.into(),
+                            line_padding: UiRect { top: Val::Px(4.), ..Default::default() },
+                            justify: JustifyContent::FlexEnd,
+                        },
+                    )]
                 )
             ],
         ));
@@ -209,6 +255,10 @@ const WEAPON_PICKUP_FPS: f32 = 10.;
 struct PickingUp;
 
 mod systems {
+    use seismon_utils::{QString, StringColor, write_if_neq};
+
+    use crate::client::inventory::Health;
+
     use super::*;
 
     pub fn update_ammo(
@@ -234,10 +284,13 @@ mod systems {
     pub fn update_pickup_animation(
         mut commands: Commands,
         mut weapon_images: Query<&mut ImageNode>,
-        weapons: Query<(Entity, &Weapon, &HudRepresented, Has<ActiveWeaponFor>), With<PickingUp>>,
+        weapons: Query<
+            (Entity, &Weapon, &Item, &HudRepresented, Has<ActiveWeaponFor>),
+            With<PickingUp>,
+        >,
         time: Res<Time<Virtual>>,
     ) {
-        for (entity, weapon, hud_element, is_active) in weapons {
+        for (entity, weapon, item, hud_element, is_active) in weapons {
             let Ok(mut hud_element) = weapon_images.get_mut(hud_element.0) else {
                 warn!("Tried to set weapon active but no HUD element for it was found");
                 return;
@@ -252,67 +305,94 @@ mod systems {
                 .unwrap_or_else(|| {
                     commands.entity(entity).remove::<PickingUp>();
 
-                    if is_active { &weapon.active } else { &weapon.inactive }
+                    if is_active { &weapon.active } else { &item.gfx }
                 })
                 .clone();
 
-            // TODO: Is this necessary to prevent the change tracking from activating?
-            if hud_element.image != new_image {
-                hud_element.image = new_image;
+            write_if_neq!(hud_element.image, new_image);
+        }
+    }
+
+    pub fn update_health(
+        mut atlas_text: Query<&mut AtlasText>,
+        hud_owners: Query<(&HasHud, &Health), Changed<Health>>,
+        health_container: Query<&HudContainers<HudHealth>>,
+    ) {
+        for (hud, Health(health)) in hud_owners {
+            let Ok(health_container) = health_container.get(hud.0) else {
+                continue;
+            };
+            let Ok(mut text) = atlas_text.get_mut(health_container.container) else {
+                continue;
+            };
+
+            let mut new_text = QString::from(format!("{health}"));
+            if *health <= 25 {
+                new_text.set_color(StringColor::Red);
             }
+
+            text.text = new_text;
         }
     }
 }
 
 mod observers {
+    use bevy::ecs::system::{IntoObserverSystem, ObserverSystem};
+
     use super::*;
 
-    pub fn add_weapon_hud(
-        trigger: On<Insert, Weapon>,
-        mut commands: Commands,
-        owners: Query<&InventoryItem>,
-        hud_owners: Query<&HasHud>,
-        weapon_containers: Query<&HudContainers<HudWeapons>>,
-        weapons: Query<&Weapon>,
-    ) {
-        const AMMO_DISPLAY_WIDTH_PX: f32 = 24.;
+    pub fn add_item_hud<Kind, Container>(width: f32) -> impl ObserverSystem<Insert, Kind, ()>
+    where
+        Kind: Component,
+        Container: Send + Sync + 'static,
+    {
+        let observer = {
+            move |trigger: On<Insert, Kind>,
+                  mut commands: Commands,
+                  owners: Query<&InventoryItem>,
+                  hud_owners: Query<&HasHud>,
+                  item_containers: Query<&HudContainers<Container>>,
+                  items: Query<&Item>| {
+                let new_item = trigger.entity;
 
-        let new_weapon = trigger.entity;
+                let Ok(item) = items.get(new_item) else {
+                    error!("Invalid weapon");
+                    return;
+                };
 
-        let Ok(weapon) = weapons.get(new_weapon) else {
-            error!("Invalid weapon");
-            return;
+                let Ok(InventoryItem { owner }) = owners.get(new_item) else {
+                    error!("Weapon added that does not have an owner");
+                    return;
+                };
+
+                let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
+                    error!("Weapon owner has no HUD");
+                    return;
+                };
+
+                let Ok(HudContainers { container: weapon_container, .. }) =
+                    item_containers.get(*hud_root)
+                else {
+                    error!("HUD has no containers");
+                    return;
+                };
+
+                commands.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: status_w_px(width) * item.order as f32,
+                        bottom: status_w_px(0.),
+                        width: status_w_px(width),
+                        ..Default::default()
+                    },
+                    HudForItem { representing: new_item },
+                    ImageNode { image: item.gfx.clone(), ..Default::default() },
+                    ChildOf(*weapon_container),
+                ));
+            }
         };
 
-        let Ok(InventoryItem { owner }) = owners.get(new_weapon) else {
-            error!("Weapon added that does not have an owner");
-            return;
-        };
-
-        let Ok(HasHud(hud_root)) = hud_owners.get(*owner) else {
-            error!("Weapon owner has no HUD");
-            return;
-        };
-
-        let Ok(HudContainers { container: weapon_container, .. }) =
-            weapon_containers.get(*hud_root)
-        else {
-            error!("HUD has no containers");
-            return;
-        };
-
-        commands.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: status_w_px(AMMO_DISPLAY_WIDTH_PX) * weapon.order as f32,
-                bottom: status_w_px(0.),
-                width: status_w_px(AMMO_DISPLAY_WIDTH_PX),
-                ..Default::default()
-            },
-            HudForItem { representing: new_weapon },
-            ImageNode { image: weapon.inactive.clone(), ..Default::default() },
-            ChildOf(*weapon_container),
-        ));
+        IntoObserverSystem::into_system(observer)
     }
 
     pub fn add_ammo_hud(
@@ -322,7 +402,7 @@ mod observers {
         owners: Query<&InventoryItem>,
         hud_owners: Query<&HasHud>,
         ammo_containers: Query<&HudContainers<HudAmmo>>,
-        ammos: Query<&Ammo>,
+        ammos: Query<&Item>,
     ) {
         let new_ammo = trigger.entity;
 
@@ -408,7 +488,7 @@ mod observers {
     pub fn make_weapon_inactive(
         event: On<Remove, ActiveWeaponFor>,
         mut weapon_images: Query<&mut ImageNode>,
-        weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
+        weapons: Query<(&Item, &HudRepresented), Without<PickingUp>>,
     ) {
         let Ok((weapon, hud_element)) = weapons.get(event.entity) else {
             return;
@@ -419,6 +499,6 @@ mod observers {
             return;
         };
 
-        hud_element.image = weapon.inactive.clone();
+        hud_element.image = weapon.gfx.clone();
     }
 }

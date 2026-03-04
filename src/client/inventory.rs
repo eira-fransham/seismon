@@ -7,8 +7,10 @@ use bevy::{
     app::Plugin,
     asset::{AssetServer, Handle},
     ecs::{
+        bundle::Bundle,
         component::Component,
         entity::Entity,
+        query::With,
         reflect::ReflectComponent,
         relationship::RelationshipTarget as _,
         system::{Command, In, Query},
@@ -33,50 +35,97 @@ pub struct Inventory(Vec<Entity>);
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct Ammo {
-    ammo_type: TypeId,
+pub struct Item {
+    item_type: TypeId,
     pub order: usize,
-    pub amount: u8,
     pub gfx: Handle<Image>,
 }
 
-impl Ammo {
-    pub fn load<T: Any + AmmoType>(asset_server: &AssetServer) -> Self {
-        Self {
-            ammo_type: TypeId::of::<T>(),
-            order: T::ORDER,
-            amount: 0,
-            gfx: asset_server.load(T::GFX),
-        }
+impl Item {
+    fn new<T: ItemType>(init: T::Init, asset_server: &AssetServer) -> (Self, T::Components) {
+        (
+            Self { item_type: TypeId::of::<T>(), order: T::ORDER, gfx: asset_server.load(T::GFX) },
+            T::load_components(init, asset_server),
+        )
     }
 }
 
-pub trait AmmoType: Any + Send + Sync + 'static {
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Ammo {
+    pub amount: u8,
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct Sigil;
+
+pub trait ItemType: Any + Send + Sync + 'static {
+    /// The extra component(s) to add to this item
+    type Components: Bundle;
+    /// Extra data required to initialize this item
+    type Init: Send + Sync + 'static;
+
     /// The order in the visual HUD for this ammo type (used to calculate position)
     const ORDER: usize;
 
     /// The path (usually in `gfx.wad`) of this ammo type's GFX.
     const GFX: &'static str;
+
+    /// The marker for this type
+    fn load_components(init: Self::Init, asset_server: &AssetServer) -> Self::Components;
 }
 
-pub struct AddAmmo<T> {
+pub struct InitItem<T> {
     owner: Entity,
     _phantom: PhantomData<T>,
 }
 
-impl<T: AmmoType> AddAmmo<T> {
+impl<T: ItemType> InitItem<T> {
     pub fn new(owner: Entity) -> Self {
         Self { owner, _phantom: PhantomData }
     }
 }
 
-impl<T: AmmoType> Command for AddAmmo<T> {
+impl<T> Command for InitItem<T>
+where
+    T: ItemType,
+    T::Init: Default,
+{
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let asset_server = world.resource::<AssetServer>();
 
-        let weapon = Ammo::load::<T>(asset_server);
+        let bundle = Item::new::<T>(Default::default(), asset_server);
 
-        world.spawn((weapon, InventoryItem { owner: self.owner }));
+        world.spawn((bundle, InventoryItem { owner: self.owner }));
+    }
+}
+
+pub struct InsertItem<T>
+where
+    T: ItemType,
+{
+    owner: Entity,
+    init_data: T::Init,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ItemType> InsertItem<T> {
+    pub fn new(owner: Entity, init_data: T::Init) -> Self {
+        Self { owner, init_data, _phantom: PhantomData }
+    }
+}
+
+impl<T> Command for InsertItem<T>
+where
+    T: ItemType,
+{
+    fn apply(self, world: &mut bevy::ecs::world::World) {
+        let asset_server = world.resource::<AssetServer>();
+
+        let bundle = Item::new::<T>(self.init_data, asset_server);
+
+        world.spawn((bundle, InventoryItem { owner: self.owner }));
     }
 }
 
@@ -86,18 +135,18 @@ pub struct UpdateAmmoCount<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: AmmoType> UpdateAmmoCount<T> {
+impl<T: ItemType> UpdateAmmoCount<T> {
     pub fn new(owner: Entity, new_count: u8) -> Self {
         Self { owner, new_count, _phantom: PhantomData }
     }
 }
 
-impl<T: AmmoType> Command for UpdateAmmoCount<T> {
+impl<T: ItemType> Command for UpdateAmmoCount<T> {
     fn apply(self, world: &mut bevy::ecs::world::World) {
-        fn update_ammo_count<T: AmmoType>(
+        fn update_ammo_count<T: ItemType>(
             In(update): In<UpdateAmmoCount<T>>,
             inventories: Query<&Inventory>,
-            mut ammos: Query<&mut Ammo>,
+            mut ammos: Query<(&Item, &mut Ammo)>,
         ) {
             let Ok(inventory) = inventories.get(update.owner) else {
                 error!(
@@ -106,14 +155,14 @@ impl<T: AmmoType> Command for UpdateAmmoCount<T> {
                 return;
             };
 
-            for item in inventory.iter() {
-                let Ok(ammo) = ammos.get(item) else {
+            for item_ent in inventory.iter() {
+                let Ok((item, ammo)) = ammos.get(item_ent) else {
                     continue;
                 };
 
                 // Only call `get_mut` if the value is different, to avoid triggering the HUD change hooks
-                if ammo.ammo_type == TypeId::of::<T>() && ammo.amount != update.new_count {
-                    ammos.get_mut(item).unwrap().amount = update.new_count;
+                if item.item_type == TypeId::of::<T>() && ammo.amount != update.new_count {
+                    ammos.get_mut(item_ent).unwrap().1.amount = update.new_count;
                     return;
                 }
             }
@@ -132,38 +181,22 @@ pub struct Health(pub u16);
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
 pub struct Weapon {
-    weapon_type: TypeId,
     ammo_type: TypeId,
-    pub order: usize,
-    pub inactive: Handle<Image>,
     pub active: Handle<Image>,
     pub pickup: Vec<Handle<Image>>,
     // TODO: Maybe put this somewhere else
     pub pickup_time_secs: f32,
 }
 
-impl Weapon {
-    pub fn load<T: Any + WeaponType>(pickup_time_secs: f32, asset_server: &AssetServer) -> Self {
-        Self {
-            weapon_type: TypeId::of::<T>(),
-            ammo_type: TypeId::of::<T::Ammo>(),
-            order: T::ORDER,
-            inactive: asset_server.load(T::INACTIVE_FRAME),
-            active: asset_server.load(T::ACTIVE_FRAME),
-            pickup: T::PICKUP_FRAMES.iter().map(|s| asset_server.load(*s)).collect(),
-            pickup_time_secs,
-        }
-    }
-}
-
 pub struct SetActiveWeaponByOrder(pub Entity, pub usize);
 
 impl Command for SetActiveWeaponByOrder {
     fn apply(self, world: &mut bevy::ecs::world::World) {
+        let mut weapons = world.query_filtered::<&Item, With<Weapon>>();
         let maybe_active_weapon = world.get::<ActiveWeapon>(self.0);
 
         if let Some(ActiveWeapon(active)) = maybe_active_weapon
-            && let Some(weapon) = world.get::<Weapon>(*active)
+            && let Ok(weapon) = weapons.get(world, *active)
             && weapon.order == self.1
         {
             return;
@@ -174,13 +207,7 @@ impl Command for SetActiveWeaponByOrder {
         let Some(new_active_weapon) = inventory
             .0
             .iter()
-            .find(|item| {
-                let Some(weapon) = world.get::<Weapon>(**item) else {
-                    return false;
-                };
-
-                weapon.order == self.1
-            })
+            .find(|item| weapons.get(world, **item).is_ok_and(|weapon| weapon.order == self.1))
             .copied()
         else {
             error!(
@@ -194,62 +221,40 @@ impl Command for SetActiveWeaponByOrder {
     }
 }
 
-pub struct AddWeapon<T> {
-    owner: Entity,
-    pickup_time_secs: f32,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: WeaponType> AddWeapon<T> {
-    pub fn new(owner: Entity, pickup_time_secs: f32) -> Self {
-        Self { owner, pickup_time_secs, _phantom: PhantomData }
-    }
-}
-
-impl<T: WeaponType> Command for AddWeapon<T> {
-    fn apply(self, world: &mut bevy::ecs::world::World) {
-        let asset_server = world.resource::<AssetServer>();
-
-        let weapon = Weapon::load::<T>(self.pickup_time_secs, asset_server);
-
-        world.spawn((weapon, InventoryItem { owner: self.owner }));
-    }
-}
-
 // TODO: Use `WeaponTyped<T>` + `Weapon` + a relationship and observer to ensure that it's impossible to have duplicates weapons of a given type
-pub struct RemoveWeapon<T> {
+pub struct RemoveItem<T> {
     owner: Entity,
     _phantom: PhantomData<T>,
 }
 
-impl<T: WeaponType> RemoveWeapon<T> {
+impl<T: ItemType> RemoveItem<T> {
     pub fn new(owner: Entity) -> Self {
         Self { owner, _phantom: PhantomData }
     }
 }
 
-impl<T: WeaponType> Command for RemoveWeapon<T> {
+impl<T: ItemType> Command for RemoveItem<T> {
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let inventory =
             world.get::<Inventory>(self.owner).expect("No valid target for remove weapon");
 
-        let Some(weapon_to_despawn) = inventory
+        let Some(item_to_despawn) = inventory
             .0
             .iter()
             .find(|item| {
-                let Some(weapon) = world.get::<Weapon>(**item) else {
+                let Some(item) = world.get::<Item>(**item) else {
                     return false;
                 };
 
-                weapon.weapon_type == TypeId::of::<T>()
+                item.item_type == TypeId::of::<T>()
             })
             .copied()
         else {
-            error!("Tried to remove weapon {} but it did not exist", std::any::type_name::<T>());
+            error!("Tried to remove item {} but it did not exist", std::any::type_name::<T>());
             return;
         };
 
-        world.despawn(weapon_to_despawn);
+        world.despawn(item_to_despawn);
     }
 }
 
@@ -263,49 +268,82 @@ pub struct ActiveWeaponFor(Entity);
 #[relationship(relationship_target = ActiveWeaponFor)]
 pub struct ActiveWeapon(pub Entity);
 
-pub trait WeaponType: Any + Send + Sync + 'static {
-    type Ammo: AmmoType;
+pub trait WeaponType: ItemType {
+    type Ammo: ItemType;
 
-    const ORDER: usize;
-    const INACTIVE_FRAME: &'static str;
     const ACTIVE_FRAME: &'static str;
     const PICKUP_FRAMES: &'static [&'static str];
 }
 
-pub enum Shells {}
-pub enum Nails {}
-pub enum Rockets {}
-pub enum Cells {}
+macro_rules! qammo {
+    ($visibility:vis $ammo_name:ident, $gfx_base:expr, $order:expr) => {
+        $visibility enum $ammo_name {}
 
-impl AmmoType for Shells {
-    const ORDER: usize = 0;
-    const GFX: &'static str = "gfx.wad#SB_SHELLS";
+        impl ItemType for $ammo_name {
+            type Components = Ammo;
+            type Init = ();
+
+            const ORDER: usize = $order;
+            const GFX: &'static str = concat!("gfx.wad#SB_", $gfx_base);
+
+            fn load_components(_: (), _: &AssetServer) -> Self::Components {
+                Ammo::default()
+            }
+        }
+    };
 }
 
-impl AmmoType for Nails {
-    const ORDER: usize = 1;
-    const GFX: &'static str = "gfx.wad#SB_NAILS";
+qammo!(pub Shells, "SHELLS", 0);
+qammo!(pub Nails, "NAILS", 1);
+qammo!(pub Rockets, "ROCKET", 2);
+qammo!(pub Cells, "CELLS", 3);
+
+macro_rules! qsigil {
+    ($visibility:vis $sigil_name:ident, $gfx_base:expr, $order:expr) => {
+        $visibility enum $sigil_name {}
+
+        impl ItemType for $sigil_name {
+            type Components = Sigil;
+            type Init = ();
+
+            const ORDER: usize = $order;
+            const GFX: &'static str = concat!("gfx.wad#SB_", $gfx_base);
+
+            fn load_components(_: (), _: &AssetServer) -> Self::Components {
+                Sigil
+            }
+        }
+    };
 }
 
-impl AmmoType for Rockets {
-    const ORDER: usize = 2;
-    const GFX: &'static str = "gfx.wad#SB_ROCKET";
-}
-
-impl AmmoType for Cells {
-    const ORDER: usize = 3;
-    const GFX: &'static str = "gfx.wad#SB_CELLS";
-}
+qsigil!(pub Sigil1, "SIGIL1", 0);
+qsigil!(pub Sigil2, "SIGIL2", 1);
+qsigil!(pub Sigil3, "SIGIL3", 2);
+qsigil!(pub Sigil4, "SIGIL4", 3);
 
 macro_rules! qweapon {
     ($visibility:vis $weapon_name:ident, $ammo_ty:ty, $gfx_base:expr, $order:expr) => {
         $visibility enum $weapon_name {}
 
-        impl WeaponType for $weapon_name {
-            type Ammo = $ammo_ty;
+        impl ItemType for $weapon_name {
+            type Components = Weapon;
+            type Init = f32;
 
             const ORDER: usize = $order;
-            const INACTIVE_FRAME: &'static str = concat!("gfx.wad#INV_", $gfx_base);
+            const GFX: &'static str = concat!("gfx.wad#INV_", $gfx_base);
+
+            fn load_components(pickup_time_secs: f32, asset_server: &AssetServer) -> Self::Components {
+                Weapon {
+                    ammo_type: TypeId::of::<<Self as WeaponType>::Ammo>(),
+                    pickup_time_secs,
+                    active: asset_server.load(Self::ACTIVE_FRAME),
+                    pickup: Self::PICKUP_FRAMES.iter().map(|s| asset_server.load(*s)).collect(),
+                }
+            }
+        }
+
+        impl WeaponType for $weapon_name {
+            type Ammo = $ammo_ty;
             const ACTIVE_FRAME: &'static str = concat!("gfx.wad#INV2_", $gfx_base);
             const PICKUP_FRAMES: &'static [&'static str] = &[
                 concat!("gfx.wad#INVA1_", $gfx_base),

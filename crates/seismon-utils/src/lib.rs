@@ -33,6 +33,17 @@ use nom::AsBytes;
 
 pub mod model;
 
+#[macro_export]
+macro_rules! write_if_neq {
+    ($ptr:expr, $value:expr) => {
+        let value = $value;
+
+        if $ptr != value {
+            $ptr = value;
+        }
+    };
+}
+
 const QUAKE_ROLL_PITCH_YAW: EulerRot = EulerRot::XYZEx;
 
 impl From<QAngles> for Quat {
@@ -248,6 +259,21 @@ impl<'a> QStr<'a> {
         } else {
             std::str::from_utf8(out.unwrap_borrowed()).unwrap().into()
         }
+    }
+
+    pub fn set_color(&mut self, new_color: StringColor) {
+        let mut owned =
+            if self.raw.is_borrowed() && self.chars().all(|(_, color)| color == new_color) {
+                return;
+            } else {
+                std::mem::take(self).raw.into_owned()
+            };
+
+        for char in &mut owned {
+            *char |= 128;
+        }
+
+        *self = QStr { raw: owned.into() };
     }
 
     pub fn into_string(self) -> String {
