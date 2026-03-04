@@ -13,7 +13,10 @@ use std::{
 use beef::Cow;
 use bevy::{
     asset::AssetLoader,
-    ecs::{prelude::Command, resource::Resource, system::SystemId, world::World},
+    ecs::{
+        prelude::Command, resource::Resource, schedule::ScheduleLabel, system::SystemId,
+        world::World,
+    },
     prelude::*,
 };
 use clap::{FromArgMatches, Parser};
@@ -37,9 +40,21 @@ use crate::client::{
 
 use super::{parse, vfs::Vfs};
 
-pub struct SeismonConsoleCorePlugin;
+#[derive(Default)]
+pub struct SeismonConsoleCorePlugin<T = PostUpdate>(pub T)
+where
+    T: ScheduleLabel;
 
-impl Plugin for SeismonConsoleCorePlugin {
+impl SeismonConsoleCorePlugin {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<T> Plugin for SeismonConsoleCorePlugin<T>
+where
+    T: ScheduleLabel + Clone,
+{
     fn build(&self, app: &mut App) {
         #[derive(Parser)]
         #[command(name = "stuffcmds", about = "Run the commands from the CLI input arguments")]
@@ -118,8 +133,11 @@ impl Plugin for SeismonConsoleCorePlugin {
 
                 default()
             })
-            .add_systems(PostUpdate, (systems::populate_pending, systems::execute_console).chain())
-            .add_systems(PostUpdate, systems::update_cvars);
+            .add_systems(
+                self.0.clone(),
+                (systems::populate_pending, systems::execute_console).chain(),
+            )
+            .add_systems(self.0.clone(), systems::update_cvars);
     }
 }
 
@@ -154,7 +172,7 @@ impl Plugin for SeismonConsoleRenderPlugin {
             }
         }
 
-        app.add_plugins(SeismonConsoleCorePlugin)
+        app.add_plugins(SeismonConsoleCorePlugin::new())
             .add_message::<UnhandledCmd>()
             .init_resource::<ConsoleOutput>()
             .insert_resource(ConsoleInput::new(history).unwrap())

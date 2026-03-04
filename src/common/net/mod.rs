@@ -112,20 +112,20 @@ impl InMemoryMessagingServer {
     }
 }
 
-#[derive(Clone, Message)]
+#[derive(Clone, Message, Debug)]
 pub struct ServerMessage {
     pub client_id: usize,
     pub packet: Arc<[u8]>,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone, Hash, Default)]
+#[derive(PartialEq, Eq, Copy, Clone, Hash, Default, Debug)]
 pub enum MessageKind {
     #[default]
     Reliable,
     Unreliable,
 }
 
-#[derive(Message, Default, Clone)]
+#[derive(Message, Default, Clone, Debug)]
 pub struct ClientMessage {
     pub client_id: usize,
     pub packet: Arc<[u8]>,

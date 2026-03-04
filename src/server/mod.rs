@@ -187,8 +187,6 @@ impl Plugin for SeismonListenServerPlugin {
             .insert_resource(asset_server)
             .insert_resource(vfs)
             .insert_resource(server_messaging)
-            .add_message::<ServerMessage>()
-            .add_message::<ClientMessage>()
             .add_systems(FixedFirst, server_recv_from_client)
             .add_systems(FixedLast, server_send_to_client)
             .add_plugins(SeismonServerPlugin)
@@ -196,20 +194,20 @@ impl Plugin for SeismonListenServerPlugin {
 
         server_sub_app.update_schedule = Some(FixedMain.intern());
 
-        server_sub_app.set_extract(|client_world, server_world| {
-            server_world.resource_mut::<Messages<ClientMessage>>().write_batch(
-                client_world
-                    .resource_mut::<Messages<ClientMessage>>()
-                    .iter_current_update_messages()
-                    .cloned(),
-            );
-            client_world.resource_mut::<Messages<ServerMessage>>().write_batch(
-                server_world
-                    .resource_mut::<Messages<ServerMessage>>()
-                    .iter_current_update_messages()
-                    .cloned(),
-            );
-        });
+        // server_sub_app.set_extract(|client_world, server_world| {
+        //     server_world.resource_mut::<Messages<ClientMessage>>().write_batch(
+        //         client_world
+        //             .resource::<Messages<ClientMessage>>()
+        //             .iter_current_update_messages()
+        //             .cloned(),
+        //     );
+        //     client_world.resource_mut::<Messages<ServerMessage>>().write_batch(
+        //         server_world
+        //             .resource::<Messages<ServerMessage>>()
+        //             .iter_current_update_messages()
+        //             .cloned(),
+        //     );
+        // });
 
         app.insert_sub_app(ServerApp, server_sub_app);
     }
@@ -220,7 +218,7 @@ impl Plugin for SeismonServerPlugin {
         // TODO: Should we share consoles between client and server? Seems like it'd be better to
         // keep them separate.
         app.init_resource::<Vfs>()
-            .add_systems(PreUpdate, systems::recv_client_messages)
+            .add_systems(FixedPreUpdate, systems::recv_client_messages)
             .add_systems(
                 FixedMain,
                 (
@@ -242,7 +240,7 @@ impl Plugin for SeismonServerPlugin {
             .add_message::<ClientMessage>()
             .add_message::<ServerMessage>()
             .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
-            .add_plugins(SeismonConsoleCorePlugin);
+            .add_plugins(SeismonConsoleCorePlugin(FixedPostUpdate));
 
         commands::register_commands(app);
         cvars::register_cvars(app);
