@@ -29,29 +29,31 @@ bevy_mod_assimp = { path = "crates/bevy_mod_assimp" }
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
 lined = { path = "crates/lined" }
 
-bevy = { version = "0.18"}
-bevy_asset = { version = "0.18" }
-bevy_animation = { version = "0.18" }
-bevy_app = { version = "0.18" }
-bevy_camera = { version = "0.18" }
-bevy_color = { version = "0.18" }
-bevy_ecs = { version = "0.18" }
-bevy_image = { version = "0.18" }
-bevy_log = { version = "0.18" }
-bevy_tasks = { version = "0.18" }
-bevy_transform = { version = "0.18" }
-bevy_time = { version = "0.18" }
-bevy_math = { version = "0.18", features = ["serialize", "bevy_reflect"] }
-bevy_mesh = { version = "0.18" }
-bevy_reflect = { version = "0.18", features = ["glam"] }
-bevy_render = { version = "0.18" }
-bevy_pbr = { version = "0.18" }
-bevy_scene = { version = "0.18" }
+bevy = { version = "0.20"}
+bevy_asset = { version = "0.20" }
+bevy_animation = { version = "0.20" }
+bevy_app = { version = "0.20" }
+bevy_camera = { version = "0.20" }
+bevy_color = { version = "0.20" }
+bevy_ecs = { version = "0.20" }
+bevy_image = { version = "0.20" }
+bevy_log = { version = "0.20" }
+bevy_tasks = { version = "0.20" }
+bevy_transform = { version = "0.20" }
+bevy_time = { version = "0.20" }
+bevy_math = { version = "0.20", features = ["serialize", "bevy_reflect"] }
+bevy_mesh = { version = "0.20" }
+bevy_reflect = { version = "0.20", features = ["glam"] }
+bevy_render = { version = "0.20" }
+bevy_pbr = { version = "0.20" }
+bevy_world_serialization = { version = "0.20" }
+bevy_shape = { version = "0.20" }
+bevy_curve = { version = "0.20" }
 
 anyhow = "1.0"
-asset-importer = { version = "0.4", features = ["build-assimp"] }
+asset-importer = { version = "0.8", features = ["build-assimp"] }
 beef = "0.5"
-bevy_materialize = "0.10"
+bevy_materialize = "0.12"
 bevy_mod_scripting = { version = "0.19", default-features = false }
 bevy_mod_billboard = { git = "https://github.com/eira-fransham/bevy_mod_billboard.git", branch = "bevy-0.18" }
 bitflags = "2.4"
@@ -75,7 +77,7 @@ termion = "4.0"
 thiserror = "1.0"
 tokio = "1.49"
 unicode-width = "0.2"
-qbsp = { version = "0.14", features = ["bevy_reflect", "serde"] }
+qbsp = { version = "0.17", features = ["bevy_reflect", "serde"] }
 
 [dependencies]
 seismon-utils.workspace = true
@@ -106,9 +108,9 @@ thiserror.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
-bevy_seedling = { git = "https://github.com/eira-fransham/bevy_seedling.git", branch = "ignore-already-deleted-entities" }
-bevy_mod_scripting.workspace = true
-bevy-inspector-egui = { version = "0.36", optional = true }
+bevy_seedling = { git = "https://github.com/eswartz/bevy_seedling-fork.git", branch = "migrate-to-bevy-0.20" }
+bevy_mod_scripting = { workspace = true, optional = true }
+bevy-inspector-egui = { version = "0.38", optional = true }
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
@@ -129,15 +131,15 @@ strum = "0.26"
 strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
-bevy_mod_scripting_qcvm = { version = "0.3", features = ["quake1"] }
-wgpu = { version = "27.0", features = ["spirv", "vulkan-portability"] }
-winit = "0.29"
+bevy_mod_scripting_qcvm = { version = "0.3", features = ["quake1"], optional = true }
+wgpu = { version = "30.0", features = ["spirv", "vulkan-portability"] }
 
 tracing = { version = "^0.1", optional = true }
 
 [dependencies.bevy_trenchbroom]
-git = "https://github.com/eira-fransham/bevy_trenchbroom.git"
-branch = "each-model-separate-sub-asset-bevy-0.18"
+# TODO: Temporary local checkout of the Bevy 0.20 port (branch `each-model-separate-sub-asset-bevy-0.20`);
+# switch back to a git dependency once it's pushed.
+path = "../bevy_trenchbroom"
 default-features = false
 features = ["client", "bsp"]
 
@@ -147,6 +149,9 @@ fast-compile = ["bevy/dynamic_linking"]
 # `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
 color-shift = []
 dev-tools = ["dep:bevy-inspector-egui", "bevy/bevy_dev_tools"]
+# Not yet ported: `bevy_mod_scripting_qcvm` 0.3 / `bevy_mod_scripting` 0.19 still target Bevy 0.18,
+# so enabling this pulls in a second Bevy version and is not expected to build until they're ported.
+qc-scripting = ["dep:bevy_mod_scripting", "dep:bevy_mod_scripting_qcvm"]
 bin-release = ["dep:tracing", "tracing/max_level_off"]
 
 [profile.bin-release]
@@ -161,3 +166,8 @@ opt-level = 1
 
 [profile.dev.package.bevy]
 opt-level = 3
+
+# `bevy_seedling`'s Bevy 0.20 branch (CorvusPrudens/bevy_seedling#137) needs the unreleased
+# Firewheel 0.15 from BillyDM/Firewheel#146. Remove once both are published.
+[patch.crates-io]
+firewheel = { git = "https://github.com/eswartz/Firewheel-fork.git", branch = "bevy-0.20" }

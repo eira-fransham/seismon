@@ -20,7 +20,7 @@ use bevy_mesh::{Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{Lightmap, StandardMaterial};
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy_scene::Scene;
+use bevy_world_serialization::WorldAsset;
 use bevy_tasks::ConditionalSendFuture;
 use bevy_transform::components::Transform;
 use seismon_utils::model::ModelFlags;
@@ -130,6 +130,8 @@ pub enum MdlFlag {
 }
 
 impl EntityCommand for MdlFlag {
+    type Out = ();
+
     fn apply(self, mut entity: EntityWorldMut) {
         match self {
             MdlFlag::Rocket(component) => entity.insert(component.clone()),
@@ -495,7 +497,7 @@ async fn load_mdl_as_scene(
     reader: &mut dyn bevy_asset::io::Reader,
     settings: &MdlLoaderSettings,
     load_context: &mut bevy_asset::LoadContext<'_>,
-) -> Result<Scene, MdlFileError> {
+) -> Result<WorldAsset, MdlFileError> {
     let mdl = load_mdl(loader, reader, settings, load_context).await?;
 
     let transform = mdl.transform;
@@ -522,7 +524,7 @@ async fn load_mdl_as_scene(
         mesh,
     ));
 
-    Ok(Scene { world })
+    Ok(WorldAsset { world })
 }
 
 #[derive(Component, Reflect)]
@@ -598,7 +600,7 @@ fn update_mdls(
 }
 
 impl AssetLoader for MdlLoader {
-    type Asset = Scene;
+    type Asset = WorldAsset;
     type Settings = MdlLoaderSettings;
     type Error = MdlFileError;
 
