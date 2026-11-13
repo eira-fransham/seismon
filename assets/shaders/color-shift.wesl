@@ -1,6 +1,6 @@
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
-#import "shaders/colorspaces.wgsl"::{toColorSpace, fromColorSpace}
-#import "shaders/blend.wgsl"::blendNormal_opacity
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
+import package::shaders::colorspaces::{toColorSpace, fromColorSpace};
+import package::shaders::blend::blendNormal_opacity;
 
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;

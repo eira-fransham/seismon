@@ -781,6 +781,8 @@ pub struct SetCvar(pub CName, pub Value);
 pub struct ResetCvar(pub CName, pub Value);
 
 impl Command for SetCvar {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         if let Err(e) = world.resource_mut::<Registry>().set_cvar_raw(self.0, self.1) {
             warn!(target: "console", "{e}");

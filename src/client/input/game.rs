@@ -27,7 +27,6 @@ use failure::{Error, bail, format_err};
 use hashbrown::HashMap;
 use smol_str::SmolStr;
 use strum_macros::EnumIter;
-use winit::event::MouseButton;
 
 #[derive(Debug, Copy, Clone, Eq)]
 #[repr(transparent)]

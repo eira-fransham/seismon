@@ -92,6 +92,8 @@ where
     T: ItemType,
     T::Init: Default,
 {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let asset_server = world.resource::<AssetServer>();
 
@@ -120,6 +122,8 @@ impl<T> Command for InsertItem<T>
 where
     T: ItemType,
 {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let asset_server = world.resource::<AssetServer>();
 
@@ -142,6 +146,8 @@ impl<T: ItemType> UpdateAmmoCount<T> {
 }
 
 impl<T: ItemType> Command for UpdateAmmoCount<T> {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) {
         fn update_ammo_count<T: ItemType>(
             In(update): In<UpdateAmmoCount<T>>,
@@ -191,6 +197,8 @@ pub struct Weapon {
 pub struct SetActiveWeaponByOrder(pub Entity, pub usize);
 
 impl Command for SetActiveWeaponByOrder {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let mut weapons = world.query_filtered::<&Item, With<Weapon>>();
         let maybe_active_weapon = world.get::<ActiveWeapon>(self.0);
@@ -234,6 +242,8 @@ impl<T: ItemType> RemoveItem<T> {
 }
 
 impl<T: ItemType> Command for RemoveItem<T> {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) {
         let inventory =
             world.get::<Inventory>(self.owner).expect("No valid target for remove weapon");

@@ -2,11 +2,11 @@ use std::mem;
 
 use bevy::{
     animation::animatable::Animatable,
-    app::{App, Last},
+    app::{App, Update},
     ecs::{
         component::{Component, Mutable},
         entity::Entity,
-        query::{Changed, Or, With, Without},
+        query::{Changed, With, Without},
         reflect::ReflectComponent,
         schedule::IntoScheduleConfigs as _,
         system::{ParallelCommands, Query, Res},
@@ -29,8 +29,8 @@ impl InterpolateApp for App {
         T: Default + Send + Sync + 'static,
     {
         self.add_systems(
-            Last,
-            (no_interpolate::<C>, (interpolate::<C, T>, next_to_prev::<C>).chain()),
+            Update,
+            (no_interpolate::<C>, next_to_prev::<C>, interpolate::<C, T>).chain(),
         )
     }
 }
@@ -66,10 +66,7 @@ pub struct NoInterpolation;
 
 fn no_interpolate<C>(
     commands: ParallelCommands,
-    mut components: Query<
-        (Entity, &Next<C>, &mut C),
-        Or<(With<NoInterpolation>, Without<Prev<C>>)>,
-    >,
+    mut components: Query<(Entity, &Next<C>, &mut C), With<NoInterpolation>>,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
 {
@@ -97,7 +94,10 @@ fn interpolate<C, T>(
 }
 
 fn next_to_prev<C>(
-    mut components: Query<(Entity, Option<&mut OldNext<C>>, &mut Next<C>), Changed<Next<C>>>,
+    mut components: Query<
+        (Entity, Option<&mut OldNext<C>>, &mut Next<C>),
+        (Changed<Next<C>>, Without<NoInterpolation>),
+    >,
     commands: ParallelCommands,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,

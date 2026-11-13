@@ -33,7 +33,11 @@ use crate::common::{
 };
 
 use super::{BspTextureFrame, BspTextureKind};
-use bevy::prelude::*;
+use bevy::{
+    log::{debug, warn},
+    math::Vec3,
+    utils::default,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use failure::{ResultExt as _, bail, ensure};
 use hashbrown::HashMap;

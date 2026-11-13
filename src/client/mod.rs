@@ -242,7 +242,7 @@ where
                 PreUpdate,
                 (systems::disconnect.run_if(resource_exists::<Connection>), systems::connect)
                     .chain()
-                    .run_if(on_message::<Disconnect>.or(on_message::<NewConnection>)),
+                    .run_if(on_message::<Disconnect>.or_else(on_message::<NewConnection>)),
             )
             .add_systems(
                 PreUpdate,
@@ -279,16 +279,17 @@ where
                     }),
                 )
                     .run_if(
-                        resource_exists::<Connection>.and(
+                        resource_exists::<Connection>.and_then(
                             in_state(ClientGameState::WaitForServer)
-                                .or(in_state(ClientGameState::InGame)),
+                                .or_else(in_state(ClientGameState::InGame)),
                         ),
                     ),
             )
             .add_systems(
                 Update,
                 systems::lock_cursor.run_if(
-                    state_changed::<InputFocus>.or(resource_changed::<common::console::Registry>),
+                    state_changed::<InputFocus>
+                        .or_else(resource_changed::<common::console::Registry>),
                 ),
             )
             .add_systems(PostUpdate, text::systems::update_atlas_text)
@@ -300,12 +301,12 @@ where
                             error!("Error handling signon: {e}");
                         }
                     })
-                    .run_if(resource_exists::<Connection>.and(state_changed::<SignOn>)),
+                    .run_if(resource_exists::<Connection>.and_then(state_changed::<SignOn>)),
             )
             .add_systems(
                 PostUpdate,
                 systems::enter_game.run_if(
-                    state_changed::<ClientGameState>.and(in_state(ClientGameState::InGame)),
+                    state_changed::<ClientGameState>.and_then(in_state(ClientGameState::InGame)),
                 ),
             )
             .add_plugins(HudPlugin::default())
@@ -798,13 +799,13 @@ mod observers {
             query::Without,
             system::{Commands, Query},
         },
-        scene::SceneInstanceReady,
         transform::components::Transform,
+        world_serialization::WorldInstanceReady,
     };
 
     // Somewhat hacky, but applies the `RenderLayers` of a parent entity to its children from a scene
     pub fn apply_render_layers_to_children(
-        trigger: On<SceneInstanceReady>,
+        trigger: On<WorldInstanceReady>,
         mut commands: Commands,
         children: Query<&Children>,
         transforms: Query<&Transform, Without<RenderLayers>>,
@@ -874,7 +875,7 @@ mod systems {
         };
 
         if stage.0 == SignOnStage::Done {
-            commands.set_state_if_neq(ClientGameState::InGame);
+            commands.set_state_if_different(ClientGameState::InGame);
         }
 
         conn.handle_signon(stage.0, &client_vars)?;
@@ -1043,12 +1044,12 @@ mod systems {
         worldspawn: Query<&Worldspawn>,
     ) {
         let Some(client_state) = &mut conn.client_state else {
-            commands.set_state_if_neq(ClientGameState::Disconnected);
+            commands.set_state_if_different(ClientGameState::Disconnected);
             return;
         };
 
         let Ok(worldspawn) = worldspawn.get(client_state.worldspawn) else {
-            commands.set_state_if_neq(ClientGameState::Disconnected);
+            commands.set_state_if_different(ClientGameState::Disconnected);
             return;
         };
 
@@ -1056,7 +1057,7 @@ mod systems {
             commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
             client_state.populate_precache(bsp);
 
-            commands.set_state_if_neq(ClientGameState::WaitForServer);
+            commands.set_state_if_different(ClientGameState::WaitForServer);
         }
     }
 
@@ -1069,10 +1070,10 @@ mod systems {
 
         commands.remove_resource::<Connection>();
         commands.remove_resource::<QSocket>();
-        commands.set_state_if_neq(ClientGameState::Disconnected);
+        commands.set_state_if_different(ClientGameState::Disconnected);
 
         // don't allow game focus when disconnected
-        commands.set_state_if_neq(InputFocus::Console);
+        commands.set_state_if_different(InputFocus::Console);
     }
 
     pub fn connect(mut commands: Commands, mut connections: MessageReader<NewConnection>) {
@@ -1089,8 +1090,8 @@ mod systems {
         // default is 20fps
         commands.insert_resource(Time::from_max_delta(Duration::from_millis(1000 / 20)));
         commands.insert_resource(Connection::from(new_connection));
-        commands.set_state_if_neq(ClientGameState::WaitForServer);
-        commands.set_state_if_neq(InputFocus::Game);
+        commands.set_state_if_different(ClientGameState::WaitForServer);
+        commands.set_state_if_different(InputFocus::Game);
     }
 
     pub mod frame {
@@ -1122,12 +1123,8 @@ mod systems {
             state: Res<State<ClientGameState>>,
         ) -> Result<ConnectionStatus, ClientError> {
             // Fast-forward until we get to the point where we're actually in-game
-            if *state.get() == ClientGameState::InGame {
-                if time.elapsed() < conn.last_msg_time {
-                    return Ok(ConnectionStatus::Maintain);
-                } else if conn.last_msg_time > time.elapsed() {
-                    time.advance_to(conn.last_msg_time);
-                }
+            if *state.get() == ClientGameState::InGame && time.elapsed() < conn.last_msg_time {
+                return Ok(ConnectionStatus::Maintain);
             }
 
             // TODO: Shuld "wait for demo load" logic be in its own system?
@@ -1247,7 +1244,7 @@ mod systems {
                             sound_precache,
                         )?);
 
-                        commands.set_state_if_neq(ClientGameState::Loading);
+                        commands.set_state_if_different(ClientGameState::Loading);
                         break S::Maintain;
                     }
 
@@ -1290,7 +1287,7 @@ mod systems {
 
                     ServerCmd::FastUpdate(ent_update) => {
                         // first update signals the last sign-on stage
-                        commands.set_state_if_neq(SignOn(SignOnStage::Done));
+                        commands.set_state_if_different(SignOn(SignOnStage::Done));
 
                         commands.run_system_cached_with(
                             ClientState::update_entity,
@@ -1421,7 +1418,7 @@ mod systems {
                     }
 
                     ServerCmd::SignOnStage { stage } => {
-                        commands.set_state_if_neq(SignOn(stage));
+                        commands.set_state_if_different(SignOn(stage));
                     }
 
                     ServerCmd::Sound {
@@ -1531,7 +1528,7 @@ mod systems {
                             if let Some(PrecacheModel::Loaded(model)) =
                                 state.models.get(model_id as usize).cloned()
                             {
-                                ent.insert(SceneRoot(model));
+                                ent.insert(WorldAssetRoot(model));
                             }
                         }
                     }

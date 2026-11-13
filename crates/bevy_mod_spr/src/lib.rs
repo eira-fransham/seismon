@@ -5,14 +5,15 @@ use bevy_asset::{Asset, AssetApp, AssetLoader, Handle, RenderAssetUsages};
 use bevy_ecs::{schedule::IntoScheduleConfigs as _, world::World};
 use bevy_image::Image;
 use bevy_log::debug;
-use bevy_math::{Vec3, primitives::Rectangle};
+use bevy_math::Vec3;
 use bevy_mesh::Mesh;
 use bevy_mod_billboard::{BillboardMesh, BillboardTexture};
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy_scene::Scene;
+use bevy_shape::Rectangle;
 use bevy_tasks::ConditionalSendFuture;
 use bevy_transform::components::Transform;
+use bevy_world_serialization::WorldAsset;
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
@@ -50,7 +51,7 @@ pub struct SpriteLoaderSettings {
 }
 
 impl AssetLoader for SpriteLoader {
-    type Asset = Scene;
+    type Asset = WorldAsset;
     type Settings = SpriteLoaderSettings;
     type Error = Infallible;
 
@@ -87,8 +88,8 @@ impl AssetLoader for SpriteLoader {
 
             let raw = load(reader).await;
 
-            let billboard_mesh = load_context
-                .add_labeled_asset("billboard".into(), Mesh::from(Rectangle::new(1., 1.)));
+            let billboard_mesh =
+                load_context.add_labeled_asset("billboard", Mesh::from(Rectangle::new(1., 1.)));
 
             // TODO: This is a lot of code, it'd be nice to deduplicate it with `bevy_mod_mdl`
             let processed_sprite_frames = raw
@@ -109,7 +110,7 @@ impl AssetLoader for SpriteLoader {
 
                         Some((img, frame.width, frame.height))
                     }
-                    SpriteFrame::Animated { subframes, durations } if subframes.len() <= 1 => {
+                    SpriteFrame::Animated { subframes, .. } if subframes.len() <= 1 => {
                         let frame = subframes.into_iter().next()?;
 
                         let img = load_context.add_labeled_asset(
@@ -161,9 +162,9 @@ impl AssetLoader for SpriteLoader {
                 ));
             }
 
-            load_context.add_labeled_asset(SPRITE_HANDLE_NAME.into(), out_sprite);
+            load_context.add_labeled_asset(SPRITE_HANDLE_NAME, out_sprite);
 
-            Ok(Scene { world })
+            Ok(WorldAsset { world })
         }
     }
 

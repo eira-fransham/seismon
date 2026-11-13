@@ -14,11 +14,13 @@ use bevy::{
 };
 use bevy_mod_scripting::{
     bindings::{
-        ExternalError, FunctionCallContext, InteropError, IntoNamespace, MagicFunctions,
-        ReflectBase, ReflectReference, ThreadScriptContext, ThreadWorldContainer, WorldAccessGuard,
+        AppScriptFunctionRegistry, ExternalError, FunctionCallContext, InteropError,
+        MagicFunctions, ReflectBase, ReflectReference, ThreadScriptContext, ThreadWorldContainer,
+        WorldExtensions as _,
     },
     core::ScriptingPlugin,
     prelude::*,
+    script::ScriptAttachment,
 };
 use bevy_mod_scripting_qcvm::{QCEntity, QCWorldspawn};
 use hashbrown::HashMap;
@@ -103,19 +105,19 @@ where
     D: QueryData,
     F: for<'a, 'b> FnOnce(ROQueryItem<'a, 'b, D>) -> Result<O, InteropError>,
 {
-    match reference.base.base_id {
+    match *reference.base.base_id() {
         // TODO: Should probably confirm that this is the right component.
         ReflectBase::Component(entity, _) => {
-            let ctx = ThreadWorldContainer.try_get_context()?;
+            let ctx = ThreadWorldContainer::try_get_context()?;
 
-            ctx.world.with_global_access(|world| {
+            ctx.world.with_world_mut_access_and_then(|world| {
                 let mut query = world.query::<D>();
                 let result = query
                     .get(world, entity)
                     .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))?;
 
                 func(result)
-            })?
+            })
         }
         // TODO: Proper error
         _ => Err(InteropError::NotImplemented),
@@ -128,19 +130,19 @@ where
     D: QueryData,
     F: for<'a, 'b> FnOnce(QueryItem<'a, 'b, D>) -> Result<O, InteropError>,
 {
-    match reference.base.base_id {
+    match *reference.base.base_id() {
         // TODO: Should probably confirm that this is the right component.
         ReflectBase::Component(entity, _) => {
-            let ctx = ThreadWorldContainer.try_get_context()?;
+            let ctx = ThreadWorldContainer::try_get_context()?;
 
-            ctx.world.with_global_access(|world| {
+            ctx.world.with_world_mut_access_and_then(|world| {
                 let mut query = world.query::<D>();
                 let result = query
                     .get_mut(world, entity)
                     .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))?;
 
                 func(result)
-            })?
+            })
         }
         // TODO: Proper error
         _ => Err(InteropError::NotImplemented),
@@ -152,16 +154,17 @@ where
     D: QueryData,
     F: for<'a, 'b> FnOnce(ROQueryItem<'a, 'b, D>) -> Result<O, InteropError>,
 {
-    let ctx = ThreadWorldContainer.try_get_context()?;
+    let ctx = ThreadWorldContainer::try_get_context()?;
+    let worldspawn = attached_entity(&ctx)?;
 
-    ctx.world.with_global_access(|world| {
+    ctx.world.with_world_mut_access_and_then(|world| {
         let mut query = world.query::<D>();
         let result = query
-            .get(world, ctx.attachment.entity().ok_or(InteropError::NotImplemented)?)
+            .get(world, worldspawn)
             .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))?;
 
         func(result)
-    })?
+    })
 }
 
 fn worldspawn_mut<D, O, F>(func: F) -> Result<O, InteropError>
@@ -169,16 +172,27 @@ where
     D: QueryData,
     F: for<'a, 'b> FnOnce(QueryItem<'a, 'b, D>) -> Result<O, InteropError>,
 {
-    let ctx = ThreadWorldContainer.try_get_context()?;
+    let ctx = ThreadWorldContainer::try_get_context()?;
+    let worldspawn = attached_entity(&ctx)?;
 
-    ctx.world.with_global_access(|world| {
+    ctx.world.with_world_mut_access_and_then(|world| {
         let mut query = world.query::<D>();
         let result = query
-            .get_mut(world, ctx.attachment.entity().ok_or(InteropError::NotImplemented)?)
+            .get_mut(world, worldspawn)
             .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))?;
 
         func(result)
-    })?
+    })
+}
+
+/// The entity of the script attachment currently being run (the worldspawn).
+fn attached_entity(ctx: &ThreadScriptContext<'_>) -> Result<Entity, InteropError> {
+    ctx.world
+        .current_attachment()
+        .0
+        .as_ref()
+        .and_then(ScriptAttachment::entity)
+        .ok_or(InteropError::NotImplemented)
 }
 
 #[derive(Component)]
@@ -218,7 +232,11 @@ struct FieldAccessor {
 
 impl FieldAccessor {
     fn reflect_reference(&self, entity: Entity) -> ReflectReference {
-        ReflectReference::new_component_ref_by_id(entity, self.component_id, self.type_id)
+        // SAFETY: `component_id` and `type_id` are always taken from the same component type in
+        // `AccessorBuilder::field`, and the fields are private, so they can't get out of sync.
+        unsafe {
+            ReflectReference::new_component_ref_by_id(entity, self.component_id, self.type_id)
+        }
     }
 }
 
@@ -293,7 +311,7 @@ fn field_accessor(
 ) -> Result<FieldAccessor, InteropError> {
     let field_name = field_name.as_string().map_err(|_| InteropError::NotImplemented)?;
 
-    let worldspawn = ctx.attachment.entity().ok_or(InteropError::NotImplemented)?;
+    let worldspawn = attached_entity(ctx)?;
 
     let fields_ref = ReflectReference::new_component_ref::<Fields>(worldspawn, ctx.world.clone())?;
 
@@ -312,7 +330,7 @@ fn global_accessor(
 ) -> Result<FieldAccessor, InteropError> {
     let field_name = field_name.as_string().map_err(|_| InteropError::NotImplemented)?;
 
-    let worldspawn = ctx.attachment.entity().ok_or(InteropError::NotImplemented)?;
+    let worldspawn = attached_entity(ctx)?;
 
     let fields_ref = ReflectReference::new_component_ref::<Globals>(worldspawn, ctx.world.clone())?;
 
@@ -331,7 +349,7 @@ fn override_get(
     ent: ReflectReference,
     field_name: ScriptValue,
 ) -> Result<ScriptValue, InteropError> {
-    let world_ctx = ThreadWorldContainer.try_get_context()?;
+    let world_ctx = ThreadWorldContainer::try_get_context()?;
 
     let qc_entity_id = world_ctx
         .world
@@ -344,12 +362,16 @@ fn override_get(
         .ok_or(InteropError::NotImplemented)?;
 
     // TODO: We should handle "sub-field" references.
-    let (entity, field_name) = match ent.base.base_id {
-        ReflectBase::Component(entity, component_id) if component_id == qc_entity_id => {
+    let component = match *ent.base.base_id() {
+        ReflectBase::Component(entity, component_id) => Some((entity, component_id)),
+        _ => None,
+    };
+    let (entity, field_name) = match component {
+        Some((entity, component_id)) if component_id == qc_entity_id => {
             let accessor = field_accessor(&world_ctx, field_name)?;
             (accessor.reflect_reference(entity), accessor.field_name.into())
         }
-        ReflectBase::Component(entity, component_id) if component_id == qc_worldspawn_id => {
+        Some((entity, component_id)) if component_id == qc_worldspawn_id => {
             let accessor = global_accessor(&world_ctx, field_name)?;
             (accessor.reflect_reference(entity), accessor.field_name.into())
         }
@@ -365,7 +387,7 @@ fn override_set(
     field_name: ScriptValue,
     value: ScriptValue,
 ) -> Result<(), InteropError> {
-    let world_ctx = ThreadWorldContainer.try_get_context()?;
+    let world_ctx = ThreadWorldContainer::try_get_context()?;
 
     let qc_entity_id = world_ctx
         .world
@@ -378,12 +400,16 @@ fn override_set(
         .ok_or(InteropError::NotImplemented)?;
 
     // TODO: We should handle "sub-field" references.
-    let (entity, field_name) = match ent.base.base_id {
-        ReflectBase::Component(entity, component_id) if component_id == qc_entity_id => {
+    let component = match *ent.base.base_id() {
+        ReflectBase::Component(entity, component_id) => Some((entity, component_id)),
+        _ => None,
+    };
+    let (entity, field_name) = match component {
+        Some((entity, component_id)) if component_id == qc_entity_id => {
             let accessor = field_accessor(&world_ctx, field_name)?;
             (accessor.reflect_reference(entity), accessor.field_name.into())
         }
-        ReflectBase::Component(entity, component_id) if component_id == qc_worldspawn_id => {
+        Some((entity, component_id)) if component_id == qc_worldspawn_id => {
             let accessor = global_accessor(&world_ctx, field_name)?;
             (accessor.reflect_reference(entity), accessor.field_name.into())
         }
@@ -411,13 +437,12 @@ pub fn fields_and_globals_quake1(world: &mut World, worldspawn: Entity) {
 
     world.entity_mut(worldspawn).insert(Fields { fields }).insert(Globals { globals });
 
-    let mut registry = WorldAccessGuard::new_exclusive(world).script_function_registry();
-
-    registry.write().magic_functions = MagicFunctions { get: override_get, set: override_set };
+    world.get_resource_or_init::<AppScriptFunctionRegistry>().write().magic_functions =
+        MagicFunctions { get: override_get, set: override_set };
 }
 
 // TODO: It would probably be useful to implement this in Lua or something similar
-pub fn register_builtins_quake1<'b, 'ns, N: IntoNamespace>(
+pub fn register_builtins_quake1<'b, 'ns, N: 'static>(
     namespace: &'b mut NamespaceBuilder<'ns, N>,
 ) -> &'b mut NamespaceBuilder<'ns, N> {
     fn precache_sound(name: String) -> Result<(), InteropError> {

@@ -1,13 +1,13 @@
-unstable_features = true
+# unstable_features = true
 
 use_small_heuristics = "Max"
 
-comment_width = 100
-wrap_comments = true
-normalize_comments = true
+# comment_width = 100
+# wrap_comments = true
+# normalize_comments = true
 
-where_single_line = true
-brace_style = "PreferSameLine"
+# where_single_line = true
+# brace_style = "PreferSameLine"
 newline_style = "Unix"
 
-imports_granularity = "Crate"
+# imports_granularity = "Crate"

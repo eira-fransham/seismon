@@ -6,8 +6,9 @@ use bevy::{
     camera::Camera,
     color::{Color, LinearRgba},
     core_pipeline::{
-        core_3d::graph::Node3d,
+        Core3dSystems,
         fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin},
+        tonemapping::tonemapping,
     },
     ecs::{
         component::Component,
@@ -16,14 +17,10 @@ use bevy::{
         observer::On,
         query::{Changed, With},
         relationship::RelationshipTarget,
-        schedule::IntoScheduleConfigs as _,
-        system::{Commands, ParallelCommands, Query},
+        schedule::{IntoScheduleConfigs as _, ScheduleConfigs},
+        system::{BoxedSystem, Commands, ParallelCommands, Query},
     },
-    render::{
-        extract_component::ExtractComponent,
-        render_graph::{InternedRenderLabel, RenderLabel as _},
-        render_resource::ShaderType,
-    },
+    render::{RenderApp, extract_component::ExtractComponent, render_resource::ShaderType},
     shader::ShaderRef,
 };
 use seismon_utils::write_if_neq;
@@ -162,22 +159,20 @@ where
 }
 
 #[derive(Component, ExtractComponent, Default, Clone, Copy, ShaderType, Debug)]
+#[extract_app(RenderApp)]
 struct ComputedColorShift {
     color: LinearRgba,
 }
 
 impl FullscreenMaterial for ComputedColorShift {
     fn fragment_shader() -> ShaderRef {
-        "assets/color-shift.wgsl".into()
+        "shaders/color-shift.wesl".into()
     }
 
-    fn node_edges() -> Vec<InternedRenderLabel> {
-        vec![
-            Node3d::Tonemapping.intern(),
-            // The label is automatically generated from the name of the struct
-            Self::node_label().intern(),
-            Node3d::EndMainPassPostProcessing.intern(),
-        ]
+    fn schedule_configs(system: ScheduleConfigs<BoxedSystem>) -> ScheduleConfigs<BoxedSystem> {
+        // Run after tonemapping (the default is before), but still within post-processing so it
+        // happens before upscaling.
+        system.in_set(Core3dSystems::PostProcess).after(tonemapping)
     }
 }
 
@@ -185,7 +180,7 @@ impl FullscreenMaterial for ComputedColorShift {
 struct RebuildColorShiftMarker;
 
 fn spawn_color_shift_entity<M>(
-    trigger: On<Insert, ColorShift<M>>,
+    trigger: On<Insert<ColorShift<M>>>,
     mut commands: Commands,
     shifts: Query<&ColorShift<M>>,
 ) where
@@ -202,7 +197,7 @@ fn spawn_color_shift_entity<M>(
 }
 
 fn despawn_color_shift_entity<M>(
-    trigger: On<Remove, ColorShift<M>>,
+    trigger: On<Remove<ColorShift<M>>>,
     mut commands: Commands,
     color_shifts: Query<&ColorShifts>,
     shift_entities: Query<&ColorShiftFor>,

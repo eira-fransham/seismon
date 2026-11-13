@@ -145,6 +145,8 @@ impl<B> Command for MakeHud<B>
 where
     B: Bundle,
 {
+    type Out = ();
+
     fn apply(self, world: &mut bevy::ecs::world::World) -> () {
         let asset_server = world.resource::<AssetServer>();
         let conchars = world.resource::<Conchars>().clone();
@@ -341,13 +343,13 @@ mod observers {
 
     use super::*;
 
-    pub fn add_item_hud<Kind, Container>(width: f32) -> impl ObserverSystem<Insert, Kind, ()>
+    pub fn add_item_hud<Kind, Container>(width: f32) -> impl ObserverSystem<Insert<Kind>, ()>
     where
         Kind: Component,
         Container: Send + Sync + 'static,
     {
         let observer = {
-            move |trigger: On<Insert, Kind>,
+            move |trigger: On<Insert<Kind>>,
                   mut commands: Commands,
                   owners: Query<&InventoryItem>,
                   hud_owners: Query<&HasHud>,
@@ -396,7 +398,7 @@ mod observers {
     }
 
     pub fn add_ammo_hud(
-        trigger: On<Insert, Ammo>,
+        trigger: On<Insert<Ammo>>,
         mut commands: Commands,
         conchars: Res<Conchars>,
         owners: Query<&InventoryItem>,
@@ -450,7 +452,7 @@ mod observers {
     }
 
     pub fn mark_picking_up(
-        event: On<Insert, Weapon>,
+        event: On<Insert<Weapon>>,
         mut commands: Commands,
         weapons: Query<&Weapon, Without<PickingUp>>,
         time: Res<Time<Virtual>>,
@@ -469,7 +471,7 @@ mod observers {
     }
 
     pub fn make_weapon_active(
-        event: On<Insert, ActiveWeaponFor>,
+        event: On<Insert<ActiveWeaponFor>>,
         mut weapon_images: Query<&mut ImageNode>,
         weapons: Query<(&Weapon, &HudRepresented), Without<PickingUp>>,
     ) {
@@ -486,7 +488,7 @@ mod observers {
     }
 
     pub fn make_weapon_inactive(
-        event: On<Remove, ActiveWeaponFor>,
+        event: On<Remove<ActiveWeaponFor>>,
         mut weapon_images: Query<&mut ImageNode>,
         weapons: Query<(&Item, &HudRepresented), Without<PickingUp>>,
     ) {
