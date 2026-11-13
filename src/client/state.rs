@@ -29,9 +29,9 @@ use bevy::{
     log::*,
     math::{EulerRot, Quat, Vec3},
     reflect::Reflect,
-    world_serialization::{WorldAsset, WorldAssetRoot},
     transform::components::Transform,
     utils::default,
+    world_serialization::{WorldAsset, WorldAssetRoot},
 };
 use bevy_mod_mdl::MdlSettings;
 use bevy_seedling::sample::AudioSample;
@@ -321,7 +321,7 @@ impl ClientState {
             effects: _,
         } = baseline;
 
-        let [pitch, yaw, roll] = angles.map(|x| x.to_radians()).into();
+        let [pitch, yaw, roll] = angles.into();
 
         if id == 0 {
             trace!("Spawning world: {baseline:?}");
