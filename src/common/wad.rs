@@ -212,9 +212,8 @@ where
     R: AsyncRead + Unpin + ?Sized,
 {
     let palette: LoadedAsset<Palette> = load_context
-        .loader()
-        .immediate()
-        .load(&settings.palette_path)
+        .load_builder()
+        .load_value(&settings.palette_path)
         .await
         .map_err(std::io::Error::other)?;
 

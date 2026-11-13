@@ -1,6 +1,6 @@
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
-#import "shaders/colorspaces.wgsl"::{toColorSpace, fromColorSpace}
-#import "shaders/blend.wgsl"::blend_opacity
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
+import package::shaders::colorspaces::{toColorSpace, fromColorSpace};
+import package::shaders::blend::blend_opacity;
 
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
@@ -9,8 +9,8 @@ struct PostProcessUniforms {
 }
 @group(0) @binding(2) var<uniform> postprocess_uniforms: PostProcessUniforms;
 
-const COLOR_SPACE: u32 = #{COLORSPACE};
-const BLEND_MODE: u32 = #{BLENDMODE};
+const COLOR_SPACE: u32 = constants::COLORSPACE;
+const BLEND_MODE: u32 = constants::BLENDMODE;
 
 @fragment
 fn main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {

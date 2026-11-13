@@ -26,7 +26,7 @@ use crate::{
 };
 
 use arrayvec::ArrayString;
-use bevy::{math::bounding::Aabb3d, prelude::*};
+use bevy::{shape::Aabb3d, prelude::*};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use im::vector::{Focus, FocusMut};

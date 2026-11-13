@@ -6,11 +6,11 @@ use std::{path::PathBuf, process::ExitCode};
 
 use bevy::{
     audio::AudioPlugin,
-    camera::Exposure,
+    camera::{Exposure, Hdr},
     core_pipeline::tonemapping::Tonemapping,
     post_process::bloom::Bloom,
     prelude::*,
-    render::view::{ColorGrading, Hdr},
+    render::view::ColorGrading,
     window::{PresentMode, PrimaryWindow},
 };
 use bevy_mod_mdl::MdlPlugin;
@@ -123,7 +123,8 @@ fn cmd_tonemapping(In(new_tonemapping): In<Value>, mut tonemapping: Query<&mut T
         Some("aces") => Tonemapping::AcesFitted,
         Some("blender") => Tonemapping::BlenderFilmic,
         Some("sbdt") => Tonemapping::SomewhatBoringDisplayTransform,
-        Some("none") => Tonemapping::None,
+        // TODO: Should we rename the setting to "linear" to match Bevy?
+        Some("none") => Tonemapping::Linear,
         _ => {
             // TODO: Error handling
             return;
@@ -227,7 +228,7 @@ fn main() -> ExitCode {
         .set(ImagePlugin::default_nearest());
 
     let default_plugins =
-        default_plugins.disable::<AudioPlugin>().add(bevy_seedling::SeedlingPlugin::default());
+        default_plugins.disable::<AudioPlugin>().add_group(bevy_seedling::SeedlingPlugins);
 
     let games = [Some("id1"), opt.game.as_deref()]
         .into_iter()

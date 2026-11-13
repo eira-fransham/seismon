@@ -21,7 +21,6 @@
 pub mod bitset;
 pub mod bsp;
 pub mod console;
-pub mod host;
 pub mod math;
 pub mod model;
 pub mod net;

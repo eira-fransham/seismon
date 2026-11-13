@@ -29,7 +29,7 @@ use bevy::{
     log::*,
     math::{EulerRot, Quat, Vec3},
     reflect::Reflect,
-    scene::{Scene, SceneRoot},
+    world_serialization::{WorldAsset, WorldAssetRoot},
     transform::components::Transform,
     utils::default,
 };
@@ -64,7 +64,7 @@ pub struct PlayerInfo {
 pub enum PrecacheModel {
     Invalid,
     WaitingOnWorldspawn(usize),
-    Loaded(Handle<Scene>),
+    Loaded(Handle<WorldAsset>),
 }
 
 #[derive(Component, Reflect)]
@@ -367,7 +367,7 @@ impl ClientState {
         };
 
         if let Some(PrecacheModel::Loaded(model)) = model {
-            ent.insert((SceneRoot(model), MdlSettings { frame, skin }));
+            ent.insert((WorldAssetRoot(model), MdlSettings { frame, skin }));
         } else {
             error!("Tried to insert model but it wasn't loaded yet");
         }
@@ -381,7 +381,7 @@ impl ClientState {
         // TODO: We should just add a single `IsPlayer` component (or similar) that adds `PlayerState`,
         // `Health` and `ViewEntities`
         view_entities: Query<&ViewEntities>,
-        mut view_models: Query<(&mut SceneRoot, &mut MdlSettings), With<ViewModel>>,
+        mut view_models: Query<(&mut WorldAssetRoot, &mut MdlSettings), With<ViewModel>>,
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
@@ -430,7 +430,7 @@ impl ClientState {
                 Name::new("Viewmodel"),
                 ViewModel,
                 Visibility::Visible,
-                SceneRoot(model),
+                WorldAssetRoot(model),
                 Transform::from_translation(Vec3::new(0., -12., 0.)).with_rotation(
                     Quat::from_euler(
                         EulerRot::XYZ,
@@ -548,7 +548,7 @@ impl ClientState {
         mut existing_entities: Query<(
             &mut Next<Transform>,
             Option<&mut MdlSettings>,
-            Option<&mut SceneRoot>,
+            Option<&mut WorldAssetRoot>,
         )>,
     ) {
         let Some(state) = conn.client_state.as_mut() else {
@@ -579,7 +579,7 @@ impl ClientState {
                         state.models.get(model_id as usize).cloned()
                 {
                     if scene.as_deref().map(|s| &s.0) != Some(&model) {
-                        commands.entity(*entity).insert(SceneRoot(model));
+                        commands.entity(*entity).insert(WorldAssetRoot(model));
                     }
                 }
 
@@ -641,7 +641,7 @@ impl ClientState {
                     && let Some(PrecacheModel::Loaded(model)) =
                         state.models.get(model_id as usize).cloned()
                 {
-                    ent.insert(SceneRoot(model));
+                    ent.insert(WorldAssetRoot(model));
                 }
 
                 ent.insert((
@@ -684,7 +684,7 @@ impl ClientState {
                 update.model_id.and_then(|model_id| state.models.get(model_id as usize).cloned())
             {
                 ent.insert((
-                    SceneRoot(model),
+                    WorldAssetRoot(model),
                     MdlSettings {
                         frame: update.frame_id.unwrap_or_default(),
                         skin: update.skin_id.unwrap_or_default(),

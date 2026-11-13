@@ -4,5 +4,6 @@ target
 *.bk
 *.pak
 *.pak.d
+.quake/
 .#*
 .DS_Store

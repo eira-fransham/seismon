@@ -71,7 +71,7 @@ use self::{
 use arrayvec::ArrayVec;
 use bevy::{
     app::{AppLabel, FixedMain, MainSchedulePlugin},
-    math::bounding::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
+    shape::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
     prelude::*,
     time::TimePlugin,
 };
