@@ -14,13 +14,13 @@ use bevy::{
 };
 use bevy_mod_scripting::{
     bindings::{
-        ExternalError, FunctionCallContext, InteropError, MagicFunctions,
-        AppScriptFunctionRegistry, ReflectBase, ReflectReference, ThreadScriptContext,
-        ThreadWorldContainer, WorldExtensions as _,
+        AppScriptFunctionRegistry, ExternalError, FunctionCallContext, InteropError,
+        MagicFunctions, ReflectBase, ReflectReference, ThreadScriptContext, ThreadWorldContainer,
+        WorldExtensions as _,
     },
     core::ScriptingPlugin,
-    script::ScriptAttachment,
     prelude::*,
+    script::ScriptAttachment,
 };
 use bevy_mod_scripting_qcvm::{QCEntity, QCWorldspawn};
 use hashbrown::HashMap;
@@ -437,7 +437,8 @@ pub fn fields_and_globals_quake1(world: &mut World, worldspawn: Entity) {
 
     world.entity_mut(worldspawn).insert(Fields { fields }).insert(Globals { globals });
 
-    world.get_resource_or_init::<AppScriptFunctionRegistry>().write().magic_functions = MagicFunctions { get: override_get, set: override_set };
+    world.get_resource_or_init::<AppScriptFunctionRegistry>().write().magic_functions =
+        MagicFunctions { get: override_get, set: override_set };
 }
 
 // TODO: It would probably be useful to implement this in Lua or something similar

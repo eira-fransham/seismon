@@ -2,20 +2,20 @@
 name = "seismon"
 version = "0.2.0"
 authors = [
-    "Eira Fransham <eira.fransham@gmail.com>",
-    "Cormac O'Brien <cormac@c-obrien.org>",
+  "Eira Fransham <eira.fransham@gmail.com>",
+  "Cormac O'Brien <cormac@c-obrien.org>",
 ]
 edition = "2024"
 resolver = "2"
 
 [workspace]
 members = [
-    "crates/seismon-utils",
-    "crates/lined",
-    "crates/bevy_mod_mdl",
-    "crates/bevy_mod_pakfile",
-    "crates/bevy_mod_assimp",
-    "crates/bevy_mod_spr",
+  "crates/seismon-utils",
+  "crates/lined",
+  "crates/bevy_mod_mdl",
+  "crates/bevy_mod_pakfile",
+  "crates/bevy_mod_assimp",
+  "crates/bevy_mod_spr",
 ]
 
 [workspace.package]
@@ -112,7 +112,9 @@ thiserror.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
-bevy_seedling = { git = "https://github.com/eswartz/bevy_seedling-fork.git", branch = "migrate-to-bevy-0.20", features = ["effects"] }
+bevy_seedling = { git = "https://github.com/eswartz/bevy_seedling-fork.git", branch = "migrate-to-bevy-0.20", features = [
+  "effects",
+] }
 bevy_mod_scripting.workspace = true
 bevy-inspector-egui = { version = "0.38", optional = true }
 bitvec = "1.0"
@@ -136,7 +138,7 @@ strum_macros = "0.26"
 uluru = "3"
 uuid = "1.12"
 bevy_mod_scripting_qcvm = { git = "https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git", branch = "bevy-0.20", features = [
-    "quake1",
+  "quake1",
 ] }
 wgpu = { version = "30.0", features = ["spirv", "vulkan-portability"] }
 
@@ -153,7 +155,11 @@ default = []
 fast-compile = ["bevy/dynamic_linking"]
 # `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
 color-shift = []
-dev-tools = ["dep:bevy-inspector-egui", "bevy/bevy_dev_tools", "bevy/render_dev_tools"]
+dev-tools = [
+  "dep:bevy-inspector-egui",
+  "bevy/bevy_dev_tools",
+  "bevy/render_dev_tools",
+]
 bin-release = ["dep:tracing", "tracing/max_level_off"]
 
 [profile.bin-release]

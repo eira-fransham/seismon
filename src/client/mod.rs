@@ -288,7 +288,8 @@ where
             .add_systems(
                 Update,
                 systems::lock_cursor.run_if(
-                    state_changed::<InputFocus>.or_else(resource_changed::<common::console::Registry>),
+                    state_changed::<InputFocus>
+                        .or_else(resource_changed::<common::console::Registry>),
                 ),
             )
             .add_systems(PostUpdate, text::systems::update_atlas_text)
@@ -798,8 +799,8 @@ mod observers {
             query::Without,
             system::{Commands, Query},
         },
-        world_serialization::WorldInstanceReady,
         transform::components::Transform,
+        world_serialization::WorldInstanceReady,
     };
 
     // Somewhat hacky, but applies the `RenderLayers` of a parent entity to its children from a scene
@@ -1122,12 +1123,8 @@ mod systems {
             state: Res<State<ClientGameState>>,
         ) -> Result<ConnectionStatus, ClientError> {
             // Fast-forward until we get to the point where we're actually in-game
-            if *state.get() == ClientGameState::InGame {
-                if time.elapsed() < conn.last_msg_time {
-                    return Ok(ConnectionStatus::Maintain);
-                } else if conn.last_msg_time > time.elapsed() {
-                    time.advance_to(conn.last_msg_time);
-                }
+            if *state.get() == ClientGameState::InGame && time.elapsed() < conn.last_msg_time {
+                return Ok(ConnectionStatus::Maintain);
             }
 
             // TODO: Shuld "wait for demo load" logic be in its own system?

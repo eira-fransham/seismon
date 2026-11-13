@@ -3,16 +3,14 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use asset_importer::{
-    Texel, TextureData, TextureType, node::Node, postprocess::PostProcessSteps,
-};
+use asset_importer::{Texel, TextureData, TextureType, node::Node, postprocess::PostProcessSteps};
 use bevy_animation::{
-    AnimationClip, AnimationTargetId, animated_field,
-    animation_curves::AnimatableCurve,
+    AnimationClip, AnimationTargetId, animated_field, animation_curves::AnimatableCurve,
 };
 use bevy_asset::{Asset, AssetLoader, Assets, Handle, LoadContext, RenderAssetUsages};
 use bevy_camera::visibility::Visibility;
 use bevy_color::{Color, Srgba};
+use bevy_curve::{ConstantCurve, Interval, UnevenSampleCurve};
 use bevy_ecs::{
     change_detection::DetectChanges,
     component::Component,
@@ -25,14 +23,13 @@ use bevy_ecs::{
 use bevy_image::Image;
 use bevy_log::info;
 use bevy_math::Mat4;
-use bevy_curve::{ConstantCurve, Interval, UnevenSampleCurve};
 use bevy_mesh::{Indices, Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{MeshMaterial3d, StandardMaterial};
 use bevy_reflect::Reflect;
 use bevy_render::render_resource::{Extent3d, TextureFormat};
-use bevy_world_serialization::WorldAsset;
 use bevy_tasks::{AsyncComputeTaskPool, ConditionalSendFuture, TaskPool};
 use bevy_transform::components::Transform;
+use bevy_world_serialization::WorldAsset;
 use enumflags2::{BitFlags, bitflags};
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
@@ -335,11 +332,7 @@ impl AssetLoader for AssimpLoader {
                     if let Some(uvs) = assimp_mesh.texture_coords(0) {
                         mesh.insert_attribute(
                             Mesh::ATTRIBUTE_UV_0,
-                            uvs.into_iter()
-                                .map(|v3| {
-                                    [v3.x, v3.y]
-                                })
-                                .collect::<Vec<_>>(),
+                            uvs.into_iter().map(|v3| [v3.x, v3.y]).collect::<Vec<_>>(),
                         );
                     }
 
@@ -368,7 +361,8 @@ impl AssetLoader for AssimpLoader {
                             let has_positions = opt_positions.is_some();
 
                             if let Some(positions) = opt_positions {
-                                anim_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec3s(positions));
+                                anim_mesh
+                                    .insert_attribute(Mesh::ATTRIBUTE_POSITION, vec3s(positions));
                             }
                             if let Some(normals) = assimp_anim_mesh.normals() {
                                 anim_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec3s(normals));
@@ -381,9 +375,7 @@ impl AssetLoader for AssimpLoader {
                                     Mesh::ATTRIBUTE_UV_0,
                                     tex_coords
                                         .into_iter()
-                                        .map(|v3| {
-                                            [v3.x, v3.y]
-                                        })
+                                        .map(|v3| [v3.x, v3.y])
                                         .collect::<Vec<_>>(),
                                 );
                             }
