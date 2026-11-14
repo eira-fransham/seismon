@@ -230,9 +230,9 @@ dependencies = [
 
 [[package]]
 name = "annotate-snippets"
-version = "0.12.17"
+version = "0.12.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a5b0a5ab8561c603f16c3b78c24a386b1f70e7fc1b1b1e8c15738828e4a176"
+checksum = "0258346f92c78dbc5b336b9a5b27c64447aa10643bc64e651db2edb145361564"
 dependencies = [
  "anstyle",
  "memchr",
@@ -2875,9 +2875,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.20.3"
+version = "3.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
 
 [[package]]
 name = "bytemuck"
@@ -2969,9 +2969,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -3407,11 +3407,12 @@ dependencies = [
 
 [[package]]
 name = "dashmap"
-version = "5.5.3"
+version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
 dependencies = [
  "cfg-if",
+ "crossbeam-utils",
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
@@ -3750,9 +3751,9 @@ dependencies = [
 
 [[package]]
 name = "errno"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
@@ -3884,7 +3885,7 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 [[package]]
 name = "firewheel"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "firewheel-core",
  "firewheel-cpal",
@@ -3898,7 +3899,7 @@ dependencies = [
 [[package]]
 name = "firewheel-core"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "arrayvec",
  "audioadapter",
@@ -3926,7 +3927,7 @@ dependencies = [
 [[package]]
 name = "firewheel-cpal"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "audioadapter-buffers",
  "bevy_platform",
@@ -3941,7 +3942,7 @@ dependencies = [
 [[package]]
 name = "firewheel-graph"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "arrayvec",
  "audioadapter",
@@ -3974,7 +3975,7 @@ dependencies = [
 [[package]]
 name = "firewheel-macros"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "bevy_macro_utils 0.19.1",
  "proc-macro2",
@@ -3986,7 +3987,7 @@ dependencies = [
 [[package]]
 name = "firewheel-nodes"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "bevy_ecs",
  "bevy_platform",
@@ -4002,7 +4003,7 @@ dependencies = [
 [[package]]
 name = "firewheel-rtaudio"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "audioadapter-buffers",
  "bevy_platform",
@@ -4016,7 +4017,7 @@ dependencies = [
 [[package]]
 name = "firewheel-symphonium"
 version = "0.15.0"
-source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#0d0e2e33df126a9dc91d815db4c632c8bffa72c1"
+source = "git+https://github.com/eswartz/Firewheel-fork.git?branch=bevy-0.20#d6c6a825661732fdcf275cbdb7f7ddb7d7ccafd7"
 dependencies = [
  "bevy_platform",
  "firewheel-core",
@@ -4032,7 +4033,7 @@ dependencies = [
  "audioadapter",
  "audioadapter-buffers",
  "ringbuf",
- "rubato 5.0.1",
+ "rubato 5.1.0",
 ]
 
 [[package]]
@@ -4258,15 +4259,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
 dependencies = [
  "thread_local",
-]
-
-[[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
 ]
 
 [[package]]
@@ -4585,15 +4577,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashers"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2bca93b15ea5a746f220e56587f71e73c6165eab783df9e26590069953e3c30"
-dependencies = [
- "fxhash",
 ]
 
 [[package]]
@@ -5197,7 +5180,7 @@ dependencies = [
 [[package]]
 name = "lexpr"
 version = "0.3.0"
-source = "git+https://github.com/eira-fransham/lexpr-rs.git#11f058af8d71fce20874866ae68b4af1bc581540"
+source = "git+https://github.com/eira-fransham/lexpr-rs.git#6ca30fe60070a467eef2065003f17fb28414ce75"
 dependencies = [
  "itoa",
  "ryu",
@@ -5469,9 +5452,9 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
 name = "naga"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
+checksum = "fd0dd362bf26c0ffdd143df6da66a25d287e196eff482f117771010b207ad163"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5496,9 +5479,9 @@ dependencies = [
 
 [[package]]
 name = "naga-types"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "590afbf58a6f4f62873cd5cff4468061844bafa1cdf399cc954537c22d768d49"
+checksum = "14474170feb673cfb18b3565111a9869797cc1d290fb9ec969c53f5e1e231c6d"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -7071,9 +7054,9 @@ dependencies = [
 
 [[package]]
 name = "rubato"
-version = "5.0.1"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc1e951b9f5432ec1422f4dcfa5733fc501265902612edf5ef8bd8ecdd960930"
+checksum = "6b4da228e06632d025557f798114057cf27a4c6a71d40024c84d6db82fa5ef4a"
 dependencies = [
  "audioadapter",
  "audioadapter-buffers",
@@ -7234,7 +7217,6 @@ dependencies = [
  "futures",
  "futures-byteorder",
  "hashbrown 0.15.5",
- "hashers",
  "im",
  "image",
  "imstr",
@@ -7323,7 +7305,7 @@ dependencies = [
 [[package]]
 name = "serde-lexpr"
 version = "0.2.0"
-source = "git+https://github.com/eira-fransham/lexpr-rs.git#11f058af8d71fce20874866ae68b4af1bc581540"
+source = "git+https://github.com/eira-fransham/lexpr-rs.git#6ca30fe60070a467eef2065003f17fb28414ce75"
 dependencies = [
  "lexpr",
  "serde",
@@ -7921,10 +7903,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8806,9 +8788,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "527ccdf43dd5b2e8676eed9984ce00e2bbb0a1b85b70c1969dcb6cd2eb55ab9e"
+checksum = "146fc3d654250e6207921a66c87534c621bc886c70df83dcf466c1d66813810e"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",
@@ -8836,9 +8818,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14c018fce9b6270aa203c2fdd56f3cce996713534bd757e4ea58c8560b121f14"
+checksum = "ad661da2ee99f208c30090b585284b2ab5b8bf2358ddf2d2215592808ec62f1a"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -8871,45 +8853,45 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core-deps-apple"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061f3d319a40d39d00b1ecc2c33b89fe21d4e6fe01859df3500a3a8ecccd6b68"
+checksum = "7d3f2f24aee039ffe9ef527300daf6b7428c58edeefdaa1700f4fa0fd754df16"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
 name = "wgpu-core-deps-emscripten"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d98b86cf4abf524a902dd35f18ca6a3f08fc2ae9847c8f10b48e30491b1f0b86"
+checksum = "55ccf093bd215ae9dc4f96df293e675513ac1f2569f8293a2911cc34ca3505d1"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
 name = "wgpu-core-deps-wasm"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d260ca2ca8adc654f513a869bf3cac0b47f5b8d3f87803d6942015f8de597aae"
+checksum = "b20f43aeb9962d05e61e3ccb717e2e27ba1b04e979d4ca7e361384f8ee03db56"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7586165fd5f6d881cb9ce4bb71f40d6caab2c0f1837e3fc1d9788a197fb6004f"
+checksum = "1331b08fa2362c5d454eccc4448e6e4f01eccfea569a00e310adbfc4415f2bdc"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
 name = "wgpu-hal"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6b7fb58561a792bc237628ba0792e332de418fefe145f13b5ed8201e6d52f58"
+checksum = "a57452fe453658e141aafdb09de1028afa498805fab518238ddf372a518813ff"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -8963,9 +8945,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-naga-bridge"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f62e73117bb7a62bfd9c5a5841438a823f6566c6442a808ee269d2d055c081"
+checksum = "44a62ead68aad7cd40ac9e2cd2b8ec64f32dfbad2765f429b9fb74b8b735869f"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -8973,9 +8955,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-types"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99dad6f1fbdbbdb4c278a6508b059d44688f5cebddf78d005a46a31340269286"
+checksum = "a9f6ee0bd50f5ab79fb8c25e3f33afb27126f034af4ba5909c7a0967058659e6"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",

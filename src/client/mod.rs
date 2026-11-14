@@ -154,6 +154,7 @@ pub fn default_overlay_camera() -> impl Bundle {
     (
         Name::new("Overlay Camera"),
         Camera3d::default(),
+        Camera2d,
         Camera {
             order: 1,
             clear_color: ClearColorConfig::Custom(Color::srgba(0., 0., 0., 0.)),
@@ -1115,7 +1116,7 @@ mod systems {
 
         pub fn parse_server_message(
             mut conn: ResMut<Connection>,
-            mut time: ResMut<Time<Virtual>>,
+            time: ResMut<Time<Virtual>>,
             mut server_cmds: MessageWriter<ServerCmd>,
             server_events: Res<Messages<ServerMessage>>,
             asset_server: Res<AssetServer>,

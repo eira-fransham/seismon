@@ -1128,14 +1128,11 @@ impl Registry {
         impl<'a, T>
             LexprArrayDeserializer<
                 T,
-                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
+                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::Deserializer<'a>),
             >
         where
             T: Iterator<
-                Item = (
-                    StrDeserializer<'a, ConsoleError>,
-                    serde_lexpr::value::de::Deserializer<'a>,
-                ),
+                Item = (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::Deserializer<'a>),
             >,
         {
             fn new(mut values: T) -> Self {
@@ -1148,14 +1145,11 @@ impl Registry {
         impl<'a, T> MapAccess<'a>
             for LexprArrayDeserializer<
                 T,
-                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::de::Deserializer<'a>),
+                (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::Deserializer<'a>),
             >
         where
             T: Iterator<
-                Item = (
-                    StrDeserializer<'a, ConsoleError>,
-                    serde_lexpr::value::de::Deserializer<'a>,
-                ),
+                Item = (StrDeserializer<'a, ConsoleError>, serde_lexpr::value::Deserializer<'a>),
             >,
         {
             type Error = ConsoleError;
@@ -1199,7 +1193,7 @@ impl Registry {
                     self.inner.get_cvar(name).map(|c| {
                         (
                             StrDeserializer::new(name),
-                            serde_lexpr::value::de::Deserializer::from_value(c.value()),
+                            serde_lexpr::value::Deserializer::from_value(c.value()),
                         )
                     })
                 }));
@@ -2038,7 +2032,6 @@ mod systems {
                         Node {
                             position_type: PositionType::Absolute,
                             width: Val::Vw(100.),
-                            height: Val::Vh(100.),
                             ..default()
                         },
                         ZIndex(-1),

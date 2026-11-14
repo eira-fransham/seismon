@@ -85,9 +85,10 @@ fn interpolate<C, T>(
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
     T: Default + Send + Sync + 'static,
 {
+    let time = time.elapsed_secs_f64();
     components.par_iter_mut().for_each(|(prev, next, mut cur)| {
         let range = next.elapsed_secs - prev.0.elapsed_secs;
-        let factor = ((time.elapsed_secs_f64() - prev.0.elapsed_secs) / range).clamp(0., 1.);
+        let factor = ((time - prev.0.elapsed_secs) / range).clamp(0., 1.);
 
         *cur = C::interpolate(&prev.0.component, &next.component, factor as f32);
     });

@@ -72,7 +72,7 @@ use arrayvec::ArrayVec;
 use bevy::{
     app::{AppLabel, FixedMain, MainSchedulePlugin},
     prelude::*,
-    shape::{Aabb3d, BoundingVolume as _, IntersectsVolume as _},
+    shape::Aabb3d,
     time::TimePlugin,
 };
 use bitflags::bitflags;
