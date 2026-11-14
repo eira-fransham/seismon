@@ -20,12 +20,12 @@
 
 mod item;
 
+use anyhow::bail;
 use bevy::ecs::{
     resource::Resource,
     system::{Commands, IntoSystem, SystemId},
     world::World,
 };
-use failure::{Error, bail};
 
 use crate::common::console::CName;
 
@@ -90,7 +90,7 @@ pub struct Menu {
 
 impl Menu {
     /// Returns a reference to the active submenu of this menu and its parent.
-    fn active_submenu_and_parent(&self) -> Result<(&Menu, Option<&Menu>), Error> {
+    fn active_submenu_and_parent(&self) -> anyhow::Result<(&Menu, Option<&Menu>)> {
         let mut m = self;
         let mut m_parent = None;
 
@@ -108,13 +108,13 @@ impl Menu {
     }
 
     /// Return a reference to the active submenu of this menu
-    pub fn active_submenu(&self) -> Result<&Menu, Error> {
+    pub fn active_submenu(&self) -> anyhow::Result<&Menu> {
         let (m, _) = self.active_submenu_and_parent()?;
         Ok(m)
     }
 
     /// Return a reference to the active submenu of this menu
-    pub fn active_submenu_mut(&mut self) -> Result<&mut Menu, Error> {
+    pub fn active_submenu_mut(&mut self) -> anyhow::Result<&mut Menu> {
         let mut m = self;
 
         while let MenuState::InSubMenu { index } = &mut m.state {
@@ -130,7 +130,7 @@ impl Menu {
     }
 
     /// Returns a reference to the active submenu of this menu and its parent.
-    fn active_submenu_parent_mut(&mut self) -> Result<Option<&mut Menu>, Error> {
+    fn active_submenu_parent_mut(&mut self) -> anyhow::Result<Option<&mut Menu>> {
         let MenuState::InSubMenu { mut index } = self.active_submenu()?.state else {
             return Ok(Some(self));
         };
@@ -155,7 +155,7 @@ impl Menu {
     }
 
     /// Select the next element of this Menu.
-    pub fn select_next(&mut self) -> Result<(), Error> {
+    pub fn select_next(&mut self) -> anyhow::Result<()> {
         let m = self.active_submenu_mut()?;
 
         if let MenuState::Active { index } = m.state {
@@ -168,7 +168,7 @@ impl Menu {
     }
 
     /// Select the previous element of this Menu.
-    pub fn select_prev(&mut self) -> Result<(), Error> {
+    pub fn select_prev(&mut self) -> anyhow::Result<()> {
         let m = self.active_submenu_mut()?;
 
         if let MenuState::Active { index } = m.state {
@@ -183,7 +183,7 @@ impl Menu {
     }
 
     /// Return a reference to the currently selected menu item.
-    pub fn selected(&self) -> Result<&Item, Error> {
+    pub fn selected(&self) -> anyhow::Result<&Item> {
         let m = self.active_submenu()?;
 
         if let MenuState::Active { index } = m.state {
@@ -203,7 +203,7 @@ impl Menu {
     /// `Action`.
     ///
     /// Otherwise, this has no effect.
-    pub fn activate(&mut self) -> Result<impl FnOnce(Commands), Error> {
+    pub fn activate(&mut self) -> anyhow::Result<impl FnOnce(Commands)> {
         fn run(action: Option<SystemId>) -> impl FnOnce(Commands) {
             move |mut c: Commands| {
                 if let Some(action) = action {
@@ -235,7 +235,7 @@ impl Menu {
         }
     }
 
-    pub fn left(&mut self) -> Result<impl FnOnce(Commands) + '_, Error> {
+    pub fn left(&mut self) -> anyhow::Result<impl FnOnce(Commands) + '_> {
         let m = self.active_submenu_mut()?;
 
         Ok(move |c: Commands| {
@@ -251,7 +251,7 @@ impl Menu {
         })
     }
 
-    pub fn right(&mut self) -> Result<impl FnOnce(Commands) + '_, Error> {
+    pub fn right(&mut self) -> anyhow::Result<impl FnOnce(Commands) + '_> {
         let m = self.active_submenu_mut()?;
 
         Ok(move |c: Commands| {
@@ -273,7 +273,7 @@ impl Menu {
     }
 
     /// Deactivate the active menu and activate its parent
-    pub fn back(&mut self) -> Result<(), Error> {
+    pub fn back(&mut self) -> anyhow::Result<()> {
         if self.at_root() {
             bail!("Cannot back out of root menu!");
         }
@@ -337,8 +337,8 @@ impl<'a> MenuBuilder<'a> {
     pub fn add_submenu<S>(
         mut self,
         name: S,
-        submenu: impl FnOnce(MenuBuilder<'_>) -> Result<Menu, Error>,
-    ) -> Result<Self, Error>
+        submenu: impl FnOnce(MenuBuilder<'_>) -> anyhow::Result<Menu>,
+    ) -> anyhow::Result<Self>
     where
         S: Into<CName>,
     {
@@ -387,7 +387,7 @@ impl<'a> MenuBuilder<'a> {
         steps: usize,
         init: usize,
         cvar: S,
-    ) -> Result<Self, Error>
+    ) -> anyhow::Result<Self>
     where
         N: Into<CName>,
         S: Into<CName>,
@@ -405,7 +405,7 @@ impl<'a> MenuBuilder<'a> {
         default: Option<D>,
         max_len: Option<usize>,
         cvar: S,
-    ) -> Result<Self, Error>
+    ) -> anyhow::Result<Self>
     where
         N: Into<CName>,
         D: Into<String>,
@@ -429,7 +429,7 @@ impl EnumBuilder {
         Self::default()
     }
 
-    pub fn with<N, S>(mut self, name: N, val: S) -> Result<Self, Error>
+    pub fn with<N, S>(mut self, name: N, val: S) -> anyhow::Result<Self>
     where
         N: Into<CName>,
         S: AsRef<str>,

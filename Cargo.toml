@@ -84,6 +84,7 @@ unicode-width = "0.2"
 qbsp = { version = "0.17", features = ["bevy_reflect", "serde"] }
 
 [dependencies]
+anyhow.workspace = true
 seismon-utils.workspace = true
 bevy_mod_mdl.workspace = true
 bevy_mod_spr.workspace = true
@@ -121,7 +122,6 @@ bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
 dashmap = "6.2"
-failure = "0.1.8"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"

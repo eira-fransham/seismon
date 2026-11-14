@@ -18,12 +18,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// TODO: `derive(Fail)` currently triggers this, and at time of writing it is up-to-date
-#![allow(non_local_definitions)]
-
 use std::{
     borrow::Cow,
-    fmt::{self, Display},
+    fmt,
     io::{self, BufReader, Cursor, SeekFrom},
     iter,
 };
@@ -35,13 +32,13 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
 };
-use failure::{Backtrace, Context, Fail};
 use futures::{AsyncRead, AsyncSeekExt};
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num::FromPrimitive as _;
 use num_derive::FromPrimitive;
 use seismon_utils::QString;
 use serde::{Deserialize, Serialize};
+use snafu::Snafu;
 use wgpu::{Extent3d, TextureDimension};
 
 // see definition of lumpinfo_t:
@@ -50,68 +47,59 @@ const WAD_MAGIC: u32 = 'W' as u32 | ('A' as u32) << 8 | ('D' as u32) << 16 | ('2
 
 #[derive(Debug)]
 pub struct WadError {
-    inner: Context<WadErrorKind>,
+    kind: WadErrorKind,
+    source: Option<io::Error>,
 }
 
 impl WadError {
     pub fn kind(&self) -> WadErrorKind {
-        *self.inner.get_context()
+        self.kind
     }
 }
 
 impl From<WadErrorKind> for WadError {
     fn from(kind: WadErrorKind) -> Self {
-        WadError { inner: Context::new(kind) }
-    }
-}
-
-impl From<Context<WadErrorKind>> for WadError {
-    fn from(inner: Context<WadErrorKind>) -> Self {
-        WadError { inner }
+        WadError { kind, source: None }
     }
 }
 
 impl From<io::Error> for WadError {
     fn from(io_error: io::Error) -> Self {
-        let kind = io_error.kind();
-        match kind {
-            io::ErrorKind::UnexpectedEof => io_error.context(WadErrorKind::UnexpectedEof).into(),
-            _ => io_error.context(WadErrorKind::Io).into(),
-        }
+        let kind = match io_error.kind() {
+            io::ErrorKind::UnexpectedEof => WadErrorKind::UnexpectedEof,
+            _ => WadErrorKind::Io,
+        };
+        WadError { kind, source: Some(io_error) }
     }
 }
 
-impl Fail for WadError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.inner.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
+impl fmt::Display for WadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.kind, f)
     }
 }
 
-impl Display for WadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Display::fmt(&self.inner, f)
+impl std::error::Error for WadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|e| e as _)
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Snafu)]
 pub enum WadErrorKind {
-    #[fail(display = "Invalid filetype found in wad")]
+    #[snafu(display("Invalid filetype found in wad"))]
     InvalidFiletype,
-    #[fail(display = "Invalid compression kind found in wad")]
+    #[snafu(display("Invalid compression kind found in wad"))]
     InvalidCompression,
-    #[fail(display = "Invalid magic number")]
+    #[snafu(display("Invalid magic number"))]
     InvalidMagicNumber,
-    #[fail(display = "I/O error")]
+    #[snafu(display("I/O error"))]
     Io,
-    #[fail(display = "No such file in WAD")]
+    #[snafu(display("No such file in WAD"))]
     NoSuchFile,
-    #[fail(display = "Failed to load QPic")]
+    #[snafu(display("Failed to load QPic"))]
     QPicNotLoaded,
-    #[fail(display = "Unexpected end of data")]
+    #[snafu(display("Unexpected end of data"))]
     UnexpectedEof,
 }
 
@@ -329,7 +317,7 @@ const PRESUMED_MIPTEX_SIZE: u32 = 128;
 impl AssetLoader for WadLoader {
     type Asset = Wad;
     type Settings = WadLoaderSettings;
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn load(
         &self,
@@ -457,7 +445,7 @@ enum WadFiletype {
 }
 
 impl LumpHeader {
-    pub async fn read<R>(reader: &mut AsyncReadBytes<'_, R>) -> Result<Self, failure::Error>
+    pub async fn read<R>(reader: &mut AsyncReadBytes<'_, R>) -> anyhow::Result<Self>
     where
         R: AsyncRead + Unpin,
     {

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use clap::Parser;
-use failure::Error;
 
 use crate::common::console::{ExecResult, RegisterCmdExt};
 
@@ -42,7 +41,7 @@ fn cmd_map(
     session: Option<ResMut<Session>>,
     vfs: Res<Vfs>,
     mut registry: ResMut<Registry>,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     if map_name.extension().is_none() {
         map_name.set_extension("bsp");
     }

@@ -68,6 +68,7 @@ use self::{
     },
 };
 
+use anyhow::bail;
 use arrayvec::ArrayVec;
 use bevy::{
     app::{AppLabel, FixedMain, MainSchedulePlugin},
@@ -77,7 +78,6 @@ use bevy::{
 };
 use bitflags::bitflags;
 use byteorder::{LittleEndian, WriteBytesExt as _};
-use failure::bail;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use num::FromPrimitive;
@@ -466,7 +466,7 @@ impl Session {
         _slot: usize,
         mut registry: Mut<Registry>,
         vfs: &Vfs,
-    ) -> Result<(), failure::Error> {
+    ) -> anyhow::Result<()> {
         let Some(client) = self.persist.client_slots.find_available() else {
             // TODO: Error handling
             return Ok(());
@@ -483,7 +483,7 @@ impl Session {
         Ok(())
     }
 
-    pub fn clientcmd_name(&mut self, slot: usize, name: QString) -> Result<(), failure::Error> {
+    pub fn clientcmd_name(&mut self, slot: usize, name: QString) -> anyhow::Result<()> {
         let Some(client) = self.persist.client_mut(slot) else {
             bail!("No such client {}", slot);
         };
@@ -496,7 +496,7 @@ impl Session {
         Ok(())
     }
 
-    pub fn clientcmd_color(&mut self, slot: usize, color: u8) -> Result<(), failure::Error> {
+    pub fn clientcmd_color(&mut self, slot: usize, color: u8) -> anyhow::Result<()> {
         let Some(client) = self.client_mut(slot) else {
             bail!("No such client {}", slot);
         };
@@ -507,7 +507,7 @@ impl Session {
     }
 
     // TODO: Spawn parameters
-    pub fn clientcmd_spawn(&mut self, slot: usize) -> Result<(), failure::Error> {
+    pub fn clientcmd_spawn(&mut self, slot: usize) -> anyhow::Result<()> {
         let Some(_client) = self.client(slot) else {
             bail!("No such client {}", slot);
         };
@@ -522,7 +522,7 @@ impl Session {
         slot: usize,
         mut registry: Mut<Registry>,
         vfs: &Vfs,
-    ) -> Result<(), failure::Error> {
+    ) -> anyhow::Result<()> {
         let client_entity = self.level.world.alloc_uninitialized_reserved()?;
 
         let Some(client) = self.persist.client_mut(slot) else {

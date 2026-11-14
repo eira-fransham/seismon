@@ -19,11 +19,11 @@ use std::{fmt::Display, hash::Hash, ops::Not, str::FromStr, sync::LazyLock};
 
 use crate::common::{console::RunCmd, parse};
 
+use anyhow::{bail, format_err};
 use bevy::{
     input::{keyboard::Key, prelude::*},
     prelude::*,
 };
-use failure::{Error, bail, format_err};
 use hashbrown::HashMap;
 use smol_str::SmolStr;
 use strum_macros::EnumIter;
@@ -310,9 +310,9 @@ impl From<MouseButton> for AnyInput {
 }
 
 impl FromStr for AnyInput {
-    type Err = Error;
+    type Err = anyhow::Error;
 
-    fn from_str(src: &str) -> Result<Self, Error> {
+    fn from_str(src: &str) -> anyhow::Result<Self> {
         let Some(out) = KEYMAP.get(&UppercaseStr(src)) else {
             bail!("\"{}\" isn't a valid key", src);
         };
@@ -481,7 +481,7 @@ impl GameInput {
     }
 
     /// Bind a `BindInput` to a `BindTarget`.
-    pub fn bind<I, T>(&mut self, input: I, target: T) -> Result<Option<Binding<'static>>, Error>
+    pub fn bind<I, T>(&mut self, input: I, target: T) -> anyhow::Result<Option<Binding<'static>>>
     where
         I: TryInto<AnyInput>,
         T: AsRef<str>,
@@ -495,7 +495,7 @@ impl GameInput {
     }
 
     /// Return the `BindTarget` that `input` is bound to, or `None` if `input` is not present.
-    pub fn binding<I>(&self, input: I) -> Result<Option<&Binding<'static>>, Error>
+    pub fn binding<I>(&self, input: I) -> anyhow::Result<Option<&Binding<'static>>>
     where
         I: TryInto<AnyInput>,
         I::Error: Display,

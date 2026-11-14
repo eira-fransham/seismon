@@ -33,13 +33,13 @@ use crate::common::{
 };
 
 use super::{BspTextureFrame, BspTextureKind};
+use anyhow::{Context as _, bail, ensure};
 use bevy::{
     log::{debug, warn},
     math::Vec3,
     utils::default,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use failure::{ResultExt as _, bail, ensure};
 use hashbrown::HashMap;
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
@@ -201,7 +201,7 @@ impl BspFileTable {
         &self,
         seeker: &mut S,
         section_id: BspFileSectionId,
-    ) -> Result<(), failure::Error>
+    ) -> anyhow::Result<()>
     where
         S: Seek,
     {
@@ -216,7 +216,7 @@ impl BspFileTable {
     }
 }
 
-fn read_hyperplane<R>(reader: &mut R) -> Result<Hyperplane, failure::Error>
+fn read_hyperplane<R>(reader: &mut R) -> anyhow::Result<Hyperplane>
 where
     R: ReadBytesExt,
 {
@@ -250,7 +250,7 @@ fn load_texture<R>(
     mut reader: &mut R,
     tex_section_ofs: u64,
     tex_ofs: u64,
-) -> Result<BspFileTexture, failure::Error>
+) -> anyhow::Result<BspFileTexture>
 where
     R: ReadBytesExt + Seek,
 {
@@ -284,7 +284,7 @@ where
     Ok(BspFileTexture { name: tex_name, width, height, mipmaps })
 }
 
-fn load_render_node<R>(reader: &mut R) -> Result<BspRenderNode, failure::Error>
+fn load_render_node<R>(reader: &mut R) -> anyhow::Result<BspRenderNode>
 where
     R: ReadBytesExt,
 {
@@ -329,7 +329,7 @@ where
     })
 }
 
-fn load_texinfo<R>(reader: &mut R, texture_count: usize) -> Result<BspTexInfo, failure::Error>
+fn load_texinfo<R>(reader: &mut R, texture_count: usize) -> anyhow::Result<BspTexInfo>
 where
     R: ReadBytesExt,
 {
@@ -354,7 +354,7 @@ where
 
 /// Load a BSP file, returning the models it contains and a `String` describing the entities
 /// it contains.
-pub fn load<R>(data: R) -> Result<(Vec<Model>, String), failure::Error>
+pub fn load<R>(data: R) -> anyhow::Result<(Vec<Model>, String)>
 where
     R: Read + Seek,
 {

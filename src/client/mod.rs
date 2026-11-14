@@ -92,14 +92,14 @@ const CONSOLE_DIVIDER: &str = "\
 
 #[derive(Default)]
 pub struct SeismonClientPlugin<
-    F = Box<dyn Fn(MenuBuilder) -> Result<Menu, failure::Error> + Send + Sync + 'static>,
+    F = Box<dyn Fn(MenuBuilder) -> anyhow::Result<Menu> + Send + Sync + 'static>,
 > {
     pub base_dir: Option<PathBuf>,
     pub game: Option<String>,
     pub main_menu: F,
 }
 
-fn build_default(builder: MenuBuilder) -> Result<Menu, failure::Error> {
+fn build_default(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder.build(MenuView {
         draw_plaque: true,
         title_path: "gfx/ttl_main.lmp".into(),
@@ -184,7 +184,7 @@ enum ClientGameState {
 
 impl<F> Plugin for SeismonClientPlugin<F>
 where
-    F: Fn(MenuBuilder) -> Result<Menu, failure::Error> + Clone + Send + Sync + 'static,
+    F: Fn(MenuBuilder) -> anyhow::Result<Menu> + Clone + Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy::prelude::App) {
         if let Ok(menu) = (self.main_menu)(MenuBuilder::new(app.world_mut())) {

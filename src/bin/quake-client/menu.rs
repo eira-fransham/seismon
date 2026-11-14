@@ -31,9 +31,7 @@ use seismon::{
     common::console::{Registry, RunCmd},
 };
 
-use failure::Error;
-
-pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
+pub fn build_main_menu(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder
         .add_submenu("Single Player", build_menu_sp)?
         .add_submenu("Multiplayer", build_menu_mp)?
@@ -49,7 +47,7 @@ pub fn build_main_menu(builder: MenuBuilder) -> Result<Menu, Error> {
         }))
 }
 
-fn build_menu_sp(builder: MenuBuilder) -> Result<Menu, Error> {
+fn build_menu_sp(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder
         .add_action("New Game", |mut commands: MessageWriter<RunCmd<'static>>| {
             commands.write("map start".parse().unwrap());
@@ -63,7 +61,7 @@ fn build_menu_sp(builder: MenuBuilder) -> Result<Menu, Error> {
         }))
 }
 
-fn build_menu_mp(builder: MenuBuilder) -> Result<Menu, Error> {
+fn build_menu_mp(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder
         .add_submenu("Join a Game", build_menu_mp_join)?
         .add_action("New Game", || unimplemented!())
@@ -75,7 +73,7 @@ fn build_menu_mp(builder: MenuBuilder) -> Result<Menu, Error> {
         }))
 }
 
-fn build_menu_mp_join(builder: MenuBuilder) -> Result<Menu, Error> {
+fn build_menu_mp_join(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder
         .add_submenu("TCP", build_menu_mp_join_tcp)?
         // .add_textbox // description
@@ -86,7 +84,7 @@ fn build_menu_mp_join(builder: MenuBuilder) -> Result<Menu, Error> {
         }))
 }
 
-fn build_menu_mp_join_tcp(builder: MenuBuilder) -> Result<Menu, Error> {
+fn build_menu_mp_join_tcp(builder: MenuBuilder) -> anyhow::Result<Menu> {
     // Join Game - TCP/IP          // title
     //
     //  Address: 127.0.0.1         // label
@@ -108,7 +106,7 @@ fn build_menu_mp_join_tcp(builder: MenuBuilder) -> Result<Menu, Error> {
         }))
 }
 
-fn build_menu_options(builder: MenuBuilder) -> Result<Menu, Error> {
+fn build_menu_options(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder
         // .add_submenu("Customize controls", unimplemented!())
         .add_action("Go to console", |mut commands: MessageWriter<RunCmd<'static>>| {

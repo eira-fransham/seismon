@@ -25,8 +25,8 @@ use crate::{
     common::console::{CName, SetCvar},
 };
 
+use anyhow::ensure;
 use bevy::ecs::system::{Commands, SystemId};
-use failure::{Error, ensure};
 use serde_lexpr::Value;
 
 #[derive(Debug, Clone)]
@@ -158,7 +158,7 @@ pub struct EnumItem {
 }
 
 impl EnumItem {
-    pub fn new<N, V>(name: N, value: V) -> Result<EnumItem, Error>
+    pub fn new<N, V>(name: N, value: V) -> anyhow::Result<EnumItem>
     where
         N: Into<CName>,
         V: AsRef<str>,
@@ -185,7 +185,7 @@ impl Slider {
         steps: usize,
         init: usize,
         cvar: CName,
-    ) -> Result<Slider, Error> {
+    ) -> anyhow::Result<Slider> {
         ensure!(steps > 1, "Slider must have at least 2 steps");
         ensure!(init < steps, "Invalid initial setting");
 
@@ -275,7 +275,7 @@ impl TextField {
         self.chars.len()
     }
 
-    pub fn set_cursor(&mut self, cursor: usize) -> Result<(), Error> {
+    pub fn set_cursor(&mut self, cursor: usize) -> anyhow::Result<()> {
         ensure!(cursor <= self.len(), "Index out of range");
 
         self.cursor = cursor;
