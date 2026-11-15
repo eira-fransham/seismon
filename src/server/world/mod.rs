@@ -792,8 +792,7 @@ impl World {
             let mut abs_min = origin + mins;
             let mut abs_max = origin + maxs;
 
-            let flags_f = ent.get_float(FieldAddrFloat::Flags as i16)?;
-            let flags = EntityFlags::from_bits(flags_f as u16).unwrap();
+            let flags = ent.flags()?;
 
             let bounds_offset = if flags.contains(EntityFlags::ITEM) {
                 (Vec3::X + Vec3::Y) * BOUNDS_OFFSET_MAGNITUDE
@@ -852,16 +851,24 @@ impl World {
         Ok(())
     }
 
-    pub fn set_entity_model(&mut self, e_id: EntityId, model_id: usize) -> Result<(), ProgsError> {
-        if model_id == 0 {
-            self.set_entity_size(e_id, Vec3::ZERO, Vec3::ZERO)?;
-        } else {
-            let min = self.models[model_id].min();
-            let max = self.models[model_id].max();
-            self.set_entity_size(e_id, min, max)?;
-        }
+    /// Sets an entity's size to that of the model with precache index `model_id`.
+    ///
+    /// The null model (index 0) has no size. Returns `false` (and does nothing) if the model isn't
+    /// one the world has loaded, i.e. it isn't a brush model.
+    pub fn set_entity_model(
+        &mut self,
+        e_id: EntityId,
+        model_id: usize,
+    ) -> Result<bool, ProgsError> {
+        let Some(model) = self.models.get(model_id) else {
+            return Ok(false);
+        };
 
-        Ok(())
+        let (min, max) =
+            if model_id == 0 { (Vec3::ZERO, Vec3::ZERO) } else { (model.min(), model.max()) };
+        self.set_entity_size(e_id, min, max)?;
+
+        Ok(true)
     }
 
     pub fn set_entity_size(
@@ -980,7 +987,7 @@ impl World {
 
         // if this is a rocket or a grenade, expand the monster collision box
         let (monster_min, monster_max) = match kind {
-            CollideKind::Missile => (Vec3::splat(15.0), Vec3::splat(15.0)),
+            CollideKind::Missile => (Vec3::splat(-15.0), Vec3::splat(15.0)),
             _ => (min, max),
         };
 
@@ -1008,7 +1015,10 @@ impl World {
         {
             Ok((collide_trace, collide_ent))
         } else {
-            Ok((world_trace, Some(EntityId(0))))
+            // As in Quake's `SV_ClipMoveToEntity`, the trace only has an entity if it hit
+            // something.
+            let hit_world = !world_trace.is_terminal() || world_trace.start_solid();
+            Ok((world_trace, hit_world.then_some(EntityId(0))))
         }
     }
 

@@ -11,10 +11,12 @@ pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
     app.cvar("sv_paused", "0", "1 if the server is paused, 0 otherwise")
         // TODO: Have a way to have cvars be basic getter/setter pairs so we can implement `deathmatch` and `coop`
         //       cvars in terms of this.
+        .cvar("coop", "0", "1 for a co-op game, 0 otherwise")
+        .cvar("deathmatch", "0", "Nonzero for a deathmatch game (2: weapons stay, items don't respawn)")
         .cvar(
             "teamplay",
             "0",
-            "0: deathmatch, 1: co-op (friendly fire disabled), 2: co-op (friendly fire enabled)",
+            "0: no teams, 1: friendly fire disabled, 2: friendly fire enabled",
         )
         .cvar("temp1", "0", "Used internally for QuakeC")
         .cvar("skill", "1", "0: easy, 1: normal, 2: hard, 3: nightmare")
@@ -32,8 +34,7 @@ pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
         .cvar("sv_maxspeed", "320", "Set the ground speed that the player will try to walk at (not the maximum possible speed)")
         .cvar("sv_maxairspeed", "30", "Set the air speed that the player will try to move at (not the maximum possible speed)")
         .cvar("sv_stopspeed", "100", "Set the player's grounded friction")
-        .cvar("sv_accelerate", "10", "Set the player's grounded acceleration")
-        .cvar("sv_airaccelerate", "0.7", "Set the player's air acceleration")
+        .cvar("sv_accelerate", "10", "Set the player's acceleration (on the ground and in the air)")
         .cvar("sv_wateraccelerate", "10", "Set the player's water acceleration")
         .cvar("sv_friction", "4", "Set the player's air friction")
         .cvar("sv_waterfriction", "4", "Set the player's water friction")

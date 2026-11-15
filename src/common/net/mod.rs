@@ -1643,7 +1643,7 @@ impl ServerCmd {
                 }
 
                 if let Some(a) = attenuation {
-                    writer.write_u8(a as u8 * SOUND_ATTENUATION_WRITE_FACTOR)?;
+                    writer.write_u8((a * SOUND_ATTENUATION_WRITE_FACTOR as f32) as u8)?;
                 }
 
                 // TODO: document this better. The entity and channel fields are combined in Sound

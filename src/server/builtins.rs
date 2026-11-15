@@ -511,7 +511,7 @@ pub fn register_builtins_quake1<'b, 'ns, N: 'static>(
             worldspawn_mut::<Mut<GlobalDirections>, (), _>(|mut global_directions| {
                 let mat = make_vectors(angles);
                 global_directions.forward = mat.x_axis;
-                global_directions.right = mat.y_axis;
+                global_directions.right = -mat.y_axis;
                 global_directions.up = mat.z_axis;
 
                 Ok(())

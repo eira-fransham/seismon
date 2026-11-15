@@ -170,11 +170,9 @@ impl Trace {
         }
     }
 
+    /// Returns the distance from the origin of the plane that was hit, if any.
     pub fn plane_dist(&self) -> Option<f32> {
-        match &self.end.kind {
-            TraceEndKind::Boundary(boundary) => Some(boundary.ratio),
-            _ => None,
-        }
+        self.plane().map(Hyperplane::dist)
     }
 
     /// Adjusts the start and end points of the trace by an offset.

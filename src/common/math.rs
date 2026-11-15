@@ -370,6 +370,11 @@ impl Hyperplane {
         self.normal().z < -0.7
     }
 
+    /// Returns the distance of this plane from the origin, along its normal.
+    pub fn dist(&self) -> f32 {
+        self.dist
+    }
+
     /// Returns the surface normal of this plane.
     pub fn normal(&self) -> Vec3 {
         match self.alignment {

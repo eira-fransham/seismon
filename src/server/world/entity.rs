@@ -1108,8 +1108,12 @@ where
     where
         Addrs: FocusIndexMut,
     {
+        // Gravity set to 0 means normal gravity rather than no gravity.
         let ent_gravity = match self.type_def.find(string_table, "gravity") {
-            Some(def) => self.get_float(def.offset as i16)?,
+            Some(def) => match self.get_float(def.offset as i16)? {
+                0. => 1.0,
+                gravity => gravity,
+            },
             None => 1.0,
         };
 
@@ -1143,12 +1147,17 @@ where
         }
     }
 
+    /// Returns the engine-defined flags set on this entity.
+    ///
+    /// Any other bits (e.g. flags defined by a mod) are ignored. This matches Quake's
+    /// behavior, but this restriction may be relaxed later.
     pub fn flags(&mut self) -> Result<EntityFlags, EntityError> {
-        let flags_i = self.get_float(FieldAddrFloat::Flags as i16)? as u16;
-        match EntityFlags::from_bits(flags_i) {
-            Some(f) => Ok(f),
-            None => Err(EntityError::with_msg(format!("Invalid internal flags value ({flags_i})"))),
-        }
+        Ok(EntityFlags::from_bits_truncate(self.raw_flags()? as u16))
+    }
+
+    /// Returns all bits of the `flags` field, including ones not known to the engine.
+    fn raw_flags(&mut self) -> Result<i32, EntityError> {
+        Ok(self.get_float(FieldAddrFloat::Flags as i16)? as i32)
     }
 
     pub fn has_flag(&mut self, flag: EntityFlags) -> Result<bool, EntityError> {
@@ -1159,8 +1168,9 @@ where
     where
         Addrs: FocusIndexMut,
     {
-        let result = self.flags()? | (flags);
-        self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
+        // Operate on the raw bits so that flags unknown to the engine are preserved.
+        let result = self.raw_flags()? | i32::from(flags.bits());
+        self.put_float(result as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 
@@ -1168,8 +1178,8 @@ where
     where
         Addrs: FocusIndexMut,
     {
-        let result = self.flags()? & !flags;
-        self.put_float(result.bits() as f32, FieldAddrFloat::Flags as i16)?;
+        let result = self.raw_flags()? & !i32::from(flags.bits());
+        self.put_float(result as f32, FieldAddrFloat::Flags as i16)?;
         Ok(())
     }
 }

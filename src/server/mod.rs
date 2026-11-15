@@ -35,7 +35,7 @@ use bevy_mod_commands::{Registry, RunCmd};
 use crate::{
     common::{
         console::SeismonConsoleCorePlugin,
-        math::{CollisionResult, Hyperplane},
+        math::CollisionResult,
         net::{ClientCmd, ClientMessage, EntityState, ServerCmd, ServerMessage},
         parse,
     },
@@ -45,7 +45,7 @@ use crate::{
             functions::{BuiltinFunctionId, FunctionKind},
         },
         world::{
-            FieldAddrEntityId, FieldAddrVector, MoveKind,
+            FieldAddrVector, MoveKind,
             hull::{BrushModel, BspLeafContents},
             model::Model,
         },
@@ -59,19 +59,19 @@ use self::{
         GlobalAddrFloat, GlobalAddrVector, Globals, Opcode, ProgsAsset, ProgsError, ProgsLoader,
         StringId, StringTable,
         globals::{
-            GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2, GLOBAL_ADDR_ARG_3,
-            GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN,
+            AngleVectors, GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2,
+            GLOBAL_ADDR_ARG_3, GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN, angle_vectors,
         },
     },
     world::{
         EntityFlags, EntitySolid, FieldAddrFloat, FieldAddrFunctionId, FieldAddrStringId, World,
-        phys::{CollideKind, Trace, TraceEndKind},
+        phys::{CollideKind, Trace},
     },
 };
 
 use anyhow::bail;
 use arrayvec::ArrayVec;
-use bevy::{prelude::*, shape::Aabb3d};
+use bevy::prelude::*;
 use bevy_trenchbroom::bsp::Bsp;
 use bitflags::bitflags;
 use bitvec::vec::BitVec;
@@ -303,6 +303,19 @@ pub struct ClientActive {
     entity_id: EntityId,
 
     sent_baseline: BitVec,
+
+    /// The most-recent movement command received from this client (see [`LevelState::client_think`]).
+    cmd: MoveCmd,
+}
+
+/// The movement part of a client's most recent move command
+///
+/// Equivalent to `usercmd_t`.
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct MoveCmd {
+    pub forward: f32,
+    pub side: f32,
+    pub up: f32,
 }
 
 bitflags! {
@@ -451,7 +464,7 @@ impl Session {
         Session {
             persist: SessionPersistent::new(max_clients),
             state: SessionState::Loading,
-            level: LevelState::new(bsp_name, progs, models, entmap, registry),
+            level: LevelState::new(bsp_name, max_clients, progs, models, entmap, registry),
         }
     }
 
@@ -540,6 +553,7 @@ impl Session {
             _privileged: true,
             entity_id: client_entity,
             sent_baseline: BitVec::repeat(false, world::MAX_ENTITIES),
+            cmd: MoveCmd::default(),
         });
 
         for (i, arg_addr) in SPAWN_PARAM_ADDRS.iter().enumerate() {
@@ -636,17 +650,17 @@ impl Session {
         Ok(())
     }
 
-    /// Applies a `ClientCmd::Move` from client `client_id` to its player entity.
+    /// Records a `ClientCmd::Move` from client `client_id`.
     ///
-    /// Moves from clients which aren't active yet are ignored.
-    pub fn handle_move(
-        &mut self,
-        client_id: usize,
-        cmd: &ClientCmd,
-        registry: &Registry,
-    ) -> progs::Result<()> {
+    /// The view angles, buttons and impulse are written to the player entity straight away, but
+    /// the movement itself is stored and applied once per server frame by
+    /// [`LevelState::client_think`]. Moves from clients which aren't active yet are ignored.
+    ///
+    /// Equivalent to `SV_ReadClientMove`
+    pub fn handle_move(&mut self, client_id: usize, cmd: &ClientCmd) -> progs::Result<()> {
         let &ClientCmd::Move {
-            delta_time,
+            // Client delta time appears to be unused in Quake.
+            delta_time: _,
             angles,
             fwd_move,
             side_move,
@@ -658,23 +672,25 @@ impl Session {
             return Err(ProgsError::with_msg(format!("not a move command: {cmd:?}")));
         };
 
-        let Some(ent_id) = self
-            .persist
-            .client(client_id)
-            .filter(|c| matches!(c.state, ClientState::Active(_)))
-            .and_then(|c| c.entity())
+        let Some(Client { state: ClientState::Active(active), .. }) =
+            self.persist.client_mut(client_id)
         else {
             return Ok(());
         };
 
-        let mut entity = self.level.world.get_mut(ent_id)?;
+        active.cmd =
+            MoveCmd { forward: fwd_move as f32, side: side_move as f32, up: up_move as f32 };
 
-        entity.set_move_dir(Vec3::new(fwd_move as f32, side_move as f32, up_move as f32))?;
+        let mut entity = self.level.world.get_mut(active.entity_id)?;
+
         entity.set_view_angle(angles.to_array().into())?;
         entity.set_buttons(button_flags)?;
-        entity.set_impulse(impulse as _)?;
+        // Empty impulse doesn't overwrite the existing one within a frame (this appears to be Quake's behaviour)
+        if impulse != 0 {
+            entity.set_impulse(impulse as _)?;
+        }
 
-        self.level.handle_input_player(ent_id, delta_time, registry)
+        Ok(())
     }
 
     pub fn precache_sound(&mut self, name_id: StringId) -> progs::Result<()> {
@@ -746,14 +762,63 @@ pub fn limit_vec3(vel: Vec3, max: Option<f32>) -> Vec3 {
 
 /// The magical bhop-enabling acceleration function.
 ///
-/// Quake splits this into `accelerate` and `airaccelerate` but the only difference is
+/// Quake splits this into aerial/grounded variants but the only difference is
 /// limiting the maximum desired speed.
-pub fn player_accelerate(move_amt: Vec3, vel: Vec3, accel: f32) -> Vec3 {
-    let desired_dir = move_amt.normalize_or_zero();
-    let current_speed = desired_dir.dot(vel);
-    let desired_speed = move_amt.length();
-    let max_accel = (desired_speed - current_speed).max(0.);
-    vel + (accel * desired_speed).min(max_accel) * desired_dir
+///
+/// Equivalent to `SV_Accelerate`/`SV_AirAccelerate`
+pub fn accelerate(vel: Vec3, wish_dir: Vec3, wish_speed: f32, accel_speed: f32) -> Vec3 {
+    let current_speed = vel.dot(wish_dir);
+    let add_speed = wish_speed - current_speed;
+    if add_speed <= 0. {
+        return vel;
+    }
+
+    vel + accel_speed.min(add_speed) * wish_dir
+}
+
+/// Calculates how far to roll the player model during a strafe.
+///
+/// Equivalent to `V_CalcRoll`
+fn calc_roll(angles: Vec3, velocity: Vec3) -> f32 {
+    /// Equivalent to `cl_rollangle`
+    // TODO: Make this a cvar
+    const ROLL_ANGLE: f32 = 2.;
+    /// Equivalent to `cl_rollspeed`
+    // TODO: Make this a cvar
+    const ROLL_SPEED: f32 = 200.;
+
+    let side = velocity.dot(angle_vectors(angles).right);
+    let sign = if side < 0. { -1. } else { 1. };
+    let side = side.abs();
+    let side = if side < ROLL_SPEED { side * ROLL_ANGLE / ROLL_SPEED } else { ROLL_ANGLE };
+
+    side * sign
+}
+
+/// Nulls out the component of `velocity` pointing into a surface, scaled by
+/// `overbounce`.
+///
+/// Equivalent to `ClipVelocity`
+fn clip_velocity(velocity: Vec3, normal: Vec3, overbounce: f32) -> Vec3 {
+    const STOP_EPSILON: f32 = 0.1;
+
+    let backoff = velocity.dot(normal) * overbounce;
+    (velocity - normal * backoff)
+        .to_array()
+        .map(|v| if v.abs() < STOP_EPSILON { 0. } else { v })
+        .into()
+}
+
+/// Converts leaf contents to the values QuakeC expects.
+const fn quake_contents(contents: BspLeafContents) -> f32 {
+    -(contents as i32 as f32)
+}
+
+/// Returns whether `contents` counts as being in liquid.
+///
+/// **NOTE**: Sky is counted as a liquid, a quirk inherited from Quake.
+fn is_liquid(contents: BspLeafContents) -> bool {
+    contents as i32 >= BspLeafContents::Water as i32
 }
 
 #[derive(Copy, Clone, PartialEq, Deserialize)]
@@ -777,9 +842,9 @@ pub struct PlayerVars {
     #[serde(rename(deserialize = "sv_stopspeed"))]
     stop_speed: f32,
     #[serde(rename(deserialize = "sv_accelerate"))]
-    ground_accel: f32,
-    #[serde(rename(deserialize = "sv_airaccelerate"))]
-    air_accel: f32,
+    accel: f32,
+    // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
+    #[allow(dead_code)]
     #[serde(rename(deserialize = "sv_wateraccelerate"))]
     water_accel: f32,
     #[serde(rename(deserialize = "sv_friction"))]
@@ -840,6 +905,15 @@ pub struct LevelState {
 
     /// Persistent bytestring to append to the message sent to clients on sign-on.
     init: Vec<u8>,
+
+    /// The maximum number of clients. Client entities are `1..=max_clients`.
+    max_clients: usize,
+
+    /// The client returned by `checkclient`, as in Quake's `sv.lastcheck`.
+    last_check_client: usize,
+
+    /// When `last_check_client` was last changed, as in Quake's `sv.lastchecktime`.
+    last_check_time: Duration,
 }
 
 // TODO: Copied from Quake 1 source, can be done better.
@@ -850,27 +924,78 @@ fn angle_mod(quake_angle: f32) -> f32 {
     (360f32 / PRECISION) * (quake_angle * PRECISION / 360.0).floor()
 }
 
-// TODO: This can definitely be done better, but for now we directly take the implementation from
-// Quake.
-fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
-    let angle = angles.x.to_radians();
-    let sy = angle.sin();
-    let cy = angle.cos();
-    let angle = angles.y.to_radians();
-    let sp = angle.sin();
-    let cp = angle.cos();
-    let angle = angles.z.to_radians();
-    let sr = angle.sin();
-    let cr = angle.cos();
+/// Return value of [`chase_dirs`].
+///
+/// The directions a monster can try to move in to chase its goal
+#[derive(Debug, PartialEq)]
+struct ChaseDirs {
+    /// The direction along the x axis, if the goal is far enough away along it.
+    x: Option<f32>,
+    /// The direction along the y axis, if the goal is far enough away along it.
+    y: Option<f32>,
+    /// The diagonal direction, if the goal is far enough away along both axes.
+    diagonal: Option<f32>,
+}
 
-    movement.x * Vec3::new(cp * cy, cp * sy, -sp)
-        + movement.y * Vec3::new(-sr * sp * cy + cr * sy, -(sr * sp * sy + cr * cy), -sr * cp)
-        + movement.z * Vec3::new(cr * sp * cy + sr * sy, cr * sp * sy + -sr * cy, cr * cp)
+/// Returns the directions to try for a monster chasing a goal `(delta_x, delta_y)` away.
+///
+/// Part of the implementation equivalent to `SV_NewChaseDir`.
+fn chase_dirs(delta_x: f32, delta_y: f32) -> ChaseDirs {
+    let x = if delta_x > 10. {
+        Some(0.)
+    } else if delta_x < -10. {
+        Some(180.)
+    } else {
+        None
+    };
+
+    let y = if delta_y < -10. {
+        Some(270.)
+    } else if delta_y > 10. {
+        Some(90.)
+    } else {
+        None
+    };
+
+    // Quake uses 215 rather than 225 here, so we do too.
+    let diagonal = match (x, y) {
+        (Some(0.), Some(y)) => Some(if y == 90. { 45. } else { 315. }),
+        (Some(_), Some(y)) => Some(if y == 90. { 135. } else { 215. }),
+        _ => None,
+    };
+
+    ChaseDirs { x, y, diagonal }
+}
+
+/// Formats a float in the format expected by QuakeC.
+///
+/// Whole numbers are printed as integers, anything else with one decimal place.
+///
+/// Equivalent to `PF_ftos`.
+fn ftos(f: f32) -> String {
+    // TODO: Check the formatting docs to see if there's a single format invocation
+    // that does this.
+    if f == (f as i32) as f32 { format!("{}", f as i32) } else { format!("{f:5.1}") }
+}
+
+/// Formats a vector in the format expected by QuakeC.
+///
+/// Equivalent to `PF_vtos`.
+fn vtos(v: Vec3) -> String {
+    format!("'{:5.1} {:5.1} {:5.1}'", v.x, v.y, v.z)
+}
+
+/// Converts an angle in degrees to a byte, as in Quake's `MSG_WriteAngle`.
+///
+/// Like Quake, this truncates the angle to an integer first and wraps around.
+fn write_angle_byte(angle: f32) -> u8 {
+    (((angle as i32) * 256 / 360) & 255) as u8
 }
 
 impl LevelState {
     pub fn new(
         map_path: String,
+        max_clients: usize,
         progs: ProgsAsset,
         models: Vec<Model>,
         entmap: String,
@@ -919,6 +1044,9 @@ impl LevelState {
 
             broadcast: default(),
             init: default(),
+            max_clients,
+            last_check_client: 0,
+            last_check_time: Duration::ZERO,
         };
 
         for entity in entity_list {
@@ -978,7 +1106,7 @@ impl LevelState {
         let punch_angle = entity.punch_angle()?;
         let items = entity.items()?;
         let weapon_frame = entity.weapon_frame()?;
-        let ground = entity.ground()?;
+        let on_ground = entity.has_flag(EntityFlags::ON_GROUND)?;
         let water_level = entity.water_level()?;
         let armor = entity.armor()?;
         let health = entity.health()?;
@@ -995,8 +1123,8 @@ impl LevelState {
         use crate::common::net::{ItemFlags, PlayerData};
 
         ServerCmd::PlayerData(PlayerData {
-            on_ground: !ground.is_none(),
-            in_water: water_level != 0.,
+            on_ground,
+            in_water: water_level >= 2.,
             view_height: Some(view_ofs.z),
             ideal_pitch: Some(ideal_pitch),
             punch_pitch: Some(punch_angle.x),
@@ -1030,12 +1158,28 @@ impl LevelState {
         self.world.get(id).is_ok_and(|mut e| e.is_networked())
     }
 
+    /// Clears the messages broadcast during the previous frame.
+    ///
+    /// Messages to individual clients (`frame_client_messages`) are reliable, so they are kept
+    /// until they are sent rather than cleared here.
     pub fn init_frame(&mut self) {
-        // TODO: Only clear if the message was sent.
-        for (_, message) in &mut self.frame_client_messages {
-            message.clear();
-        }
         self.broadcast.clear();
+    }
+
+    /// Returns whether `ent_id` is a client entity, i.e. in `1..=max_clients`.
+    fn is_client_entity(&self, ent_id: EntityId) -> bool {
+        (1..=self.max_clients as i32).contains(&ent_id.0)
+    }
+
+    /// Returns the buffer of reliable messages for the client controlling `ent_id`.
+    ///
+    /// Returns `None` if `ent_id` isn't a client entity.
+    fn client_message(&mut self, ent_id: EntityId) -> Option<&mut Vec<u8>> {
+        if !self.is_client_entity(ent_id) {
+            return None;
+        }
+
+        Some(self.frame_client_messages.entry(ent_id).or_default())
     }
 
     fn write_dest(&mut self) -> progs::Result<impl Write> {
@@ -1048,17 +1192,36 @@ impl LevelState {
             MsgDest::All | MsgDest::Broadcast => Ok(&mut self.broadcast),
             MsgDest::One => {
                 let client = self.globals.load(GlobalAddrEntity::MsgEntity)?;
-                // TODO: We should insert the client ID when the client joins and reject if it is
-                // not found here.
-                Ok(self.frame_client_messages.entry(client).or_default())
+                self.client_message(client).ok_or_else(|| {
+                    ProgsError::with_msg(format!("WriteDest: {client} is not a client"))
+                })
             }
             MsgDest::Init => Ok(&mut self.init),
         }
     }
 
+    /// Concatenates the strings `first_arg` up to `last_arg`.
+    ///
+    /// Equivalent to `PF_VarString`.
+    fn var_string(&self, first_arg: usize, last_arg: usize) -> progs::Result<QString> {
+        let mut out = Vec::new();
+        // In Quake, `last_arg` is called `pr_argc`, but that's misleading since
+        // it's not a count.
+        for i in first_arg..last_arg.max(first_arg + 1) {
+            let s_id = self.globals.string_id((GLOBAL_ADDR_ARG_0 + 3 * i) as i16)?;
+            if let Some(s) = self.string_table.get(s_id) {
+                out.extend_from_slice(&s.raw);
+            }
+        }
+
+        Ok(out.into())
+    }
+
+    /// Runs a builtin function which was called with `argc` arguments.
     fn enter_builtin(
         &mut self,
         builtin_id: BuiltinFunctionId,
+        argc: usize,
         mut registry: Mut<Registry>,
     ) -> progs::Result<()> {
         use BuiltinFunctionId::*;
@@ -1082,7 +1245,7 @@ impl LevelState {
             BPrint => self.builtin_bprint()?,
             Break => todo_builtin!(Break),
             Ceil => self.globals.builtin_ceil()?,
-            CenterPrint => self.builtin_center_print()?,
+            CenterPrint => self.builtin_center_print(argc)?,
             ChangeLevel => self.builtin_change_level()?,
             ChangeYaw => self.builtin_change_yaw()?,
             CheckBottom => self.builtin_check_bottom(&registry)?,
@@ -1090,10 +1253,10 @@ impl LevelState {
             CoreDump => todo_builtin!(CoreDump),
             Cvar => self.builtin_cvar(&registry)?,
             CvarSet => self.builtin_cvar_set(registry.reborrow())?,
-            DPrint => self.builtin_dprint()?,
+            DPrint => self.builtin_dprint(argc)?,
             DropToFloor => self.builtin_drop_to_floor(registry.reborrow())?,
             EPrint => todo_builtin!(EPrint),
-            Error => self.builtin_err("Error")?,
+            Error => self.builtin_error(argc)?,
             FAbs => self.globals.builtin_f_abs()?,
             FindRadius => self.builtin_find_radius()?,
             Find => self.builtin_find()?,
@@ -1106,7 +1269,7 @@ impl LevelState {
             MoveToGoal => self.builtin_move_to_goal(registry.reborrow())?,
             NextEnt => todo_builtin!(NextEnt),
             Normalize => self.builtin_normalize()?,
-            ObjError => self.builtin_err("Object error")?,
+            ObjError => self.builtin_obj_error(argc)?,
             Particle => self.builtin_particle()?,
             PointContents => self.builtin_point_contents()?,
             // Only used in `qcc`, does nothing at runtime
@@ -1119,13 +1282,13 @@ impl LevelState {
             Random => self.globals.builtin_random()?,
             Remove => self.builtin_remove()?,
             RInt => self.globals.builtin_r_int()?,
-            SetModel => self.builtin_set_model()?,
+            SetModel => self.builtin_set_model(registry.reborrow())?,
             SetOrigin => self.builtin_set_origin(registry.reborrow())?,
             SetSize => self.builtin_set_size()?,
             SetSpawnArgs => todo_builtin!(SetSpawnArgs),
             Sound => self.builtin_sound()?,
             Spawn => self.builtin_spawn(registry.reborrow())?,
-            SPrint => self.builtin_sprint()?,
+            SPrint => self.builtin_sprint(argc)?,
             StuffCmd => self.builtin_stuffcmd()?,
             TraceLine => self.builtin_trace_line()?,
             TraceOff => todo_builtin!(TraceOff),
@@ -1260,7 +1423,7 @@ impl LevelState {
                     }
 
                     if let FunctionKind::BuiltIn(b) = def.kind {
-                        self.enter_builtin(b, registry.reborrow())?;
+                        self.enter_builtin(b, called_with_args, registry.reborrow())?;
                         debug!(
                             "Returning from built-in function {}",
                             self.string_table.get(name_id).unwrap()
@@ -1420,70 +1583,94 @@ impl LevelState {
         Ok(())
     }
 
+    /// Returns the precache index of a model.
+    ///
+    /// The empty model name is always index 0.
+    ///
+    /// Equivalent to `SV_ModelIndex`.
+    fn model_index(&self, model_name_id: StringId) -> progs::Result<usize> {
+        let model_name = self
+            .string_table
+            .get(model_name_id)
+            .ok_or_else(|| ProgsError::with_msg(format!("invalid model name {model_name_id}")))?;
+
+        if model_name.is_empty() {
+            return Ok(0);
+        }
+
+        self.model_precache
+            .find(model_name.to_str())
+            .ok_or_else(|| ProgsError::with_msg(format!("no precache: {model_name}")))
+    }
+
+    /// Sets an entity's model/size.
+    ///
+    /// Equivalent to `PF_setmodel`.
     pub fn set_entity_model(
         &mut self,
         ent_id: EntityId,
         model_name_id: StringId,
+        registry: Mut<Registry>,
     ) -> progs::Result<()> {
-        let model_name = self
-            .string_table
-            .get(model_name_id)
-            .ok_or_else(|| ProgsError::with_msg("String not found"))?;
-        let model_id = {
-            let mut ent = self.world.get_mut(ent_id)?;
+        /// The server ignores the actual model data and assigns this size
+        /// to all alias models (i.e. models loaded from `.mdl` files).
+        const ALIAS_MODEL_HALF_SIZE: f32 = 16.;
 
-            ent.set_model_name(model_name_id)?;
+        let model_id = self.model_index(model_name_id)?;
 
-            let model_id = match self.string_table.get(model_name_id) {
-                Some(name) => match self.model_precache.find(name.to_str()) {
-                    Some(i) => i,
-                    None => return Err(ProgsError::with_msg("model not precached")),
-                },
-                None => return Err(ProgsError::with_msg("invalid StringId")),
-            };
+        let mut ent = self.world.get_mut(ent_id)?;
+        ent.set_model_name(model_name_id)?;
+        ent.set_model_index(model_id as _)?;
 
-            ent.set_model_index(model_id as _)?;
-
-            model_id
-        };
-
-        if model_name.starts_with(b"*") {
-            self.world.set_entity_model(ent_id, model_id)?;
+        // Brush models (which the server has loaded) use their actual size, and the null model has
+        // no size.
+        // TODO: Quake uses the frame size for sprites, we should actually load those.
+        if !self.world.set_entity_model(ent_id, model_id)? {
+            self.world.set_entity_size(
+                ent_id,
+                Vec3::splat(-ALIAS_MODEL_HALF_SIZE),
+                Vec3::splat(ALIAS_MODEL_HALF_SIZE),
+            )?;
         }
 
-        Ok(())
+        self.link_entity(ent_id, false, registry)
     }
 
+    /// Runs an entity's think function if it is due this frame.
+    ///
+    /// Like Quake (but unlike QuakeWorld), this thinks at most once per frame. Returns `false` if
+    /// the entity was removed by its think function.
+    ///
+    /// Equivalent to `SV_RunThink`.
+    // TODO: Should we implement QW's think mechanism as an option?
     pub fn think(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
-        mut registry: Mut<Registry>,
+        registry: Mut<Registry>,
     ) -> progs::Result<bool> {
-        loop {
-            let mut ent = self.world.get_mut(ent_id)?;
-            let think_time = ent.load(FieldAddrFloat::NextThink)?;
+        let mut ent = self.world.get_mut(ent_id)?;
+        let think_time = ent.load(FieldAddrFloat::NextThink)?;
 
-            if think_time <= 0. || think_time > duration_to_f32(self.time + frame_time) {
-                // Think either already happened or isn't due yet.
-                return Ok(true);
-            }
-
-            let think_time = think_time.max(duration_to_f32(self.time));
-
-            // Deschedule next think.
-            ent.store(FieldAddrFloat::NextThink, 0.0)?;
-
-            // Call entity's think function.
-            let think = ent.load(FieldAddrFunctionId::Think)?;
-            self.globals.store(GlobalAddrFloat::Time, think_time)?;
-            self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
-            self.execute_program(think, registry.reborrow())?;
-
-            if !self.world.exists(ent_id) {
-                return Ok(false);
-            }
+        if think_time <= 0. || think_time > duration_to_f32(self.time + frame_time) {
+            // Think either already happened or isn't due yet.
+            return Ok(true);
         }
+
+        // TODO: Is this actually correct? Check quake.
+        let think_time = think_time.max(duration_to_f32(self.time));
+
+        // Deschedule next think.
+        ent.store(FieldAddrFloat::NextThink, 0.0)?;
+
+        // Call entity's think function.
+        let think = ent.load(FieldAddrFunctionId::Think)?;
+        self.globals.store(GlobalAddrFloat::Time, think_time)?;
+        self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
+        self.globals.store(GlobalAddrEntity::Other, EntityId(0))?;
+        self.execute_program(think, registry)?;
+
+        Ok(self.world.exists(ent_id))
     }
 
     pub fn start_frame(&mut self, mut registry: Mut<Registry>) -> progs::Result<()> {
@@ -1500,7 +1687,12 @@ impl LevelState {
         Ok(())
     }
 
-    /// Player fly (entities use `physics_toss`).
+    /// Moves an entity along its velocity for `frame_time`, sliding along anything it hits.
+    ///
+    /// If the entity lands on a brush entity, it is marked as on the ground. The returned
+    /// metadata is the last trace which hit a wall or step, if any.
+    ///
+    /// Equivalent to `SV_FlyMove`.
     fn physics_player_fly(
         &mut self,
         ent_id: EntityId,
@@ -1512,10 +1704,11 @@ impl LevelState {
 
         let mut out = CollisionResult::default();
 
-        let mut ent = self.world.get(ent_id)?;
-        let mut original_velocity = ent.velocity()?;
-        let primal_velocity = original_velocity;
-        let mut planes = ArrayVec::<Hyperplane, MAX_CLIP_PLANES>::new();
+        let primal_velocity = self.world.get(ent_id)?.velocity()?;
+        let mut original_velocity = primal_velocity;
+        // Normals of the planes the entity is touching. Unlike our traces (but like Quake), these
+        // face out of the surface.
+        let mut planes = ArrayVec::<Vec3, MAX_CLIP_PLANES>::new();
 
         let mut time_left: f32 = duration_to_f32(frame_time);
 
@@ -1542,71 +1735,98 @@ impl LevelState {
                 |_| true,
             )?;
 
-            if trace.all_solid {
+            if trace.all_solid() {
+                // Entity is trapped in another solid.
                 self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-                return Ok(CollisionResult {
-                    floor: true,
-                    wall_or_step: true,
-                    dead_stop: false,
-                    ..out
-                });
+                return Ok(CollisionResult { floor: true, wall_or_step: true, ..out });
             }
 
-            // TODO: Fix this (`original_velocity` not used)
-            #[expect(unused_assignments)]
-            if trace.ratio() > f32::EPSILON {
+            if trace.ratio() > 0. {
+                // If ratio > 0, we moved some distance.
                 let mut ent = self.world.get_mut(ent_id)?;
-                original_velocity = ent.velocity()?;
                 ent.set_origin(trace.end_point())?;
+                original_velocity = ent.velocity()?;
+                planes.clear();
             }
 
-            let Some(plane) = trace.plane().cloned() else {
+            let Some(plane) = trace.plane() else {
                 // Travelled full trace distance.
                 break;
             };
 
-            // let Some(ent) = ent else {
-            //   // TODO: Why does Quake assume that ent cannot be world?
-            //   return Err(ProgsError::with_msg("!trace.ent"));
-            // };
+            let Some(hit) = touched_ent_id else {
+                return Err(ProgsError::with_msg(format!(
+                    "fly_move: trace for {ent_id} hit a surface but no entity"
+                )));
+            };
 
-            if plane.is_floor() {
+            let normal = -plane.normal();
+
+            if normal.z > 0.7 {
                 out.floor = true;
+                if self.world.get(hit)?.solid()? == EntitySolid::Bsp {
+                    let mut ent = self.world.get_mut(ent_id)?;
+                    ent.add_flags(EntityFlags::ON_GROUND)?;
+                    ent.set_ground(hit)?;
+                }
+            }
+
+            if normal.z == 0. {
+                out.wall_or_step = true;
+                // Saved for the player's extra wall friction.
+                out.metadata = Some(trace.clone());
+            }
+
+            self.impact_entities(ent_id, hit, registry.reborrow())?;
+            if !self.world.exists(ent_id) {
+                // Removed by the impact function.
+                break;
             }
 
             time_left -= time_left * trace.ratio();
 
-            if plane.normal().z.abs() < f32::EPSILON {
-                out.wall_or_step = true;
-                out.metadata = Some(trace);
-            }
-
-            if let Some(touched_ent_id) = touched_ent_id {
-                self.run_impact_callbacks(ent_id, touched_ent_id, registry.reborrow())?;
-            }
-
-            if planes.try_push(plane.clone()).is_err() {
+            if planes.try_push(normal).is_err() {
+                // This shouldn't really happen.
                 self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-                return Ok(CollisionResult {
-                    floor: true,
-                    wall_or_step: true,
-                    dead_stop: false,
-                    ..out
-                });
+                return Ok(CollisionResult { floor: true, wall_or_step: true, ..out });
             }
 
-            let collision_result = Hyperplane::clip_velocity_to_many(&planes[..], velocity, 1.);
+            // Modify `original_velocity` so that it is parallel to all of the clip planes.
+            let along_plane = planes.iter().enumerate().find_map(|(i, &plane_i)| {
+                let new_velocity = clip_velocity(original_velocity, plane_i, 1.);
+                planes
+                    .iter()
+                    .enumerate()
+                    .all(|(j, &plane_j)| i == j || new_velocity.dot(plane_j) >= 0.)
+                    .then_some(new_velocity)
+            });
 
-            self.world.get_mut(ent_id)?.set_velocity(collision_result.metadata)?;
+            let new_velocity = match along_plane {
+                Some(new_velocity) => new_velocity,
+                // Go along the crease.
+                None if planes.len() == 2 => {
+                    let dir = planes[0].cross(planes[1]);
+                    dir * dir.dot(self.world.get(ent_id)?.velocity()?)
+                }
+                None => {
+                    self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
+                    return Ok(CollisionResult {
+                        floor: true,
+                        wall_or_step: true,
+                        dead_stop: true,
+                        ..out
+                    });
+                }
+            };
 
-            if collision_result.dead_stop {
-                return Ok(collision_result.map(move |_| out.metadata));
-            }
-
-            if collision_result.metadata.dot(primal_velocity) <= 0. {
+            // If the new velocity is against the original velocity, stop dead to avoid tiny
+            // oscillations in sloping corners.
+            if new_velocity.dot(primal_velocity) <= 0. {
                 self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-                break;
+                return Ok(out);
             }
+
+            self.world.get_mut(ent_id)?.set_velocity(new_velocity)?;
         }
 
         Ok(out)
@@ -1630,9 +1850,16 @@ impl LevelState {
         let old_origin = ent.origin()?;
         let old_velocity = ent.velocity()?;
         let water_level = ent.water_level()?;
-        let move_kind = ent.move_kind()?;
 
         let clip = self.physics_player_fly(ent_id, frame_time, registry.reborrow())?;
+
+        if !self.world.exists(ent_id) {
+            return Ok(());
+        }
+
+        // Read after moving, since if we moved into e.g. a trigger that kills the entity
+        // then we don't want to do anything here.
+        let move_kind = self.world.get(ent_id)?.move_kind()?;
 
         if
         // Move didn't block on a wall/step.
@@ -1679,12 +1906,16 @@ impl LevelState {
         let (downtrace, down_ent) = self.push_entity(ent_id, downmove, registry.reborrow())?;
         if downtrace.plane().map(|plane| plane.is_floor()).unwrap_or_default() {
             let mut ent = self.world.get_mut(ent_id)?;
+            // This checks the moving entity rather than the ground, as Quake does. Players aren't
+            // `SOLID_BSP`, so in practice `physics_player_fly` sets the ground instead.
             if ent.solid()? == EntitySolid::Bsp {
                 ent.add_flags(EntityFlags::ON_GROUND)?;
-                ent.set_ground(down_ent.unwrap_or(EntityId(-1)))?;
+                ent.set_ground(down_ent.unwrap_or(EntityId(0)))?;
             }
         } else {
-            info!("Tried to step but could not");
+            // The step down didn't end up on good ground, so use the move without the step up.
+            // This happens near wall/slope combinations.
+            debug!("Tried to step but could not");
             let mut ent = self.world.get_mut(ent_id)?;
 
             ent.set_origin(pre_step_origin)?;
@@ -1711,14 +1942,8 @@ impl LevelState {
             MoveKind::Push => self.physics_push(ent_id, frame_time, registry.reborrow())?,
             MoveKind::NoClip => self.physics_noclip(ent_id, frame_time, registry.reborrow())?,
             MoveKind::Step => self.physics_step(ent_id, frame_time, registry.reborrow())?,
-            MoveKind::Fly | MoveKind::FlyMissile => {
-                self.physics_toss(ent_id, frame_time, registry.reborrow(), false, 1.)?;
-            }
-            MoveKind::Bounce => {
-                self.physics_toss(ent_id, frame_time, registry.reborrow(), true, 1.5)?
-            }
-            MoveKind::Toss => {
-                self.physics_toss(ent_id, frame_time, registry.reborrow(), true, 1.)?
+            MoveKind::Fly | MoveKind::FlyMissile | MoveKind::Bounce | MoveKind::Toss => {
+                self.physics_toss(ent_id, frame_time, registry.reborrow())?
             }
             // No actual physics for this entity, but still let it think.
             MoveKind::None => {
@@ -1753,22 +1978,57 @@ impl LevelState {
 
         match player.move_kind()? {
             MoveKind::None => {
-                self.think(player_id, frame_time, registry.reborrow())?;
+                if !self.think(player_id, frame_time, registry.reborrow())? {
+                    return Ok(());
+                }
             }
             MoveKind::Walk => {
                 if !self.think(player_id, frame_time, registry.reborrow())? {
                     return Ok(());
                 }
 
-                let mut ent = self.world.get_mut(player_id)?;
+                if !self.check_water(player_id)?
+                    && !self.world.get(player_id)?.has_flag(EntityFlags::WATER_JUMP)?
+                {
+                    self.world.get_mut(player_id)?.apply_gravity(
+                        &self.string_table,
+                        server_vars.gravity,
+                        frame_time,
+                    )?;
+                }
 
-                let with_gravity =
-                    ent.velocity()? - Vec3::Z * server_vars.gravity * duration_to_f32(frame_time);
-                ent.set_velocity(with_gravity)?;
-
+                // TODO: SV_CheckStuck
                 self.physics_walk(player_id, frame_time, &server_vars, registry.reborrow())?;
             }
-            _ => error!("TODO: Non-walk players"),
+            // e.g. dead players.
+            MoveKind::Toss | MoveKind::Bounce => {
+                self.physics_toss(player_id, frame_time, registry.reborrow())?;
+            }
+            MoveKind::Fly => {
+                if !self.think(player_id, frame_time, registry.reborrow())? {
+                    return Ok(());
+                }
+
+                self.physics_player_fly(player_id, frame_time, registry.reborrow())?;
+            }
+            MoveKind::NoClip => {
+                if !self.think(player_id, frame_time, registry.reborrow())? {
+                    return Ok(());
+                }
+
+                let mut player = self.world.get_mut(player_id)?;
+                let origin = player.origin()? + duration_to_f32(frame_time) * player.velocity()?;
+                player.set_origin(origin)?;
+            }
+            other => {
+                return Err(ProgsError::with_msg(format!(
+                    "physics_client: bad movetype {other:?}"
+                )));
+            }
+        }
+
+        if !self.world.exists(player_id) {
+            return Ok(());
         }
 
         self.link_entity(player_id, true, registry.reborrow())?;
@@ -1789,9 +2049,17 @@ impl LevelState {
     ) -> progs::Result<HashMap<EntityId, ProgsError>> {
         self.globals.store(GlobalAddrFloat::FrameTime, duration_to_f32(frame_time))?;
 
-        self.start_frame(registry.reborrow())?;
-
         let mut ent_error_map = HashMap::<EntityId, ProgsError>::new();
+
+        // As in Quake's `SV_RunClients`, apply each client's latest movement once per frame,
+        // before running physics.
+        for (_, ClientActive { entity_id, cmd, .. }) in clients.active_clients() {
+            if let Err(e) = self.client_think(*entity_id, cmd, frame_time, &registry) {
+                ent_error_map.insert(*entity_id, e);
+            }
+        }
+
+        self.start_frame(registry.reborrow())?;
 
         for (_, ClientActive { entity_id, .. }) in clients.active_clients() {
             if let Err(e) = self.physics_client(*entity_id, frame_time, registry.reborrow()) {
@@ -1831,9 +2099,10 @@ impl LevelState {
             }
         }
 
-        let f = self.globals.load(GlobalAddrFloat::ForceRetouch)?;
-        if f > 0.0 {
-            self.globals.store(GlobalAddrFloat::ForceRetouch, 0.)?;
+        // QuakeC sets this to 2 so that entities retouch for two frames.
+        let force_retouch = self.globals.load(GlobalAddrFloat::ForceRetouch)?;
+        if force_retouch != 0.0 {
+            self.globals.store(GlobalAddrFloat::ForceRetouch, force_retouch - 1.)?;
         }
 
         self.time += frame_time;
@@ -1895,96 +2164,196 @@ impl LevelState {
         Ok(())
     }
 
-    fn player_categorize_position(&mut self, ent_id: EntityId) -> progs::Result<()> {
-        let mut ent = self.world.get_mut(ent_id)?;
-
-        ent.remove_flags(EntityFlags::ON_GROUND)?;
-
-        let origin = ent.origin()?;
-        let min = ent.min()?;
-        let max = ent.max()?;
-        let check_floor_pos = origin - Vec3::Z;
-
-        if ent.velocity_z()? > 180. {
-            return Ok(());
-        }
-
-        let (trace, floor_ent) = self.world.trace_entity_move(
-            ent_id,
-            origin,
-            min,
-            max,
-            check_floor_pos,
-            CollideKind::default(),
-            |_| true,
-        )?;
-
-        if trace.plane().map(|plane| plane.is_floor()) == Some(true) {
-            let mut ent = self.world.get_mut(ent_id)?;
-            ent.add_flags(EntityFlags::ON_GROUND)?;
-
-            if let Some(floor_ent) = floor_ent {
-                ent.set_ground(floor_ent)?;
-            } else {
-                ent.set_ground(EntityId::NONE)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn handle_input_player_air(
+    /// Applies a client's latest movement command to its player entity, as in Quake's
+    /// `SV_ClientThink` (and `SV_AirMove`).
+    pub fn client_think(
         &mut self,
         ent_id: EntityId,
-        target_vel: Vec2,
-        frame_time: Duration,
-        player_vars: &PlayerVars,
-    ) -> progs::Result<()> {
-        let mut ent = self.world.get_mut(ent_id)?;
-        let on_ground = ent.has_flag(EntityFlags::ON_GROUND)?;
-        let current_velocity = ent.velocity()?;
-        // Don't need to handle water acceleration here, this method is only for air+ground.
-        let (max_speed, current_velocity, accel) = if on_ground {
-            (player_vars.max_speed, current_velocity.with_z(0.), player_vars.ground_accel)
-        } else {
-            (player_vars.max_air_speed, current_velocity, player_vars.air_accel)
-        };
-        let accel = accel * duration_to_f32(frame_time);
-        let target_vel =
-            angle_vectors(ent.view_angle()?, target_vel.normalize_or_zero().extend(0.)) * max_speed;
-
-        ent.set_velocity(player_accelerate(target_vel, current_velocity, accel))?;
-
-        Ok(())
-    }
-
-    pub fn handle_input_player(
-        &mut self,
-        ent_id: EntityId,
+        cmd: &MoveCmd,
         frame_time: Duration,
         registry: &Registry,
     ) -> progs::Result<()> {
+        /// How fast the view kick (`punchangle`) decays, in degrees per second.
+        const PUNCH_ANGLE_DECAY: f32 = 10.;
+
         let player_vars: PlayerVars = registry.read_cvars()?;
+        let dt = duration_to_f32(frame_time);
+        let time = duration_to_f32(self.time);
 
-        let mut ent = self.world.get(ent_id)?;
-        let water_level = ent.water_level()?;
+        let mut ent = self.world.get_mut(ent_id)?;
 
-        let target_vel = ent.move_dir()?;
-
-        self.player_categorize_position(ent_id)?;
-
-        if water_level >= 2. {
-            error!("TODO: SV_WaterMove");
-        } else {
-            if self.world.get(ent_id)?.has_flag(EntityFlags::ON_GROUND)? {
-                self.player_apply_friction(ent_id, frame_time, &player_vars)?;
-            }
-            self.handle_input_player_air(ent_id, target_vel.truncate(), frame_time, &player_vars)?;
+        let move_kind = ent.move_kind()?;
+        if move_kind == MoveKind::None {
+            return Ok(());
         }
 
-        self.player_categorize_position(ent_id)?;
+        let on_ground = ent.has_flag(EntityFlags::ON_GROUND)?;
 
-        debug!("TODO: Player physics not fully implemented");
+        // `DropPunchAngle`
+        let punch_angle = ent.punch_angle()?;
+        let punch_len = (punch_angle.length() - PUNCH_ANGLE_DECAY * dt).max(0.);
+        ent.set_punch_angle(punch_angle.normalize_or_zero() * punch_len)?;
+
+        // Dead players can't move.
+        if ent.health()? <= 0. {
+            return Ok(());
+        }
+
+        // Show the player model with 1/3 of the view pitch, and roll it when strafing.
+        let v_angle = ent.view_angle()? + ent.punch_angle()?;
+        let mut angles = ent.angles()?;
+        angles.z = calc_roll(angles, ent.velocity()?) * 4.;
+        if !ent.get_bool(FieldAddrFloat::FixAngle as i16)? {
+            angles.x = -v_angle.x / 3.;
+            angles.y = v_angle.y;
+        }
+        ent.set_angles(angles)?;
+
+        if ent.has_flag(EntityFlags::WATER_JUMP)? {
+            // `SV_WaterJump`
+            if time > ent.load(FieldAddrFloat::TeleportTime)? || ent.water_level()? == 0. {
+                ent.remove_flags(EntityFlags::WATER_JUMP)?;
+                ent.store(FieldAddrFloat::TeleportTime, 0.)?;
+            }
+
+            let jump_velocity = ent.move_dir()?;
+            let velocity = ent.velocity()?;
+            ent.set_velocity(jump_velocity.xy().extend(velocity.z))?;
+
+            return Ok(());
+        }
+
+        if ent.water_level()? >= 2. && move_kind != MoveKind::NoClip {
+            warn_once!("TODO: SV_WaterMove");
+            return Ok(());
+        }
+
+        // `SV_AirMove`
+        let AngleVectors { forward, right, .. } = angle_vectors(angles);
+
+        let mut fwd_move = cmd.forward;
+        // If the player is still in a teleporter, wait until they leave it
+        // before allowing them to teleport again.
+        if time < ent.load(FieldAddrFloat::TeleportTime)? && fwd_move < 0. {
+            fwd_move = 0.;
+        }
+
+        let mut wish_vel = forward * fwd_move + right * cmd.side;
+        wish_vel.z = if move_kind == MoveKind::Walk { 0. } else { cmd.up };
+
+        let mut wish_speed = wish_vel.length();
+        if wish_speed > player_vars.max_speed {
+            wish_vel *= player_vars.max_speed / wish_speed;
+            wish_speed = player_vars.max_speed;
+        }
+        let wish_dir = wish_vel.normalize_or_zero();
+
+        let accel_speed = player_vars.accel * dt * wish_speed;
+
+        if move_kind == MoveKind::NoClip {
+            ent.set_velocity(wish_vel)?;
+        } else if on_ground {
+            self.player_apply_friction(ent_id, frame_time, &player_vars)?;
+
+            let mut ent = self.world.get_mut(ent_id)?;
+            let velocity = accelerate(ent.velocity()?, wish_dir, wish_speed, accel_speed);
+            ent.set_velocity(velocity)?;
+        } else {
+            // Not on the ground, so there is little effect on velocity.
+            let wish_speed = wish_speed.min(player_vars.max_air_speed);
+            let velocity = accelerate(ent.velocity()?, wish_dir, wish_speed, accel_speed);
+            ent.set_velocity(velocity)?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns the contents of the world at `point`.
+    ///
+    /// Currents count as water.
+    ///
+    /// Equivalent to `SV_PointContents`.
+    fn point_contents(&self, point: Vec3) -> BspLeafContents {
+        match self.world.contents_at_point(point) {
+            c if c as i32 >= BspLeafContents::Current0 as i32 => BspLeafContents::Water,
+            c => c,
+        }
+    }
+
+    /// Updates an entity's `waterlevel` and `watertype`.
+    ///
+    /// Returns whether the entity is swimming (`waterlevel > 1`).
+    ///
+    /// Equivalent to `SV_CheckWater`.
+    fn check_water(&mut self, ent_id: EntityId) -> progs::Result<bool> {
+        let mut ent = self.world.get(ent_id)?;
+        let origin = ent.origin()?;
+        let min = ent.min()?;
+        let max = ent.max()?;
+        let view_ofs = ent.view_ofs()?;
+
+        let mut water_level = 0.;
+        let mut water_type = quake_contents(BspLeafContents::Empty);
+
+        // Feet
+        let contents = self.point_contents(origin.with_z(origin.z + min.z + 1.));
+        if is_liquid(contents) {
+            water_type = quake_contents(contents);
+            water_level = 1.;
+
+            // Waist
+            if is_liquid(self.point_contents(origin.with_z(origin.z + (min.z + max.z) * 0.5))) {
+                water_level = 2.;
+
+                // Eyes
+                if is_liquid(self.point_contents(origin.with_z(origin.z + view_ofs.z))) {
+                    water_level = 3.;
+                }
+            }
+        }
+
+        let mut ent = self.world.get_mut(ent_id)?;
+        ent.set_water_level(water_level)?;
+        ent.store(FieldAddrFloat::Contents, water_type)?;
+
+        Ok(water_level > 1.)
+    }
+
+    /// Updates a non-player entity's `watertype` and plays a splash sound if it entered or left
+    /// water.
+    ///
+    /// Equivalent to `SV_CheckWaterTransition`.
+    fn check_water_transition(&mut self, ent_id: EntityId) -> progs::Result<()> {
+        const SPLASH_SOUND: &str = "misc/h2ohit1.wav";
+
+        let origin = self.world.get(ent_id)?.origin()?;
+        let contents = self.point_contents(origin);
+
+        let mut ent = self.world.get_mut(ent_id)?;
+        let old_water_type = ent.load(FieldAddrFloat::Contents)?;
+
+        if old_water_type == 0. {
+            // Just spawned here.
+            ent.store(FieldAddrFloat::Contents, quake_contents(contents))?;
+            ent.set_water_level(1.)?;
+            return Ok(());
+        }
+
+        let splash = if is_liquid(contents) {
+            ent.store(FieldAddrFloat::Contents, quake_contents(contents))?;
+            ent.set_water_level(1.)?;
+            old_water_type == quake_contents(BspLeafContents::Empty)
+        } else {
+            ent.store(FieldAddrFloat::Contents, quake_contents(BspLeafContents::Empty))?;
+            // Quake stores the contents here rather than a water level.
+            ent.set_water_level(quake_contents(contents))?;
+            old_water_type != quake_contents(BspLeafContents::Empty)
+        };
+
+        if splash {
+            self.sound(ent_id, 0, SPLASH_SOUND, 1., 1.)?;
+        }
+
         Ok(())
     }
 
@@ -2064,12 +2433,20 @@ impl LevelState {
         self.link_entity(ent_id, false, registry)
     }
 
+    /// Runs physics for a monster.
+    ///
+    /// Monsters only fall when they aren't on the ground (or flying/swimming): otherwise they are
+    /// moved by `walkmove`/`movetogoal`.
+    ///
+    /// Equivalent to `SV_Physics_Step`.
     pub fn physics_step(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
     ) -> progs::Result<()> {
+        const LAND_SOUND: &str = "demon/dland2.wav";
+
         let ServerVars { gravity, max_entity_velocity: max_velocity, .. } =
             registry.read_cvars()?;
 
@@ -2077,7 +2454,7 @@ impl LevelState {
             .world
             .get(ent_id)?
             .flags()?
-            .intersects(EntityFlags::ON_GROUND | EntityFlags::FLY | EntityFlags::IN_WATER);
+            .intersects(EntityFlags::ON_GROUND | EntityFlags::FLY | EntityFlags::SWIM);
 
         if in_freefall {
             let vel = self.world.get(ent_id)?.velocity()?;
@@ -2090,34 +2467,40 @@ impl LevelState {
             self.world.get_mut(ent_id)?.limit_velocity(max_velocity)?;
 
             // Move the entity and relink it.
-            self.move_ballistic(frame_time, ent_id, registry.reborrow())?;
+            self.physics_player_fly(ent_id, frame_time, registry.reborrow())?;
             self.link_entity(ent_id, true, registry.reborrow())?;
 
-            let mut ent = self.world.get_mut(ent_id)?;
+            if !self.world.exists(ent_id) {
+                return Ok(());
+            }
 
-            if ent.flags()?.contains(EntityFlags::ON_GROUND) && hit_sound {
+            if self.world.get(ent_id)?.has_flag(EntityFlags::ON_GROUND)? && hit_sound {
                 // Entity hit the ground this frame.
-                if let Some(sound) = self.string_table.find("demon/dland2.wav") {
-                    self.sound(ent_id, 0, sound, 1., 1.)?;
-                }
+                self.sound(ent_id, 0, LAND_SOUND, 1., 1.)?;
             }
         }
 
-        self.think(ent_id, frame_time, registry)?;
+        if !self.think(ent_id, frame_time, registry)? {
+            return Ok(());
+        }
 
-        debug!("TODO: SV_CheckWaterTransition");
-
-        Ok(())
+        self.check_water_transition(ent_id)
     }
 
+    /// Runs physics for a projectile or other free-moving entity.
+    ///
+    /// This handles `MOVETYPE_TOSS`, `MOVETYPE_BOUNCE`, `MOVETYPE_FLY` and `MOVETYPE_FLYMISSILE`.
+    ///
+    /// Equivalent to `SV_Physics_Toss`.
     pub fn physics_toss(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        has_gravity: bool,
-        overbounce: f32,
     ) -> progs::Result<()> {
+        /// Bouncing entities with a lower upward speed than this after a bounce come to rest.
+        const BOUNCE_STOP_SPEED: f32 = 60.;
+
         let ServerVars { gravity, max_entity_velocity: max_velocity, .. } =
             registry.read_cvars()?;
 
@@ -2127,17 +2510,14 @@ impl LevelState {
 
         let mut ent = self.world.get_mut(ent_id)?;
 
-        if ent.velocity()?.z > 0. {
-            ent.remove_flags(EntityFlags::ON_GROUND)?;
-        }
-
-        if ent.flags()?.intersects(EntityFlags::ON_GROUND) {
+        // If on the ground, don't move.
+        if ent.has_flag(EntityFlags::ON_GROUND)? {
             return Ok(());
         }
 
         ent.limit_velocity(max_velocity)?;
 
-        if has_gravity {
+        if !matches!(ent.move_kind()?, MoveKind::Fly | MoveKind::FlyMissile) {
             ent.apply_gravity(&self.string_table, gravity, frame_time)?;
         }
 
@@ -2145,29 +2525,38 @@ impl LevelState {
 
         let angles = ent.angles()?;
         let angular_velocity = ent.angular_velocity()?;
-        let new_angles = angles + dt * angular_velocity;
-
-        ent.set_angles(new_angles)?;
+        ent.set_angles(angles + dt * angular_velocity)?;
 
         let frame_velocity = ent.velocity()? * dt;
 
-        let (trace, _) = self.push_entity(ent_id, frame_velocity, registry)?;
+        let (trace, hit) = self.push_entity(ent_id, frame_velocity, registry)?;
+
+        let Some(plane) = trace.plane() else {
+            // Didn't hit anything.
+            return Ok(());
+        };
 
         if !self.world.exists(ent_id) {
             return Ok(());
         }
 
-        if let Some(plane) = trace.plane() {
-            let mut ent = self.world.get_mut(ent_id)?;
-            let result = plane.clip_velocity(ent.velocity()?, overbounce);
-            ent.set_velocity(result.metadata)?;
-        } else {
-            return Ok(());
+        let normal = -plane.normal();
+
+        let mut ent = self.world.get_mut(ent_id)?;
+        let is_bounce = ent.move_kind()? == MoveKind::Bounce;
+        let overbounce = if is_bounce { 1.5 } else { 1. };
+        let velocity = clip_velocity(ent.velocity()?, normal, overbounce);
+        ent.set_velocity(velocity)?;
+
+        // Stop if on the ground.
+        if normal.z > 0.7 && (velocity.z < BOUNCE_STOP_SPEED || !is_bounce) {
+            ent.add_flags(EntityFlags::ON_GROUND)?;
+            ent.set_ground(hit.unwrap_or(EntityId(0)))?;
+            ent.set_velocity(Vec3::ZERO)?;
+            ent.set_angular_velocity(Vec3::ZERO)?;
         }
 
-        debug!("TODO: SV_CheckWaterTransition");
-
-        Ok(())
+        self.check_water_transition(ent_id)
     }
 
     fn push_entity(
@@ -2204,6 +2593,12 @@ impl LevelState {
         Ok((trace, hit))
     }
 
+    /// Moves a pusher (e.g. a door or platform) and anything it pushes.
+    ///
+    /// If the pusher is blocked, everything is moved back and the pusher's `blocked` function is
+    /// called.
+    ///
+    /// Equivalent to `SV_PushMove`.
     fn move_push(
         &mut self,
         pusher_id: EntityId,
@@ -2212,92 +2607,109 @@ impl LevelState {
     ) -> progs::Result<()> {
         let mut pusher = self.world.get_mut(pusher_id)?;
 
-        let mut moved = Vec::<(EntityId, Vec3)>::new();
-
-        let move_amt = pusher.velocity()? * duration_to_f32(move_time);
-
-        let pusher_bb = pusher.abs_bounding_box()?;
-        let pusher_bb = Aabb3d {
-            min: pusher_bb.min + Vec3A::from(move_amt),
-            max: pusher_bb.max + Vec3A::from(move_amt),
-        };
-
         let move_time_f32 = duration_to_f32(move_time);
+        let velocity = pusher.velocity()?;
 
-        let pusher_origin = pusher.origin()?;
-
-        let new_origin = pusher_origin + move_amt;
         let new_local_time = pusher.local_time()? + move_time_f32;
         pusher.set_local_time(new_local_time)?;
 
-        if move_amt.length_squared() < f32::EPSILON {
+        if velocity == Vec3::ZERO {
             return Ok(());
         }
 
-        debug!("Moving pusher by {move_amt}");
-        pusher.set_origin(new_origin)?;
+        let move_amt = velocity * move_time_f32;
 
+        // The pusher's bounds at its final position.
+        let push_min = pusher.abs_min()? + move_amt;
+        let push_max = pusher.abs_max()? + move_amt;
+
+        let pusher_origin = pusher.origin()?;
+
+        // Move the pusher to its final position.
+        debug!("Moving pusher by {move_amt}");
+        pusher.set_origin(pusher_origin + move_amt)?;
         self.link_entity(pusher_id, false, registry.reborrow())?;
 
-        // TODO: Don't need to collect here
-        for other_id in self.world.iter().filter(|e| *e != pusher_id).collect::<Vec<_>>() {
-            let mut other = self.world.get(other_id)?;
-            let other_move_kind = other.move_kind()?;
+        // Entities which have been moved, and where they were moved from.
+        let mut moved = Vec::<(EntityId, Vec3)>::new();
 
-            // If the other object is already stuck in something, don't try to push.
-            if matches!(other_move_kind, MoveKind::Push | MoveKind::None | MoveKind::NoClip)
-                || self.world.entity_is_stuck(other_id, |eid| eid != pusher_id)?
-            {
+        // See if any solid entities are inside the final position.
+        // TODO: Don't need to collect here
+        for other_id in self.world.range(1..).filter(|e| *e != pusher_id).collect::<Vec<_>>() {
+            if !self.world.exists(other_id) {
                 continue;
             }
 
-            if !(other.has_flag(EntityFlags::ON_GROUND)? && other.ground()? == pusher_id) {
-                let other_bb = other.abs_bounding_box()?;
+            let mut other = self.world.get(other_id)?;
 
-                // If the entity doesn't collide with anything, we're done.
-                if !other_bb.intersects(&pusher_bb)
-                    || !self.world.entity_is_stuck(other_id, |_| true)?
-                {
+            if matches!(other.move_kind()?, MoveKind::Push | MoveKind::None | MoveKind::NoClip) {
+                continue;
+            }
+
+            // If the entity is standing on the pusher, it will definitely be moved.
+            if !(other.has_flag(EntityFlags::ON_GROUND)? && other.ground()? == pusher_id) {
+                let other_min = other.abs_min()?;
+                let other_max = other.abs_max()?;
+                let outside =
+                    (0..3).any(|i| other_min[i] >= push_max[i] || other_max[i] <= push_min[i]);
+
+                // Skip the entity unless it's inside the pusher's final position.
+                if outside || !self.world.entity_is_stuck(other_id, |_| true)? {
                     continue;
                 }
             }
 
             let mut other = self.world.get_mut(other_id)?;
+
+            // Remove the ground flag for non-players.
+            if other.move_kind()? != MoveKind::Walk {
+                other.remove_flags(EntityFlags::ON_GROUND)?;
+            }
+
             let old_origin = other.origin()?;
-
             moved.push((other_id, old_origin));
-            other.set_origin(old_origin + move_amt)?;
 
-            if !self.world.entity_is_stuck(other_id, |_| true)? {
-                debug!("Moved pushed by {move_amt}");
-                self.link_entity(other_id, false, registry.reborrow())?;
+            // Try moving the other entity, ignoring the pusher.
+            self.world
+                .get_mut(pusher_id)?
+                .store(FieldAddrFloat::Solid, EntitySolid::Not as u32 as f32)?;
+            let push_result = self.push_entity(other_id, move_amt, registry.reborrow());
+            if self.world.exists(pusher_id) {
+                self.world
+                    .get_mut(pusher_id)?
+                    .store(FieldAddrFloat::Solid, EntitySolid::Bsp as u32 as f32)?;
+            }
+            push_result?;
+
+            if !self.world.exists(pusher_id) {
+                // Removed by a touch function.
+                return Ok(());
+            }
+
+            if !self.world.exists(other_id) {
+                // Removed by a touch function.
+                moved.pop();
                 continue;
             }
 
-            self.world.get_mut(other_id)?.set_origin(old_origin)?;
-
+            // If it is still inside the pusher, the pusher is blocked.
             if !self.world.entity_is_stuck(other_id, |_| true)? {
-                moved.pop();
                 continue;
             }
 
             let mut other = self.world.get_mut(other_id)?;
 
-            // Not sure why Quake only checks X here
             if other.min()?.x == other.max()?.x {
                 continue;
             }
 
-            // TODO: Why do we only check this here?
             let solid = other.solid()?;
             if solid == EntitySolid::Not || solid == EntitySolid::Trigger {
-                // Quake says that this means the other object is a corpse.
+                // This is a corpse.
                 let mins = Vec3 { x: 0., y: 0., z: other.min()?.z };
 
                 other.set_min(mins)?;
                 other.set_max(mins)?;
-
-                self.link_entity(other_id, false, registry.reborrow())?;
                 continue;
             }
 
@@ -2312,144 +2724,32 @@ impl LevelState {
             let new_local_time = pusher.local_time()? - move_time_f32;
             pusher.set_local_time(new_local_time)?;
 
+            // If the pusher has a `blocked` function, call it. Otherwise, just stay in place until
+            // the obstacle is gone.
             let pusher_blocked_fn = pusher.load(FieldAddrFunctionId::Blocked)?;
 
             if !pusher_blocked_fn.is_none() {
                 self.globals.store(GlobalAddrEntity::Self_, pusher_id)?;
                 self.globals.store(GlobalAddrEntity::Other, other_id)?;
                 self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-                self.execute_program(pusher_blocked_fn, registry)?;
+                self.execute_program(pusher_blocked_fn, registry.reborrow())?;
             }
 
+            // Move back any entities we already moved.
             debug!("Resetting all positions");
             for (ent, original_position) in moved {
+                if !self.world.exists(ent) {
+                    continue;
+                }
+
                 self.world.get_mut(ent)?.set_origin(original_position)?;
+                self.link_entity(ent, false, registry.reborrow())?;
             }
 
             return Ok(());
         }
 
         Ok(())
-    }
-
-    const MAX_BALLISTIC_COLLISIONS: usize = 4;
-
-    /// Movement function for freefalling entities.
-    pub fn move_ballistic(
-        &mut self,
-        sim_time: Duration,
-        ent_id: EntityId,
-        mut registry: Mut<Registry>,
-    ) -> Result<CollisionResult<Option<Trace>>, ProgsError> {
-        let mut sim_time_f = duration_to_f32(sim_time);
-
-        let mut out = CollisionResult::default();
-        let mut touching_planes: ArrayVec<Hyperplane, 5> = ArrayVec::new();
-
-        let init_velocity = self.world.get(ent_id)?.velocity()?;
-        let mut trace_velocity = init_velocity;
-
-        // Even when the entity collides with something along its path, it may
-        // continue moving. This may occur when bouncing or sliding off a solid
-        // object, or when moving between media (e.g. from air to water).
-        for _ in 0..Self::MAX_BALLISTIC_COLLISIONS {
-            let velocity = self.world.get(ent_id)?.velocity()?;
-
-            if velocity == Vec3::ZERO {
-                // Not moving.
-                break;
-            }
-
-            let orig = self.world.get(ent_id)?.origin()?;
-            let end = orig + sim_time_f * velocity;
-            let min = self.world.get(ent_id)?.min()?;
-            let max = self.world.get(ent_id)?.max()?;
-
-            let (trace, hit_entity) = self.world.trace_entity_move(
-                ent_id,
-                orig,
-                min,
-                max,
-                end,
-                CollideKind::Normal,
-                |_| true,
-            )?;
-
-            if trace.all_solid() {
-                // Entity is stuck in a wall.
-                self.world.get_mut(ent_id)?.store(FieldAddrVector::Velocity, Vec3::ZERO)?;
-
-                return Ok(CollisionResult { floor: true, wall_or_step: true, ..out });
-            }
-
-            if trace.ratio() > 0.0 {
-                // If the entity moved at all, update its position.
-                self.world.get_mut(ent_id)?.store(FieldAddrVector::Origin, trace.end_point())?;
-                touching_planes.clear();
-
-                trace_velocity = self.world.get(ent_id)?.velocity()?;
-            }
-
-            // Find the plane the entity hit, if any.
-            let boundary = match trace.end().kind() {
-                // Entity didn't hit anything.
-                TraceEndKind::Terminal => break,
-                TraceEndKind::Boundary(b) => b,
-            };
-
-            // Sanity check to make sure the trace actually hit something.
-            let Some(hit_entity) = hit_entity else {
-                return Err(ProgsError::with_msg(format!(
-                    "move_ballistic: trace for {ent_id} hit a boundary but no entity"
-                )));
-            };
-
-            // TODO: magic constant
-            if boundary.plane.is_floor() {
-                out.floor = true;
-                if self.world.get(hit_entity)?.solid()? == EntitySolid::Bsp {
-                    self.world.get_mut(ent_id)?.add_flags(EntityFlags::ON_GROUND)?;
-                    self.world.get_mut(ent_id)?.store(FieldAddrEntityId::Ground, hit_entity)?;
-                }
-            } else if boundary.plane.normal().z == 0.0 {
-                out.wall_or_step = true;
-                out.metadata = Some(trace.clone());
-            }
-
-            self.impact_entities(ent_id, hit_entity, registry.reborrow())?;
-            if !self.world.exists(ent_id) {
-                // Entity removed by touch function.
-                break;
-            }
-
-            sim_time_f -= trace.ratio() * sim_time_f;
-
-            if touching_planes.try_push(boundary.plane.clone()).is_err() {
-                // Touching too many planes to make much sense of, so stop.
-                self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-                return Ok(CollisionResult { floor: true, wall_or_step: true, ..out });
-            }
-
-            let end_velocity = {
-                let move_clip =
-                    Hyperplane::clip_velocity_to_many(&touching_planes, trace_velocity, 1.0);
-                if move_clip.dead_stop {
-                    return Ok(move_clip.map(|_| out.metadata));
-                }
-
-                move_clip.metadata
-            };
-
-            if init_velocity.dot(end_velocity) <= 0.0 {
-                // Avoid bouncing the entity at a sharp angle.
-                self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO)?;
-                return Ok(out);
-            }
-
-            self.world.get_mut(ent_id)?.store(FieldAddrVector::Velocity, end_velocity)?;
-        }
-
-        Ok(out)
     }
 
     const DROP_TO_FLOOR_DIST: f32 = 256.0;
@@ -2485,25 +2785,19 @@ impl LevelState {
         )?;
         debug!("End position after drop: {:?}", trace.end_point());
 
-        let actual_dist = (trace.end_point() - origin).length();
-
-        match collide_entity {
-            Some(collide_entity)
-                if (actual_dist - Self::DROP_TO_FLOOR_DIST).abs() >= f32::EPSILON
-                    && !trace.all_solid() =>
-            {
-                // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
-                self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
-                self.link_entity(ent_id, false, registry)?;
-                let mut ent = self.world.get_mut(ent_id)?;
-                ent.add_flags(EntityFlags::ON_GROUND)?;
-                ent.set_ground(collide_entity)?;
-
-                Ok(true)
-            }
+        if trace.is_terminal() || trace.all_solid() {
             // Entity didn't hit the floor or is stuck.
-            _ => Ok(false),
+            return Ok(false);
         }
+
+        // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
+        self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
+        self.link_entity(ent_id, false, registry)?;
+        let mut ent = self.world.get_mut(ent_id)?;
+        ent.add_flags(EntityFlags::ON_GROUND)?;
+        ent.set_ground(collide_entity.unwrap_or(EntityId(0)))?;
+
+        Ok(true)
     }
 
     pub fn touch_triggers(
@@ -2548,42 +2842,6 @@ impl LevelState {
         Ok(())
     }
 
-    fn run_impact_callbacks(
-        &mut self,
-        ent_a_id: EntityId,
-        ent_b_id: EntityId,
-        mut registry: Mut<Registry>,
-    ) -> progs::Result<()> {
-        let restore_self = self.globals.load(GlobalAddrEntity::Self_)?;
-        let restore_other = self.globals.load(GlobalAddrEntity::Other)?;
-
-        let mut ent_a = self.world.get(ent_a_id)?;
-        let touch_a = ent_a.load(FieldAddrFunctionId::Touch)?;
-        let solid_a = ent_a.solid()?;
-
-        let mut ent_b = self.world.get(ent_b_id)?;
-        let touch_b = ent_b.load(FieldAddrFunctionId::Touch)?;
-        let solid_b = ent_b.solid()?;
-
-        if !touch_a.is_none() && solid_a != EntitySolid::Not {
-            self.globals.store(GlobalAddrEntity::Self_, ent_a_id)?;
-            self.globals.store(GlobalAddrEntity::Other, ent_b_id)?;
-            self.execute_program(touch_a, registry.reborrow())?;
-        }
-
-        if !touch_b.is_none() && solid_b != EntitySolid::Not {
-            self.globals.store(GlobalAddrEntity::Self_, ent_b_id)?;
-            self.globals.store(GlobalAddrEntity::Other, ent_a_id)?;
-            self.execute_program(touch_b, registry.reborrow())?;
-        }
-
-        // Restore state.
-        self.globals.store(GlobalAddrEntity::Self_, restore_self)?;
-        self.globals.store(GlobalAddrEntity::Other, restore_other)?;
-
-        Ok(())
-    }
-
     /// Runs two entities' touch functions.
     pub fn impact_entities(
         &mut self,
@@ -2623,22 +2881,30 @@ impl LevelState {
         Ok(())
     }
 
+    /// Starts a sound on an entity.
+    ///
+    /// `volume` is in `[0, 1]` and `attenuation` is in `[0, 4)`.
+    ///
+    /// Equivalent to `sv_startsound`.
     pub fn sound(
         &mut self,
         entity: EntityId,
         channel: i8,
-        sound: StringId,
+        sound_name: &str,
         volume: f32,
         attenuation: f32,
     ) -> progs::Result<()> {
         let volume = (volume * 255.) as _;
 
-        let Some(sound_id) = self.sound_id(sound) else {
-            error!("Cannot find sound {} in precache", self.string_table.get(sound).unwrap());
+        let Some(sound_id) = self.sound_precache.find(sound_name) else {
+            error!("Cannot find sound {sound_name} in precache");
             return Ok(());
         };
 
-        let position = self.world.get(entity)?.load(FieldAddrVector::Origin)?;
+        // Use the centre of the entity's bounds, as brush entities (doors, platforms etc.) usually
+        // have their origin at the world origin.
+        let mut ent = self.world.get(entity)?;
+        let position = ent.origin()? + 0.5 * (ent.min()? + ent.max()?);
 
         ServerCmd::Sound {
             volume: Some(volume),
@@ -2933,18 +3199,42 @@ impl LevelState {
 
     // QuakeC built-in functions ==============================================
 
-    pub fn builtin_err(&mut self, err_kind: impl fmt::Display) -> progs::Result<()> {
-        let msg = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
-        let msg = self.string_table.get(msg).unwrap();
+    /// Prints a QuakeC error, along with the fields of `self`, and returns it as an error.
+    fn qc_error(&mut self, err_kind: impl fmt::Display, argc: usize) -> progs::Result<ProgsError> {
+        let msg = self.var_string(0, argc)?;
+        let function_name = self
+            .cx
+            .function_def(self.cx.current_function())
+            .ok()
+            .and_then(|def| self.string_table.get(def.name_id))
+            .map(|name| name.into_owned())
+            .unwrap_or_default();
+
         self.cx.print_backtrace(&self.string_table, false);
-        Err(ProgsError::with_msg(format!(
-            "{} in {}: {}",
-            err_kind,
-            self.string_table
-                .get(self.cx.function_def(self.cx.current_function()).unwrap().name_id)
-                .unwrap(),
-            msg
-        )))
+
+        let self_id = self.globals.load(GlobalAddrEntity::Self_)?;
+        if let Ok(ent) = self.world.get(self_id) {
+            error!("{self_id}: {}", ent.display(&self.string_table));
+        }
+
+        Ok(ProgsError::with_msg(format!("{err_kind} in {function_name}: {msg}")))
+    }
+
+    /// QuakeC `error`, as in Quake's `PF_error`.
+    pub fn builtin_error(&mut self, argc: usize) -> progs::Result<()> {
+        Err(self.qc_error("Error", argc)?)
+    }
+
+    /// QuakeC `objerror`, as in Quake's `PF_objerror`. Unlike `error`, this also removes `self`.
+    pub fn builtin_obj_error(&mut self, argc: usize) -> progs::Result<()> {
+        let err = self.qc_error("Object error", argc)?;
+
+        let self_id = self.globals.load(GlobalAddrEntity::Self_)?;
+        if !self_id.is_none() {
+            self.world.free(self_id)?;
+        }
+
+        Err(err)
     }
 
     pub fn builtin_set_origin(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
@@ -2955,10 +3245,10 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_set_model(&mut self) -> progs::Result<()> {
+    pub fn builtin_set_model(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
         let ent_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let model_name_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
-        self.set_entity_model(ent_id, model_name_id)?;
+        self.set_entity_model(ent_id, model_name_id, registry)?;
 
         Ok(())
     }
@@ -2968,14 +3258,6 @@ impl LevelState {
         let mins = self.globals.get_vector(GLOBAL_ADDR_ARG_1 as i16)?;
         let maxs = self.globals.get_vector(GLOBAL_ADDR_ARG_2 as i16)?;
         self.world.set_entity_size(e_id, mins, maxs)?;
-
-        Ok(())
-    }
-
-    // TODO: move to Globals
-    pub fn builtin_random(&mut self) -> progs::Result<()> {
-        let random = rand::random::<f32>().clamp(f32::EPSILON, 1. - f32::EPSILON);
-        self.globals.put_float(random, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
     }
@@ -3019,8 +3301,11 @@ impl LevelState {
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let text = self.string_table.get(s_id).unwrap().into_owned();
 
-        ServerCmd::StuffText { text }
-            .serialize(self.frame_client_messages.entry(ent_id).or_default())?;
+        let Some(dest) = self.client_message(ent_id) else {
+            return Err(ProgsError::with_msg(format!("stuffcmd: {ent_id} is not a client")));
+        };
+
+        ServerCmd::StuffText { text }.serialize(dest)?;
 
         Ok(())
     }
@@ -3066,21 +3351,25 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_sprint(&mut self) -> progs::Result<()> {
-        let strs = &self.string_table;
-        let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
-        let text = strs.get(s_id).unwrap().into_owned();
-        let mut dest = self.write_dest()?;
+    /// Sends a message to a single client.
+    ///
+    /// Equivalent to `PF_sprint`.
+    pub fn builtin_sprint(&mut self, argc: usize) -> progs::Result<()> {
+        let ent_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
+        let text = self.var_string(1, argc)?;
 
-        ServerCmd::Print { text }.serialize(&mut dest)?;
+        let Some(dest) = self.client_message(ent_id) else {
+            warn!("tried to sprint to a non-client ({ent_id})");
+            return Ok(());
+        };
+
+        ServerCmd::Print { text }.serialize(dest)?;
 
         Ok(())
     }
 
-    pub fn builtin_dprint(&mut self) -> progs::Result<()> {
-        let strs = &self.string_table;
-        let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
-        let string = strs.get(s_id).unwrap();
+    pub fn builtin_dprint(&mut self, argc: usize) -> progs::Result<()> {
+        let string = self.var_string(0, argc)?;
         debug!("DPRINT: {string}");
 
         Ok(())
@@ -3089,7 +3378,7 @@ impl LevelState {
     pub fn builtin_ftos(&mut self) -> progs::Result<()> {
         let f = self.globals.get_float(GLOBAL_ADDR_ARG_0 as i16)?;
         // TODO: This leaks data in the string table! We should have a separate temp string area.
-        let out = self.string_table.find_or_insert(format!("{f:5.1}"));
+        let out = self.string_table.find_or_insert(ftos(f));
 
         self.globals.put_string_id(out, GLOBAL_ADDR_RETURN as i16)?;
 
@@ -3099,9 +3388,7 @@ impl LevelState {
     pub fn builtin_vtos(&mut self) -> progs::Result<()> {
         let vec = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
         // TODO: This leaks data in the string table! We should have a separate temp string area.
-        let out = self
-            .string_table
-            .find_or_insert(format!("{:5.1} {:5.1} {:5.1}", vec[0], vec[1], vec[2]));
+        let out = self.string_table.find_or_insert(vtos(vec));
 
         self.globals.put_string_id(out, GLOBAL_ADDR_RETURN as i16)?;
 
@@ -3121,8 +3408,19 @@ impl LevelState {
             i if i < 0 => return Err(ProgsError::with_msg("negative lightstyle ID")),
             i => i as usize,
         };
+        if index >= MAX_LIGHTSTYLES {
+            return Err(ProgsError::with_msg(format!("lightstyle {index} out of range")));
+        }
+
         let val = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         self.set_lightstyle(index, val);
+
+        // Clients are sent all of the light styles when they connect, so this only needs to send
+        // changes. Anything written before the level is active is cleared by `init_frame`, which
+        // matches Quake only sending changes once the server is active.
+        // TODO: This should be reliable (Quake sends it to each client's reliable message).
+        let value = self.string_table.get(val).unwrap_or_default().into_owned();
+        ServerCmd::LightStyle { id: index as _, value }.serialize(&mut self.broadcast)?;
 
         Ok(())
     }
@@ -3141,26 +3439,18 @@ impl LevelState {
     pub fn builtin_point_contents(&mut self) -> progs::Result<()> {
         let pos = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as _)?;
 
-        let contents = self.world.contents_at_point(pos);
-        self.globals.put_float(-(contents as usize as f32), GLOBAL_ADDR_RETURN as _)?;
+        let contents = self.point_contents(pos);
+        self.globals.put_float(quake_contents(contents), GLOBAL_ADDR_RETURN as _)?;
 
         Ok(())
     }
 
     pub fn builtin_aim(&mut self) -> progs::Result<()> {
-        const AIM_Z: f32 = 20.;
-
-        let player_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as _)?;
-        let _speed = self.globals.get_float(GLOBAL_ADDR_ARG_1 as _)?;
-
-        let mut player = self.world.get(player_id)?;
-
-        let _start = player.origin()? + AIM_Z * Vec3::Z;
-
-        // TODO: This always just emulates the `noaim` client option, we should implement aim
-        // properly.
-        self.globals
-            .put_vector(angle_vectors(player.view_angle()?, Vec3::X), GLOBAL_ADDR_RETURN as _)?;
+        // TODO: This always just emulates the `noaim` client option (or `sv_aim 1`), we should
+        // implement aim properly. Without autoaim, Quake returns `v_forward`, which QuakeC sets
+        // with `makevectors(self.v_angle)` before calling `aim`.
+        let forward = self.globals.load(GlobalAddrVector::VForward)?;
+        self.globals.put_vector(forward, GLOBAL_ADDR_RETURN as _)?;
 
         Ok(())
     }
@@ -3206,9 +3496,14 @@ impl LevelState {
             angle_delta
         };
 
-        // TODO: Quake specifically only clamps when the move amount is >0/<0 respectively but this
-        // almost certainly isn't necessary.
-        let angle_delta = angle_delta.clamp(-speed, speed);
+        // Unlike `f32::clamp`, this doesn't panic if `speed` is negative or NaN.
+        let angle_delta = if angle_delta > 0. {
+            if angle_delta > speed { speed } else { angle_delta }
+        } else if angle_delta < -speed {
+            -speed
+        } else {
+            angle_delta
+        };
 
         ent.store(FieldAddrFloat::AnglesY, angle_mod(cur + angle_delta))?;
 
@@ -3237,7 +3532,10 @@ impl LevelState {
         let val_id = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let val = strs.get(val_id).unwrap();
 
-        registry.set_cvar(var.to_str(), val.to_str()).unwrap();
+        if let Err(e) = registry.set_cvar(var.to_str(), val.to_str()) {
+            warn!("cvar_set: failed to set {var}: {e}");
+            return Ok(());
+        }
         debug!("{} = {}", var, val);
 
         Ok(())
@@ -3247,15 +3545,16 @@ impl LevelState {
         let origin = self.globals.get_vector(GLOBAL_ADDR_ARG_0 as i16)?;
         let sample = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
         let volume = (self.globals.get_float(GLOBAL_ADDR_ARG_2 as i16)? * 255.) as _;
-        let attenuation = (self.globals.get_float(GLOBAL_ADDR_ARG_3 as i16)? * 255.) as _;
+        let attenuation = (self.globals.get_float(GLOBAL_ADDR_ARG_3 as i16)? * 64.) as _;
 
         let Some(sound_id) = self.sound_id(sample) else {
             error!("Cannot find sound {} in precache", self.string_table.get(sample).unwrap());
             return Ok(());
         };
 
+        // Static sounds are part of the sign-on message, so clients get them when they connect.
         ServerCmd::StaticSound { origin, sound_id: sound_id as _, volume, attenuation }
-            .serialize(&mut self.broadcast)?;
+            .serialize(&mut self.init)?;
 
         Ok(())
     }
@@ -3271,15 +3570,16 @@ impl LevelState {
 
         debug!("Finding {match_str} for field {field:?}");
 
-        let field = FieldAddrStringId::from_usize(field.0).unwrap();
+        let field = i16::try_from(field.0)
+            .map_err(|_| ProgsError::with_msg(format!("find: invalid field {field:?}")))?;
 
         for ent in self.world.range((Bound::Excluded(entity.0.max(0) as usize), Bound::Unbounded)) {
-            let Ok(field) = self.world.get(ent)?.load(field) else {
-                debug!("No field {} on {:?}", field, ent);
+            let Ok(s_id) = self.world.get(ent)?.string_id(field) else {
+                debug!("No string field {} on {:?}", field, ent);
                 continue;
             };
 
-            let Some(s) = self.string_table.get(field) else {
+            let Some(s) = self.string_table.get(s_id) else {
                 continue;
             };
 
@@ -3306,7 +3606,7 @@ impl LevelState {
             return Ok(());
         }
 
-        let move_dir = angle_vectors(Vec3::Y * yaw, Vec3::X * dist);
+        let move_dir = Vec2::from_angle(yaw.to_radians()).extend(0.) * dist;
 
         let func = self.cx.current_function();
 
@@ -3321,9 +3621,64 @@ impl LevelState {
         Ok(())
     }
 
+    /// Picks the next client for `checkclient` to return.
+    ///
+    /// Cycles through the clients after `check`, skipping any which are dead or have `notarget`.
+    /// If no other client is suitable, returns `check`.
+    ///
+    /// Equivalent to `PF_newcheckclient`.
+    fn new_check_client(&mut self, check: usize) -> progs::Result<usize> {
+        let max_clients = self.max_clients.max(1);
+        let check = check.clamp(1, max_clients);
+
+        let mut i = check;
+        loop {
+            i = if i == max_clients { 1 } else { i + 1 };
+
+            if i == check {
+                // Didn't find anything else.
+                break;
+            }
+
+            let ent_id = EntityId(i as i32);
+            if !self.world.exists(ent_id) {
+                continue;
+            }
+
+            let mut ent = self.world.get(ent_id)?;
+            if ent.health()? <= 0. || ent.has_flag(EntityFlags::NO_TARGET)? {
+                continue;
+            }
+
+            break;
+        }
+
+        Ok(i)
+    }
+
+    /// Returns a client that `self` might be able to see, or world.
+    ///
+    /// Monsters use this to look for a player to attack. It only checks one client every 0.1s.
+    ///
+    /// Equivalent to `PF_checkclient`
     pub fn builtin_check_client(&mut self) -> progs::Result<()> {
-        debug!("TODO: PF_checkclient");
-        self.globals.put_entity_id(EntityId(1), GLOBAL_ADDR_RETURN as i16)?;
+        const CHECK_INTERVAL: Duration = Duration::from_millis(100);
+
+        if self.time.saturating_sub(self.last_check_time) >= CHECK_INTERVAL {
+            self.last_check_client = self.new_check_client(self.last_check_client)?;
+            self.last_check_time = self.time;
+        }
+
+        let check_id = EntityId(self.last_check_client as i32);
+
+        let visible = self.world.exists(check_id) && self.world.get(check_id)?.health()? > 0.;
+        // TODO: Quake also returns world if `self` can't be in the client's PVS, but we don't
+        // have PVS data on the server. QuakeC checks visibility itself before attacking.
+
+        self.globals.put_entity_id(
+            if visible { check_id } else { EntityId(0) },
+            GLOBAL_ADDR_RETURN as i16,
+        )?;
 
         Ok(())
     }
@@ -3347,15 +3702,11 @@ impl LevelState {
 
         // Even though there is a `ModelId` field, it seems like quake searches for the model in the
         // precache manually
-        let model_id = self.model_id(model_name).ok_or_else(|| {
-            ProgsError::with_msg(format!(
-                "Model not found in precache: {:?}",
-                self.string_table.get(model_name)
-            ))
-        })? as _;
+        let model_id = self.model_index(model_name)? as _;
 
+        // Static entities are part of the sign-on message, so clients get them when they connect.
         ServerCmd::SpawnStatic { model_id, frame_id, colormap, skin_id, origin, angles }
-            .serialize(&mut self.broadcast)?;
+            .serialize(&mut self.init)?;
 
         self.world.free(ent)?;
 
@@ -3369,19 +3720,21 @@ impl LevelState {
         let volume = self.globals.get_float(GLOBAL_ADDR_ARG_3 as i16)?;
         let attenuation = self.globals.get_float(GLOBAL_ADDR_ARG_4 as i16)?;
 
-        if let Some(sample_name) = self.string(sample) {
-            debug!(
-                "Playing sound on {entity}.{channel}: {sample_name} vol {volume} attn {attenuation}"
-            );
-        }
+        let Some(sample_name) = self.string(sample).map(|s| s.to_str().into_owned()) else {
+            return Err(ProgsError::with_msg(format!("invalid sound: {sample}")));
+        };
 
-        self.sound(entity, channel, sample, volume, attenuation)?;
+        debug!(
+            "Playing sound on {entity}.{channel}: {sample_name} vol {volume} attn {attenuation}"
+        );
+
+        self.sound(entity, channel, &sample_name, volume, attenuation)?;
 
         Ok(())
     }
 
     pub fn builtin_write_byte(&mut self) -> progs::Result<()> {
-        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as u8;
+        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as i32 as u8;
         let mut dest = self.write_dest()?;
         dest.write_u8(val)?;
 
@@ -3389,14 +3742,14 @@ impl LevelState {
     }
 
     pub fn builtin_write_char(&mut self) -> progs::Result<()> {
-        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as i8;
+        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as i32 as i8;
         let mut dest = self.write_dest()?;
         dest.write_i8(val)?;
         Ok(())
     }
 
     pub fn builtin_write_short(&mut self) -> progs::Result<()> {
-        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as i16;
+        let val = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? as i32 as i16;
         let mut dest = self.write_dest()?;
         dest.write_i16::<LittleEndian>(val)?;
         Ok(())
@@ -3410,14 +3763,14 @@ impl LevelState {
     }
 
     pub fn builtin_write_coord(&mut self) -> progs::Result<()> {
-        let val = (self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? * 8.) as i16;
+        let val = (self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? * 8.) as i32 as i16;
         let mut dest = self.write_dest()?;
         dest.write_i16::<LittleEndian>(val)?;
         Ok(())
     }
 
     pub fn builtin_write_angle(&mut self) -> progs::Result<()> {
-        let val = (self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)? * 256. / 360.) as u8;
+        let val = write_angle_byte(self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)?);
         let mut dest = self.write_dest()?;
         dest.write_u8(val)?;
         Ok(())
@@ -3479,7 +3832,7 @@ impl LevelState {
             Vec3::ZERO,
             Vec3::ZERO,
             stop,
-            CollideKind::default(),
+            CollideKind::NoMonsters,
             |_| true,
         )?;
 
@@ -3502,7 +3855,7 @@ impl LevelState {
                 Vec3::ZERO,
                 Vec3::ZERO,
                 start - Vec3::Z * server_vars.max_step * 2.,
-                CollideKind::default(),
+                CollideKind::NoMonsters,
                 |_| true,
             ) else {
                 return false;
@@ -3540,10 +3893,8 @@ impl LevelState {
             let enemy_id = ent.enemy()?;
 
             if i == 0 && !enemy_id.is_none() {
-                // TODO: This doesn't need to be hard-coded to +- 8, and it doesn't need to be
-                // hard-coded to target the       point 30-40 units above the origin
-                // of the target.
-                match old_origin.z - self.world.get(ent_id)?.origin()?.z {
+                // Try to stay 30-40 units above the enemy.
+                match old_origin.z - self.world.get(enemy_id)?.origin()?.z {
                     40f32.. => new_origin.z -= 8.,
                     ..30f32 => new_origin.z += 8.,
                     _ => {}
@@ -3561,7 +3912,9 @@ impl LevelState {
             )?;
 
             if trace.is_terminal() {
-                if ent_flags.contains(EntityFlags::SWIM) && !trace.in_water {
+                if ent_flags.contains(EntityFlags::SWIM)
+                    && self.point_contents(trace.end_point()) == BspLeafContents::Empty
+                {
                     // Swimming monster left water
                     return Ok(false);
                 }
@@ -3737,7 +4090,7 @@ impl LevelState {
         let server_vars: ServerVars = registry.read_cvars()?;
 
         let mut this = self.world.get(this_id)?;
-        let old_dir = angle_mod((this.ideal_yaw()? / 45.).floor() * 45.);
+        let old_dir = angle_mod((this.ideal_yaw()? / 45.).trunc() * 45.);
         let turn_around = angle_mod(old_dir - 180.);
 
         let this_origin = this.origin()?;
@@ -3749,25 +4102,9 @@ impl LevelState {
         let delta_x = goal_origin.x - this_origin.x;
         let delta_y = goal_origin.y - this_origin.y;
 
-        let dir_a = match delta_x {
-            10f32.. => Some(0f32),
-            ..-10f32 => Some(180f32),
-            _ => None,
-        };
-        let dir_b = match delta_y {
-            ..-10f32 => Some(90f32),
-            10f32.. => Some(270f32),
-            _ => None,
-        };
+        let ChaseDirs { x: dir_a, y: dir_b, diagonal: turn_dir } = chase_dirs(delta_x, delta_y);
 
-        let turn_dir = match (dir_a, dir_b) {
-            (Some(0.), Some(90.)) => Some(45.),
-            (Some(0.), Some(_)) => Some(315.),
-            (Some(_), Some(90.)) => Some(135.),
-            (Some(_), Some(_)) => Some(215.),
-            _ => None,
-        };
-
+        // Try the direct route.
         if let Some(turn_dir) = turn_dir
             && (turn_dir - turn_around).abs() > f32::EPSILON
             && self.step_direction(this_id, turn_dir, dist, registry.reborrow())?
@@ -3775,11 +4112,13 @@ impl LevelState {
             return Ok(());
         }
 
-        let (dir_a, dir_b) = if delta_y.abs() > delta_x.abs() && rand::random_bool(0.5) {
-            (dir_b, turn_dir)
-        } else {
-            (dir_a, dir_b)
-        };
+        // Try the other directions. Quake compares the deltas as integers rather than floats.
+        let (dir_a, dir_b) =
+            if rand::random_bool(0.5) || (delta_y as i32).abs() > (delta_x as i32).abs() {
+                (dir_b, dir_a)
+            } else {
+                (dir_a, dir_b)
+            };
 
         if let Some(dir_a) = dir_a
             && (dir_a - turn_around).abs() > f32::EPSILON
@@ -3792,6 +4131,11 @@ impl LevelState {
             && (dir_b - turn_around).abs() > f32::EPSILON
             && self.step_direction(this_id, dir_b, dist, registry.reborrow())?
         {
+            return Ok(());
+        }
+
+        // There is no direct path to the goal, so try the old direction.
+        if self.step_direction(this_id, old_dir, dist, registry.reborrow())? {
             return Ok(());
         }
 
@@ -3834,29 +4178,40 @@ impl LevelState {
             return Ok(());
         }
 
+        // If the next step hits the enemy, return immediately.
         if !this.enemy()?.is_none() && self.close_enough(this_id, goal_id, dist)? {
             self.globals.put_float(1., GLOBAL_ADDR_RETURN as i16)?;
             return Ok(());
         }
 
+        // Try a few random directions to try to get unstuck.
         let ideal_yaw = this.ideal_yaw()?;
-        let did_move = self.step_direction(this_id, ideal_yaw, dist, registry.reborrow())?;
+        let did_move = !rand::random_ratio(1, 4)
+            && self.step_direction(this_id, ideal_yaw, dist, registry.reborrow())?;
 
-        if !did_move || rand::random_bool(0.25) {
+        if !did_move {
             self.new_chase_dir(this_id, goal_id, dist, registry.reborrow())?;
         }
 
+        // TODO: `movetogoal` seemingly doesn't return anything in Quake should we remove this?
         self.globals.put_float(if did_move { 1. } else { 0. }, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
     }
 
-    pub fn builtin_center_print(&mut self) -> progs::Result<()> {
-        let text = self.globals.string_id(GLOBAL_ADDR_ARG_1 as i16)?;
-        let text = self.string_table.get(text).unwrap().into_owned();
-        let mut dest = self.write_dest()?;
+    /// Prints a message in the middle of a single client's screen.
+    ///
+    /// Equivalent to `PF_centerprint`.
+    pub fn builtin_center_print(&mut self, argc: usize) -> progs::Result<()> {
+        let ent_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
+        let text = self.var_string(1, argc)?;
 
-        ServerCmd::CenterPrint { text }.serialize(&mut dest)?;
+        let Some(dest) = self.client_message(ent_id) else {
+            warn!("tried to centerprint to a non-client ({ent_id})");
+            return Ok(());
+        };
+
+        ServerCmd::CenterPrint { text }.serialize(dest)?;
 
         Ok(())
     }
@@ -3902,16 +4257,18 @@ impl LevelState {
         self.globals
             .put_float(if trace.in_open { 1. } else { 0. }, GlobalAddrFloat::TraceInOpen as _)?;
         self.globals.put_vector(trace.end_point(), GlobalAddrVector::TraceEndPos as _)?;
+        // Our trace planes face into the surface, but QuakeC expects them to face out of it.
         self.globals.put_vector(
-            trace.plane().map(|plane| plane.normal()).unwrap_or(Vec3::ZERO),
+            trace.plane().map(|plane| -plane.normal()).unwrap_or(Vec3::ZERO),
             GlobalAddrVector::TracePlaneNormal as _,
         )?;
         self.globals.put_float(
-            trace.plane_dist().unwrap_or_default(),
+            trace.plane_dist().map(|dist| -dist).unwrap_or_default(),
             GlobalAddrFloat::TracePlaneDist as _,
         )?;
+        // `trace_ent` is world (entity 0) if nothing was hit.
         self.globals
-            .put_entity_id(hit_ent.unwrap_or(EntityId(-1)), GlobalAddrEntity::TraceEntity as _)?;
+            .put_entity_id(hit_ent.unwrap_or(EntityId(0)), GlobalAddrEntity::TraceEntity as _)?;
 
         Ok(())
     }
@@ -3989,7 +4346,7 @@ pub mod systems {
                                 continue;
                             };
 
-                            if let Err(e) = server.handle_move(client_id, &cmd, &registry) {
+                            if let Err(e) = server.handle_move(client_id, &cmd) {
                                 warn!("client {client_id}: move failed: {e}");
                             }
                         }
@@ -4086,15 +4443,8 @@ pub mod systems {
 
         server.state = SessionState::Active;
 
-        let teamplay = registry.get_cvar("teamplay").and_then(|t| t.value().as_name());
-
-        // Match string with `starts_with` so we can handle `?GameName`
-        let game_type = match teamplay {
-            Some(t) if t.starts_with("0") => GameType::Deathmatch,
-            Some(t) if t.starts_with("1") || t.starts_with("2") => GameType::CoOp,
-            // Invalid game type, default to DM
-            _ => GameType::Deathmatch,
-        };
+        let coop = registry.read_cvar::<f32>("coop").unwrap_or_default();
+        let game_type = if coop != 0. { GameType::CoOp } else { GameType::Deathmatch };
 
         let mut packet = Vec::new();
         ServerCmd::ServerInfo {
@@ -4176,8 +4526,9 @@ pub mod systems {
             {
                 let mut packet = Vec::new();
 
-                if let Some(messages) = level.frame_client_messages.get(&client.entity_id) {
-                    packet.extend_from_slice(messages);
+                // Reliable messages are kept until they are sent.
+                if let Some(messages) = level.frame_client_messages.remove(&client.entity_id) {
+                    packet.extend_from_slice(&messages);
                 }
 
                 ServerCmd::Time { time: seismon_utils::duration_to_f32(level.time) }
@@ -4286,6 +4637,70 @@ mod tests {
         assert_approx_eq(super::friction_scale(0., 4., 100., TICK_RATE), 1.);
     }
 
+    #[test]
+    fn accelerate_matches_quake() {
+        const DT: f32 = TICK_RATE;
+
+        // On the ground, accelerate towards 320 by at most `sv_accelerate * dt * wishspeed` (160).
+        let vel = super::accelerate(Vec3::ZERO, Vec3::X, 320., 10. * DT * 320.);
+        assert_eq!(vel, Vec3::new(160., 0., 0.));
+        let vel = super::accelerate(vel, Vec3::X, 320., 10. * DT * 320.);
+        assert_eq!(vel, Vec3::new(320., 0., 0.));
+
+        // Already at the wish speed: no change.
+        assert_eq!(super::accelerate(vel, Vec3::X, 320., 160.), vel);
+
+        // In the air, the wish speed is capped at 30, but the acceleration uses the full wish speed.
+        let vel = super::accelerate(Vec3::new(0., 300., 0.), Vec3::X, 30., 10. * DT * 320.);
+        assert_eq!(vel, Vec3::new(30., 300., 0.));
+    }
+
+    #[test]
+    fn ftos_vtos_match_quake() {
+        assert_eq!(super::ftos(5.), "5");
+        assert_eq!(super::ftos(-12.), "-12");
+        assert_eq!(super::ftos(0.), "0");
+        assert_eq!(super::ftos(5.5), "  5.5");
+        assert_eq!(super::ftos(-0.25), " -0.2");
+        assert_eq!(super::vtos(Vec3::new(1., -2.5, 100.)), "'  1.0  -2.5 100.0'");
+    }
+
+    #[test]
+    fn write_angle_wraps_like_quake() {
+        assert_eq!(super::write_angle_byte(0.), 0);
+        assert_eq!(super::write_angle_byte(90.), 64);
+        assert_eq!(super::write_angle_byte(-90.), 192);
+        assert_eq!(super::write_angle_byte(360.), 0);
+        assert_eq!(super::write_angle_byte(450.), 64);
+        // Truncated to an integer before scaling.
+        assert_eq!(super::write_angle_byte(1.9), 0);
+    }
+
+    #[test]
+    fn chase_dirs_match_quake() {
+        use super::{ChaseDirs, chase_dirs};
+
+        assert_eq!(chase_dirs(100., 0.), ChaseDirs { x: Some(0.), y: None, diagonal: None });
+        assert_eq!(chase_dirs(-100., 0.), ChaseDirs { x: Some(180.), y: None, diagonal: None });
+        // Positive y is a yaw of 90.
+        assert_eq!(chase_dirs(0., 100.), ChaseDirs { x: None, y: Some(90.), diagonal: None });
+        assert_eq!(chase_dirs(0., -100.), ChaseDirs { x: None, y: Some(270.), diagonal: None });
+        // Within 10 units isn't far enough.
+        assert_eq!(chase_dirs(10., -10.), ChaseDirs { x: None, y: None, diagonal: None });
+
+        assert_eq!(chase_dirs(100., 100.).diagonal, Some(45.));
+        assert_eq!(chase_dirs(100., -100.).diagonal, Some(315.));
+        assert_eq!(chase_dirs(-100., 100.).diagonal, Some(135.));
+        assert_eq!(chase_dirs(-100., -100.).diagonal, Some(215.));
+
+        // The diagonal points the same way as the delta (apart from Quake's 215).
+        for (dx, dy) in [(100., 100.), (100., -100.), (-100., 100.)] {
+            let yaw = chase_dirs(dx, dy).diagonal.unwrap();
+            let dir = Vec2::from_angle(yaw.to_radians());
+            assert!(dir.dot(Vec2::new(dx, dy).normalize()) > 0.99, "{dx} {dy} -> {yaw}");
+        }
+    }
+
     /// Mock builder for a `LevelState` with the given QuakeC functions and statements, but with
     /// an otherwise empty world.
     fn level_with_program(defs: Vec<FunctionDef>, statements: Vec<Statement>) -> LevelState {
@@ -4312,6 +4727,9 @@ mod tests {
             frame_client_messages: default(),
             broadcast: default(),
             init: default(),
+            max_clients: 1,
+            last_check_client: 0,
+            last_check_time: Duration::ZERO,
         }
     }
 

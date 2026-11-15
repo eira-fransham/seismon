@@ -1004,7 +1004,7 @@ mod systems {
                     Ok(mouse_move) => {
                         let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
                         look_angles.yaw_deg -= mouse_move.x;
-                        look_angles.pitch_deg += mouse_move.y;
+                        look_angles.pitch_deg -= mouse_move.y;
                     }
                     Err(e) => {
                         error!("Could not read mouse delta: {e}");
