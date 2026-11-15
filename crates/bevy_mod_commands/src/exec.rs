@@ -122,10 +122,8 @@ pub enum OutputType {
 
 /// Output produced by executing a command.
 ///
-/// This message is opt-in: if `Messages<CommandOutput>` is registered (with
-/// `app.add_message::<CommandOutput>()`), command output is written here so that it can be
-/// displayed. Otherwise, it is logged (with `info!` for [`OutputType::Console`] and `warn!` for
-/// [`OutputType::Alert`]).
+/// Only emitted if the `capture_out` field of [`crate::CommandsPlugin`] is set,
+/// otherwise command output is logged using `info!`/`warn!`.
 #[derive(Message, Clone, Debug)]
 pub struct CommandOutput {
     pub output: CName,

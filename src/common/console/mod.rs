@@ -35,7 +35,11 @@ impl Plugin for SeismonConsoleCorePlugin {
         struct StuffCmdsArgs;
 
         if !app.is_plugin_added::<CommandsPlugin>() {
-            app.add_plugins(CommandsPlugin::new());
+            app.add_plugins(CommandsPlugin {
+                capture_out: true,
+                capture_unhandled: true,
+                register_builtins: true,
+            });
         }
 
         app.init_resource::<StuffCmds>().command(

@@ -1,20 +1,11 @@
-//! Console-style command execution for Bevy.
+//! Command-line support for actions and inputs, modeled after the console in engines such as
+//! Goldsrc, Source and the idtech lineage.
 //!
 //! This crate provides a [`Registry`] of named commands, cvars (configuration variables), aliases
-//! and `+`/`-` actions, plus the systems that execute queued [`RunCmd`]s against it. Commands are
-//! defined as systems taking a [`clap::Parser`] type as input, and are registered with
-//! [`RegisterCmdExt`].
+//! and `+`/`-` actions. Commands are defined as systems taking a [`clap::Parser`] type as input.
+//! See [`RegisterCmdExt`] for more information about registering commands.
 //!
-//! Add [`CommandsPlugin`] to get started. The `help`, `reset` and `resetall` commands are
-//! registered by default.
-//!
-//! # Opt-in messages
-//!
-//! - [`CommandOutput`]: if `Messages<CommandOutput>` is registered, command output is written
-//!   there. Otherwise, it is logged.
-//! - [`UnhandledCmd`]: if `Messages<UnhandledCmd>` is registered, commands that don't match
-//!   anything in the [`Registry`] are forwarded there, and produce no output. Otherwise, they
-//!   produce an "Unrecognized command" output.
+//! Add [`CommandsPlugin`] to get started.
 
 mod builtins;
 mod cmd;
@@ -26,7 +17,7 @@ mod register;
 mod registry;
 
 use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::schedule::{IntoScheduleConfigs as _, ScheduleLabel, SystemSet};
+use bevy_ecs::schedule::{IntoScheduleConfigs as _, SystemSet};
 
 pub use clap;
 pub use serde_lexpr;
@@ -34,7 +25,7 @@ pub use serde_lexpr;
 pub use self::{
     cmd::{CName, CmdName, RunCmd, Trigger, UnhandledCmd},
     cvar::Cvar,
-    error::{ConsoleError, cvar_error_handler},
+    error::ConsoleError,
     exec::{
         CmdExt, CommandIncomplete, CommandOutput, ErasedBuiltinSystemReturn, ExecResult,
         FromWithWorld, IntoWithWorld, OutputType, PendingCommands, ResetCvar, SetCvar,
@@ -58,18 +49,29 @@ pub mod prelude {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CommandsSystems;
 
-/// Adds the [`Registry`], [`PendingCommands`] and the [`RunCmd`] message, registers the `help`,
-/// `reset` and `resetall` commands, and executes pending commands in schedule `T`.
-///
-/// Two messages are opt-in, and are only used if registered by the app:
-///
-/// - [`CommandOutput`]: receives command output. If not registered, output is logged instead.
-/// - [`UnhandledCmd`]: receives commands that aren't in the [`Registry`]. If not registered, an
-///   "Unrecognized command" output is produced instead.
-#[derive(Default)]
-pub struct CommandsPlugin<T = PostUpdate>(pub T)
-where
-    T: ScheduleLabel;
+/// Adds [`Registry`], [`PendingCommands`] and the [`RunCmd`] message.
+pub struct CommandsPlugin {
+    /// If true, registers the [`CommandOutput`] message and sends command output using
+    /// it. Otherwise, command output is logged using `info!`/`warn!`.
+    ///
+    /// Defaults to false.
+    pub capture_out: bool,
+    /// If true, registers the [`UnhandledCmd`] message. Attempting to execute an unknown
+    /// command will result in that command invocation being sent using that message.
+    ///
+    /// Defaults to false.
+    pub capture_unhandled: bool,
+    /// If true, registers `help`, `reset` and `resetall` commands.
+    ///
+    /// Defaults to true.
+    pub register_builtins: bool,
+}
+
+impl Default for CommandsPlugin {
+    fn default() -> Self {
+        Self { capture_out: false, capture_unhandled: false, register_builtins: true }
+    }
+}
 
 impl CommandsPlugin {
     pub fn new() -> Self {
@@ -77,21 +79,29 @@ impl CommandsPlugin {
     }
 }
 
-impl<T> Plugin for CommandsPlugin<T>
-where
-    T: ScheduleLabel + Clone,
-{
+impl Plugin for CommandsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Registry>()
             .init_resource::<PendingCommands>()
             .add_message::<RunCmd<'static>>()
             .add_systems(
-                self.0.clone(),
+                // TODO: Should this be configurable?
+                PostUpdate,
                 ((exec::populate_pending, exec::execute_console).chain(), exec::update_cvars)
                     .in_set(CommandsSystems),
             );
 
-        builtins::register(app);
+        if self.capture_out {
+            app.add_message::<CommandOutput>();
+        }
+
+        if self.capture_unhandled {
+            app.add_message::<UnhandledCmd>();
+        }
+
+        if self.register_builtins {
+            builtins::register(app);
+        }
     }
 }
 
@@ -143,8 +153,8 @@ mod tests {
         let mut app = app();
         app.add_message::<CommandOutput>();
 
-        run(&mut app, "frobnicate 1");
-        assert_eq!(outputs(&mut app), ["Unrecognized command \"frobnicate\""]);
+        run(&mut app, "some_unknown_cmd 1");
+        assert_eq!(outputs(&mut app), ["Unrecognized command \"some_unknown_cmd\""]);
     }
 
     #[test]
@@ -152,12 +162,15 @@ mod tests {
         let mut app = app();
         app.add_message::<CommandOutput>().add_message::<UnhandledCmd>();
 
-        run(&mut app, "frobnicate 1");
+        run(&mut app, "some_unknown_cmd 1");
         assert!(outputs(&mut app).is_empty());
 
         let unhandled =
             app.world_mut().resource_mut::<Messages<UnhandledCmd>>().drain().collect::<Vec<_>>();
-        assert_eq!(unhandled, [UnhandledCmd(RunCmd("frobnicate".into(), ["1".to_owned()].into()))]);
+        assert_eq!(
+            unhandled,
+            [UnhandledCmd(RunCmd("some_unknown_cmd".into(), ["1".to_owned()].into()))]
+        );
     }
 
     #[test]
