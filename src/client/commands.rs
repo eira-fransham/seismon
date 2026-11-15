@@ -21,10 +21,6 @@ use super::{
 
 pub fn register_commands(app: &mut App) {
     app.action("forward")
-        // TODO: Maybe have a way to specify that an input is pressed by default? We can emit a
-        // `+mlook` command       but it'd be nice to be able to automatically reset the
-        // triggers to their defaults, respecting       the fact that mlook acts
-        // differently.
         .action("mlook")
         .action("moveleft")
         .action("back")
@@ -35,9 +31,8 @@ pub fn register_commands(app: &mut App) {
         .action("lookdown")
         .action("right")
         .action("attack")
-        .action("use");
-
-    app.cvar("mousedelta", "(0 0)", "Mouse delta amount for this frame.");
+        .action("use")
+        .cvar("mousedelta", "(0 0)", "Mouse delta amount for this frame.");
 
     #[derive(Parser)]
     #[command(name = "toggleconsole", about = "Open or close the console")]

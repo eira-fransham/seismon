@@ -38,6 +38,7 @@ bevy_animation = { version = "0.20" }
 bevy_app = { version = "0.20" }
 bevy_camera = { version = "0.20" }
 bevy_color = { version = "0.20" }
+bevy_dev_tools = { version = "0.20" }
 bevy_ecs = { version = "0.20" }
 bevy_image = { version = "0.20" }
 bevy_log = { version = "0.20" }
@@ -87,6 +88,7 @@ bevy_mod_pakfile.workspace = true
 bevy_mod_commands.workspace = true
 lined.workspace = true
 
+bevy_dev_tools = { workspace = true, optional = true }
 bevy.workspace = true
 bevy_mod_billboard.workspace = true
 beef.workspace = true
@@ -147,6 +149,7 @@ default = []
 fast-compile = ["bevy/dynamic_linking"]
 # `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
 color-shift = []
+screen-record = ["dep:bevy_dev_tools", "bevy_dev_tools/screenrecording"]
 dev-tools = [
     "dep:bevy-inspector-egui",
     "bevy/bevy_dev_tools",

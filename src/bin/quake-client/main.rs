@@ -316,6 +316,12 @@ fn main() -> ExitCode {
         )// .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_systems(Startup, startup(opt));
 
+    #[cfg(feature = "screen-record")]
+    app.add_plugins(bevy_dev_tools::EasyScreenRecordPlugin {
+        toggle: bevy::input::keyboard::KeyCode::F12,
+        ..default()
+    });
+
     #[cfg(feature = "dev-tools")]
     app.add_plugins(dev::DevtoolsPlugins);
 

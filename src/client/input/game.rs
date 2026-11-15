@@ -175,7 +175,7 @@ const KEYBOARD_NAMES: &[(&str, AnyInput)] = &keys![
     "S",
     ("SEMICOLON", ";"),
     ("SHIFT", Shift),
-    ("SPACE", " "),
+    ("SPACE", Space),
     "T",
     ("TAB", Tab),
     "U",
