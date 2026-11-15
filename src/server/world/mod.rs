@@ -42,8 +42,8 @@ use crate::{
     common::parse,
     server::{
         progs::{
-            EntityFieldAddr, EntityId, FieldAddr, FieldDef, FunctionId, ProgsError, StringId,
-            StringTable, Type,
+            EntityFieldAddr, EntityId, FieldAddr, FieldDef, FunctionId, ProgsError, StringTable,
+            Type,
         },
         world::{
             hull::{BspCollisionHull, BspLeafContents},
@@ -536,29 +536,6 @@ impl World {
 
     pub fn diff<'a>(&'a self, other: &'a Entities) -> impl Iterator<Item = EntityId> + 'a {
         self.entities.diff(other)
-    }
-
-    pub fn add_model(&mut self, strs: &StringTable, name_id: StringId) -> Result<(), ProgsError> {
-        let name = strs.get(name_id).unwrap();
-
-        // TODO: `add_model` (from the `precache_model` builtin) is only valid during level load.
-        // We should initiate the asset server loads here and then wait until level load is done.
-        // This may require `await`ing on `AssetServer::wait_for_asset` (requiring converting this
-        // method and its callers to `async`), as `precache_model` is synchronous in Quake.
-        //
-        // While we will have to check, it's unlikely for the level load routine to directly
-        // access the models, so even better would be to simply store handles and if we try to
-        // access them in e.g. a builtin then we await there. This would require converting far
-        // more of the code to `async`, however.
-        if name.ends_with(b".bsp") {
-            todo!()
-        } else if name.ends_with(b".mdl") {
-            todo!()
-        } else if name.ends_with(b".spr") {
-            todo!()
-        } else {
-            Err(ProgsError::with_msg(format!("Unrecognized model type: {name}")))
-        }
     }
 
     pub fn alloc_uninitialized(&mut self) -> Result<EntityId, ProgsError> {

@@ -1271,7 +1271,16 @@ impl LevelState {
                     }
                 }
 
-                Done | Return => self.op_return(a, b, c)?,
+                Done | Return => {
+                    self.op_return(a, b, c)?;
+
+                    // If this program was run from inside a builtin (e.g. a touch callback),
+                    // stepping here would break the caller by stepping over the call
+                    // statement and skipping the following instruction.
+                    if self.cx.call_stack_depth() == exit_depth {
+                        break;
+                    }
+                }
 
                 MulF => self.globals.op_mul_f(a, b, c)?,
                 MulV => self.globals.op_mul_v(a, b, c)?,
@@ -2998,7 +3007,6 @@ impl LevelState {
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
         if self.model_id(s_id).is_none() {
             self.precache_model(s_id)?;
-            // self.world.add_model(&self.string_table, s_id)?;
         }
 
         self.globals.put_string_id(s_id, GLOBAL_ADDR_RETURN as i16)?;
@@ -4239,7 +4247,20 @@ pub mod systems {
 
 #[cfg(test)]
 mod tests {
-    use crate::server::TICK_RATE;
+    use super::*;
+    use crate::server::{
+        TICK_RATE,
+        progs::{
+            Functions,
+            functions::{FunctionDef, MAX_ARGS, Statement},
+        },
+        world::{
+            EntityTypeDef,
+            entity::STATIC_ADDRESS_COUNT,
+            model::{ModelKind, SpriteModel},
+        },
+    };
+    use seismon_utils::model::ModelFlags;
 
     fn assert_approx_eq(a: f32, b: f32) {
         const SLOP_FACTOR: f32 = 1e-5;
@@ -4263,5 +4284,77 @@ mod tests {
 
         // Stationary (should have friction scale of 1).
         assert_approx_eq(super::friction_scale(0., 4., 100., TICK_RATE), 1.);
+    }
+
+    /// Mock builder for a `LevelState` with the given QuakeC functions and statements, but with
+    /// an otherwise empty world.
+    fn level_with_program(defs: Vec<FunctionDef>, statements: Vec<Statement>) -> LevelState {
+        let mut string_table = StringTable::new(vec![0]);
+        let world_model = Model {
+            name: "*1".into(),
+            kind: ModelKind::Sprite(SpriteModel),
+            flags: ModelFlags::empty(),
+        };
+        let type_def = EntityTypeDef::new(STATIC_ADDRESS_COUNT, Box::new([])).unwrap();
+        let world = World::new(vec![world_model], type_def, &mut string_table).unwrap();
+        let functions =
+            Functions { defs: defs.into_boxed_slice(), statements: statements.into_boxed_slice() };
+
+        LevelState {
+            string_table,
+            sound_precache: Precache::new(),
+            model_precache: Precache::new(),
+            lightstyles: [StringId(0); MAX_LIGHTSTYLES],
+            time: Duration::ZERO,
+            cx: ExecutionContext::create(functions),
+            globals: Globals::new(Vec::new(), vec![[0; 4]; 128].into_boxed_slice()),
+            world,
+            frame_client_messages: default(),
+            broadcast: default(),
+            init: default(),
+        }
+    }
+
+    fn quakec_def(entry: usize) -> FunctionDef {
+        FunctionDef {
+            kind: FunctionKind::QuakeC(entry),
+            arg_start: 100,
+            locals: 0,
+            name_id: StringId(0),
+            srcfile_id: StringId(0),
+            argc: 0,
+            argsz: [0; MAX_ARGS],
+        }
+    }
+
+    #[test]
+    fn nested_program_preserves_caller_pc() {
+        // Regression test for an issue on `e1m1` where enemies would constantly cause overflow
+        // errors.
+        //
+        // QuakeC run from inside a builtin (e.g. a touch function run by `movetogoal`) must leave
+        // the calling function's program counter on its call statement. The caller steps past it
+        // itself, so if the nested run also stepped, the statement after the call would be skipped.
+        // If the skipped statement was `return`, execution ran on into the next function and
+        // execution would overflow.
+
+        let ret = Statement { opcode: Opcode::Return, arg1: 0, arg2: 0, arg3: 0 };
+        let mut level =
+            level_with_program(vec![quakec_def(0), quakec_def(5), quakec_def(10)], vec![ret; 11]);
+        let mut ecs = bevy::ecs::world::World::new();
+        ecs.init_resource::<Registry>();
+        let mut registry = ecs.resource_mut::<Registry>();
+
+        // Stand in for a caller that is in the middle of calling a builtin at statement 5.
+        let strs = level.string_table.clone();
+        level.cx.enter_function(&strs, &mut level.globals, FunctionId(1)).unwrap();
+        assert_eq!(level.cx.pc(), 5);
+
+        // The builtin runs QuakeC, as touch callbacks do.
+        level.execute_program(FunctionId(2), registry.reborrow()).unwrap();
+
+        assert_eq!(level.cx.call_stack_depth(), 1);
+        assert_eq!(level.cx.current_function(), FunctionId(1));
+        assert_eq!(level.cx.pc(), 5);
     }
 }

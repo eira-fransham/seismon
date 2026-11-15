@@ -748,6 +748,11 @@ impl ExecutionContext {
         self.current_function
     }
 
+    #[cfg(test)]
+    pub(crate) fn pc(&self) -> usize {
+        self.pc
+    }
+
     /// Should only be used to reset the current function if progs are called (e.g. in
     /// `builtin_walk_move`).
     pub fn set_current_function(&mut self, func: FunctionId) {
@@ -794,7 +799,8 @@ impl ExecutionContext {
             ));
         };
 
-        // check call stack overflow
+        // Check call stack overflow
+        // TODO: Why `>=` here?
         if self.call_stack.len() + 1 >= MAX_CALL_STACK_DEPTH {
             return Err(ProgsError::CallStackOverflow { backtrace: Backtrace::capture() });
         }
