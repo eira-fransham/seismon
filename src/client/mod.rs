@@ -990,16 +990,14 @@ mod systems {
 
             let mut button_flags = ButtonFlags::empty();
 
-            if registry.is_pressed("attack") {
-                button_flags |= ButtonFlags::ATTACK;
-            }
-
-            if registry.is_pressed("jump") {
-                button_flags |= ButtonFlags::JUMP;
-            }
-
-            if registry.is_pressed("use") {
-                button_flags |= ButtonFlags::USE;
+            for (action, flag) in [
+                ("attack", ButtonFlags::ATTACK),
+                ("jump", ButtonFlags::JUMP),
+                ("use", ButtonFlags::USE),
+            ] {
+                if registry.is_pressed(action) {
+                    button_flags |= flag;
+                }
             }
 
             if mlook {
