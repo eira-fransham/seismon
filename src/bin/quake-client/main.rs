@@ -2,9 +2,10 @@
 mod dev;
 mod menu;
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 use bevy::{
+    app::ScheduleRunnerPlugin,
     audio::AudioPlugin,
     camera::{Exposure, Hdr},
     core_pipeline::tonemapping::Tonemapping,
@@ -31,11 +32,17 @@ use serde_lexpr::Value;
 
 #[derive(Parser, Debug)]
 struct Opt {
-    #[arg(long)]
+    #[arg(long, short = 'd')]
     base_dir: Option<PathBuf>,
 
     #[arg(long)]
     game: Option<String>,
+
+    /// Run the game in headless mode - i.e. do not spawn a window.
+    ///
+    /// Will run for the number of seconds specified and then quit.
+    #[arg(long)]
+    headless: Option<f32>,
 
     commands: Vec<String>,
 }
@@ -214,7 +221,7 @@ fn main() -> ExitCode {
     }
 
     let mut app = App::new();
-    let default_plugins = DefaultPlugins
+    let mut default_plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(bevy::window::Window {
                 title: "Seismon".into(),
@@ -229,6 +236,11 @@ fn main() -> ExitCode {
         })
         .set(ImagePlugin::default_nearest());
 
+    if let Some(secs) = &opt.headless {
+        default_plugins =
+            default_plugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f32(*secs)));
+    }
+
     let default_plugins =
         default_plugins.disable::<AudioPlugin>().add_group(bevy_seedling::SeedlingPlugins);
 
@@ -236,6 +248,12 @@ fn main() -> ExitCode {
         .into_iter()
         .flatten()
         .map(|game| std::env::current_dir().unwrap().join(game));
+
+    #[derive(Parser)]
+    #[command(name = "screenshot", about = "Take a screenshot and save it to a file")]
+    struct Screenshot {
+        path: String,
+    }
 
     app
         // TODO: Respect game dir.
@@ -251,6 +269,12 @@ fn main() -> ExitCode {
             main_menu: menu::build_main_menu,
         })
         .add_plugins(SeismonListenServerPlugin)
+        .command(|In(Screenshot { path }), mut commands: Commands| {
+            use bevy::render::view::window::screenshot::{Screenshot, save_to_disk};
+
+            commands.spawn(Screenshot::primary_window())
+               .observe(save_to_disk(path));
+        })
         .cvar_on_set(
             "cl_title",
             "Quake",
