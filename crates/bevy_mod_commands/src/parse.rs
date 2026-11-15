@@ -10,7 +10,7 @@ use nom::{
     character::complete::{line_ending, not_line_ending, one_of, space0},
     combinator::{opt, recognize},
     multi::many0,
-    sequence::{delimited, preceded, terminated, tuple},
+    sequence::{delimited, pair, preceded, terminated, tuple},
 };
 
 use crate::{CmdName, RunCmd, Trigger};
@@ -102,10 +102,26 @@ pub fn arg(input: &str) -> nom::IResult<&str, &str> {
 /// Match a command terminator.
 ///
 /// Commands can be terminated by either:
-/// - A semicolon (`";"`), or
-/// - An empty line (see `empty_line`)
+/// - Zero or more spaces or tabs followed by a semicolon (`";"`), or
+/// - An empty line, which may contain a line comment (see `empty_line`)
 pub fn command_terminator(input: &str) -> nom::IResult<&str, &str> {
-    alt((empty_line, tag(";")))(input)
+    alt((empty_line, recognize(pair(space0, tag(";")))))(input)
+}
+
+/// Match whatever may follow a command's arguments: either a single command terminator, or
+/// optional whitespace and an optional line comment at the end of the input.
+///
+/// Always succeeds.
+fn command_end(input: &str) -> nom::IResult<&str, &str> {
+    alt((command_terminator, recognize(pair(space0, opt(line_comment)))))(input)
+}
+
+/// Match anything between commands: blank lines, comment lines, stray semicolons, and a trailing
+/// line comment at the end of the input.
+///
+/// Always succeeds.
+fn separators(input: &str) -> nom::IResult<&str, &str> {
+    recognize(tuple((many0(command_terminator), space0, opt(line_comment))))(input)
 }
 
 pub fn trigger(input: &str) -> nom::IResult<&str, Trigger> {
@@ -118,45 +134,30 @@ pub fn command_name(input: &str) -> nom::IResult<&str, CmdName<'_>> {
         .parse(input)
 }
 
-/// Match a single command.
-///
-/// A command is considered to be composed of:
-/// - Zero or more leading non-newline whitespace characters
-/// - One or more arguments, separated by non-newline whitespace characters
-/// - A command terminator (see `command_terminator`)
-pub fn terminated_command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
-    terminated(command, command_terminator)(input)
-}
-
 pub fn arg_list(input: &str) -> nom::IResult<&str, Vec<String>> {
     many0(preceded(space0, arg.map(|arg| arg.to_owned())))(input)
 }
 
-/// Match a single command.
-///
-/// A command is considered to be composed of:
-/// - Zero or more leading non-newline whitespace characters
-/// - One or more arguments, separated by non-newline whitespace characters
-pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
+/// Match a command name followed by its arguments, without anything that follows them.
+fn command_body(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
     tuple((command_name, arg_list)).map(|(cmd, rest)| RunCmd(cmd, rest.into())).parse(input)
 }
 
-pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
-    delimited(
-        tuple((many0(command_terminator), space0)),
-        tuple((
-            many0(terminated(terminated_command, tuple((many0(command_terminator), space0)))),
-            opt(command),
-        ))
-        .map(|(mut commands, last)| {
-            if let Some(last) = last {
-                commands.push(last);
-            }
+/// Match a single command.
+///
+/// A command is considered to be composed of:
+/// - A command name, optionally prefixed with `+` or `-`
+/// - Zero or more arguments, separated by non-newline whitespace characters
+/// - Optionally, a single command terminator (see `command_terminator`), or a line comment at the
+///   end of the input
+pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
+    terminated(command_body, command_end)(input)
+}
 
-            commands
-        }),
-        tuple((many0(command_terminator), space0)),
-    )(input)
+/// Match a sequence of commands, separated by semicolons or line endings, ignoring blank lines
+/// and line comments.
+pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
+    preceded(separators, many0(terminated(command, separators)))(input)
 }
 
 #[cfg(test)]
@@ -222,7 +223,7 @@ mod test {
         let result = command("bind \"space\" \"+jump\";\n");
         assert_eq!(
             result,
-            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "jump".to_owned()].into())))
+            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "+jump".to_owned()].into())))
         );
     }
 
@@ -231,8 +232,61 @@ mod test {
         let result = command("bind \"space\" \"+jump\" // bind space to jump\n\n");
         assert_eq!(
             result,
-            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "jump".to_owned()].into())))
+            Ok(("\n", RunCmd("bind".into(), vec!["space".to_owned(), "+jump".to_owned()].into())))
         );
+    }
+
+    #[test]
+    fn test_command_comment_at_eof() {
+        let result = command("a // c");
+        assert_eq!(result, Ok(("", RunCmd("a".into(), vec![].into()))));
+    }
+
+    #[test]
+    fn test_command_space_before_semicolon() {
+        let result = command("a ;b");
+        assert_eq!(result, Ok(("b", RunCmd("a".into(), vec![].into()))));
+    }
+
+    #[test]
+    fn test_commands_space_before_semicolon_and_trailing_comment() {
+        let result = commands("a ; b // c");
+        assert_eq!(
+            result,
+            Ok(("", vec![RunCmd("a".into(), vec![].into()), RunCmd("b".into(), vec![].into())]))
+        );
+    }
+
+    #[test]
+    fn test_commands_mixed_terminators() {
+        let result = commands("a;b\nc");
+        assert_eq!(
+            result,
+            Ok((
+                "",
+                vec![
+                    RunCmd("a".into(), vec![].into()),
+                    RunCmd("b".into(), vec![].into()),
+                    RunCmd("c".into(), vec![].into()),
+                ]
+            ))
+        );
+    }
+
+    #[test]
+    fn test_commands_empty() {
+        assert_eq!(commands(""), Ok(("", vec![])));
+        assert_eq!(commands("// only a comment"), Ok(("", vec![])));
+        assert_eq!(commands(" ; ;\n// c\n  "), Ok(("", vec![])));
+    }
+
+    #[test]
+    fn test_run_cmd_parse_terminated() {
+        let expected = RunCmd("map".into(), vec!["start".to_owned()].into());
+        assert_eq!(RunCmd::parse("map start;"), Ok(expected.clone()));
+        assert_eq!(RunCmd::parse("map start // c"), Ok(expected.clone()));
+        assert_eq!(RunCmd::parse("map start\n"), Ok(expected));
+        assert!(RunCmd::parse("map start; next").is_err());
     }
 
     #[test]

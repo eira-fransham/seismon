@@ -11,10 +11,10 @@ pub type CName = Cow<'static, str>;
 /// Whether to trigger an action on pressing or releasing a key
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
-    /// "Positive edge" - trigger on press
+    /// Positive edge: trigger on press
     #[default]
     Positive,
-    /// "Negative edge" - trigger on release
+    /// Negative edge: trigger on release
     Negative,
 }
 
