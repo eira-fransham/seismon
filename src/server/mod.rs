@@ -72,8 +72,9 @@ use arrayvec::ArrayVec;
 use bevy::{prelude::*, shape::Aabb3d};
 use bevy_trenchbroom::bsp::Bsp;
 use bitflags::bitflags;
+use bitvec::vec::BitVec;
 use byteorder::{LittleEndian, WriteBytesExt as _};
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use itertools::Itertools;
 use num::FromPrimitive;
 use seismon_utils::{QStr, QString, duration_from_f32, duration_to_f32};
@@ -298,6 +299,8 @@ pub struct ClientActive {
 
     /// ID of the entity controlled by this client.
     entity_id: EntityId,
+
+    sent_baseline: BitVec,
 }
 
 bitflags! {
@@ -334,6 +337,16 @@ impl ClientSlots {
     pub fn active_clients(&self) -> impl Iterator<Item = (usize, &ClientActive)> + '_ {
         self.connected_clients().filter_map(|i| {
             if let Some(ClientState::Active(active)) = self.get(i).map(|c| &c.state) {
+                Some((i, active))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn active_clients_mut(&mut self) -> impl Iterator<Item = (usize, &mut ClientActive)> + '_ {
+        self.slots.iter_mut().enumerate().filter_map(|(i, client)| {
+            if let Some(ClientState::Active(active)) = client.as_mut().map(|c| &mut c.state) {
                 Some((i, active))
             } else {
                 None
@@ -521,8 +534,11 @@ impl Session {
         };
 
         // TODO: All players are currently privileged
-        client.state =
-            ClientState::Active(ClientActive { _privileged: true, entity_id: client_entity });
+        client.state = ClientState::Active(ClientActive {
+            _privileged: true,
+            entity_id: client_entity,
+            sent_baseline: BitVec::repeat(false, world::MAX_ENTITIES),
+        });
 
         for (i, arg_addr) in SPAWN_PARAM_ADDRS.iter().enumerate() {
             self.level.globals.store(*arg_addr, client.spawn_params[i])?;
@@ -680,8 +696,6 @@ pub struct LevelState {
     /// This contains the entities and world geometry.
     world: World,
 
-    new_entities: HashSet<EntityId>,
-
     // -- TODO: Next 3 fields should be extracted to a separate struct for borrowck purposes --
     /// Reliable messages sent to one client.
     frame_client_messages: HashMap<EntityId, Vec<u8>>,
@@ -760,7 +774,6 @@ impl LevelState {
             frame_client_messages: default(),
             lightstyles: [StringId(0); MAX_LIGHTSTYLES],
             time: Duration::from_secs(1),
-            new_entities: default(),
             cx,
             globals,
             world,
@@ -822,7 +835,6 @@ impl LevelState {
             message.clear();
         }
         self.broadcast.clear();
-        self.new_entities.clear();
     }
 
     fn write_dest(&mut self) -> progs::Result<impl Write> {
@@ -1145,8 +1157,6 @@ impl LevelState {
 
         self.link_entity(ent_id, false, registry)?;
 
-        self.new_entities.insert(ent_id);
-
         Ok(ent_id)
     }
 
@@ -1211,7 +1221,7 @@ impl LevelState {
             model_id
         };
 
-        if model_name[0] == b'*' {
+        if model_name.starts_with(b"*") {
             self.world.set_entity_model(ent_id, model_id)?;
         }
 
@@ -1780,7 +1790,13 @@ impl LevelState {
         let mut ent = self.world.get_mut(ent_id)?;
 
         let old_local_time = duration_from_f32(ent.load(FieldAddrFloat::LocalTime)?);
-        let next_think = duration_from_f32(ent.load(FieldAddrFloat::NextThink)?);
+        let next_think_secs: f32 = ent.load(FieldAddrFloat::NextThink)?;
+
+        if next_think_secs == 0. {
+            return Ok(());
+        }
+
+        let next_think = duration_from_f32(next_think_secs);
 
         let new_local_time = old_local_time + frame_time;
 
@@ -2757,7 +2773,7 @@ impl LevelState {
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
         if self.model_id(s_id).is_none() {
             self.precache_model(s_id);
-            self.world.add_model(&self.string_table, s_id)?;
+            // self.world.add_model(&self.string_table, s_id)?;
         }
 
         self.globals.put_string_id(s_id, GLOBAL_ADDR_RETURN as i16)?;
@@ -3966,6 +3982,7 @@ pub mod systems {
         time: Res<Time<Fixed>>,
         mut server_messages: MessageWriter<ServerMessage>,
         mut registry: ResMut<Registry>,
+        mut unsent_entity_cache: Local<Vec<EntityId>>,
     ) {
         if server.loading()
             || registry.read_cvar::<u8>("sv_paused").unwrap() != 0
@@ -3999,21 +4016,12 @@ pub mod systems {
             let Session { persist, level, .. } = &mut *server;
 
             // TODO: Stop hardcoding `8` for max players
-            for client_id in persist
-                .client_slots
-                .active_clients()
-                .map(|(id, _)| id)
-                .collect::<ArrayVec<usize, 8>>()
+            for (client_id, client) in
+                persist.client_slots.active_clients_mut().collect::<ArrayVec<_, 8>>()
             {
                 let mut packet = Vec::new();
 
-                if let Some(messages) = persist
-                    .client_slots
-                    .get(client_id)
-                    .unwrap()
-                    .entity()
-                    .and_then(|ent| level.frame_client_messages.get(&ent))
-                {
+                if let Some(messages) = level.frame_client_messages.get(&client.entity_id) {
                     packet.extend_from_slice(messages);
                 }
 
@@ -4021,12 +4029,18 @@ pub mod systems {
                     .serialize(&mut packet)
                     .unwrap();
 
-                for entity_id in &level.new_entities {
-                    if level.is_networked(*entity_id)
-                        && let Some(state) = level.entity_state(*entity_id)
+                unsent_entity_cache.extend(level.world.iter().filter(|e_id| {
+                    !client
+                        .sent_baseline
+                        .replace(e_id.0.try_into().expect("Invalid entity ID"), true)
+                }));
+
+                for entity_id in unsent_entity_cache.drain(..) {
+                    if level.is_networked(entity_id)
+                        && let Some(state) = level.entity_state(entity_id)
                     {
                         state.spawn_baseline(entity_id.0 as _).serialize(&mut packet).unwrap();
-                        level.world.get_mut(*entity_id).unwrap().baseline = state;
+                        level.world.get_mut(entity_id).unwrap().baseline = state;
                     }
                 }
 
@@ -4042,11 +4056,7 @@ pub mod systems {
                     ServerCmd::FastUpdate(update).serialize(&mut packet).unwrap();
                 }
 
-                if let Some(mut entity) = persist
-                    .client(client_id)
-                    .and_then(|c| c.entity())
-                    .and_then(|ent_id| level.world.get_mut(ent_id).ok())
-                {
+                if let Some(mut entity) = level.world.get_mut(client.entity_id).ok() {
                     if entity.get_bool(FieldAddrFloat::FixAngle as i16).unwrap() {
                         ServerCmd::SetAngle { angles: entity.angles().unwrap().to_array().into() }
                             .serialize(&mut packet)

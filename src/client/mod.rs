@@ -68,8 +68,8 @@ use input::InputFocus;
 use menu::Menu;
 use seismon_utils::{QAngles, QString};
 use serde::Deserialize;
-use sound::SoundError;
 use snafu::Snafu;
+use sound::SoundError;
 use wgpu::BlendState;
 
 // connections are tried 3 times, see

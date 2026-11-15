@@ -58,7 +58,7 @@ use entity::{EntityField, EntityMeta};
 
 const AREA_DEPTH: usize = 4;
 const NUM_AREA_NODES: usize = 2usize.pow(AREA_DEPTH as u32 + 1) - 1;
-const MAX_ENTITIES: usize = 600;
+pub const MAX_ENTITIES: usize = 600;
 
 #[derive(Debug)]
 enum AreaNodeKind {

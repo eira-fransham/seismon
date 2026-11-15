@@ -130,8 +130,7 @@ impl ClientState {
         let mut model_precache = model_precache.into_iter();
 
         // TODO: Better error
-        let worldspawn_path =
-            model_precache.next().context(InvalidConnectResponseSnafu)?;
+        let worldspawn_path = model_precache.next().context(InvalidConnectResponseSnafu)?;
 
         let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned();
 
