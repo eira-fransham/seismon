@@ -1,6 +1,6 @@
 use std::{f32::consts::PI, time::Duration};
 
-use crate::common::console::Registry;
+use bevy_mod_commands::Registry;
 
 use super::IntermissionKind;
 use bevy::{

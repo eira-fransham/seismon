@@ -30,9 +30,11 @@ use std::{
     time::Duration,
 };
 
+use bevy_mod_commands::{Registry, RunCmd};
+
 use crate::{
     common::{
-        console::{Registry, RunCmd, SeismonConsoleCorePlugin},
+        console::SeismonConsoleCorePlugin,
         math::{CollisionResult, Hyperplane},
         net::{ClientMessage, EntityState, ServerCmd, ServerMessage},
         parse,
@@ -3689,12 +3691,10 @@ impl LevelState {
 pub mod systems {
     use bevy::asset::LoadState;
 
-    use crate::common::{
-        console::CmdName,
-        net::{
-            self, ClientCmd, ClientMessage, GameType, ItemFlags, PlayerData, ServerMessage,
-            SignOnStage,
-        },
+    use bevy_mod_commands::CmdName;
+
+    use crate::common::net::{
+        self, ClientCmd, ClientMessage, GameType, ItemFlags, PlayerData, ServerMessage, SignOnStage,
     };
 
     use super::*;

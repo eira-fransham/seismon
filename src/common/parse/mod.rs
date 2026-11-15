@@ -15,56 +15,11 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod console;
 pub mod map;
 
 use bevy::math::Vec3;
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{alphanumeric1, one_of, space1},
-    combinator::map,
-    sequence::{delimited, tuple},
-};
 
-use crate::client::input::game::Trigger;
-
-pub use self::{
-    console::{command, command_name, commands},
-    map::entities,
-};
-
-pub fn non_newline_spaces(input: &str) -> nom::IResult<&str, &str> {
-    space1(input)
-}
-
-fn string_contents(input: &str) -> nom::IResult<&str, &str> {
-    take_while1(|c: char| !"\"".contains(c) && c.is_ascii() && !c.is_ascii_control())(input)
-}
-
-pub fn quoted(input: &str) -> nom::IResult<&str, &str> {
-    delimited(tag("\""), string_contents, tag("\""))(input)
-}
-
-pub fn action(input: &str) -> nom::IResult<&str, (Trigger, &str)> {
-    tuple((
-        map(one_of("+-"), |c| match c {
-            '+' => Trigger::Positive,
-            '-' => Trigger::Negative,
-            _ => unreachable!(),
-        }),
-        alphanumeric1,
-    ))(input)
-}
-
-pub fn newline(input: &str) -> nom::IResult<&str, &str> {
-    nom::character::complete::line_ending(input)
-}
-
-// TODO: rename to line_terminator and move to console module
-pub fn line_ending(input: &str) -> nom::IResult<&str, &str> {
-    alt((tag(";"), nom::character::complete::line_ending))(input)
-}
+pub use self::map::entities;
 
 pub fn vec3<S>(src: S) -> Vec3
 where
@@ -79,21 +34,4 @@ where
     let z: f32 = components.next().and_then(|c| c.parse().ok()).unwrap_or_default();
 
     Vec3::new(x, y, z)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_quoted() {
-        let s = "\"hello\"";
-        assert_eq!(quoted(s), Ok(("", "hello")))
-    }
-
-    #[test]
-    fn test_action() {
-        let s = "+up";
-        assert_eq!(action(s), Ok(("", (Trigger::Positive, "up"))))
-    }
 }

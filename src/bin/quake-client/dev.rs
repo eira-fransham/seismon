@@ -1,6 +1,6 @@
 use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, window::PrimaryWindow};
+use bevy_mod_commands::ExecResult;
 use clap::Parser;
-use seismon::common::console::ExecResult;
 
 pub const SENSITIVITY: f32 = 0.0007;
 pub const BASE_MOVEMENT_SPEED: f32 = 160.;

@@ -1,7 +1,6 @@
-use crate::{
-    client,
-    common::console::{ExecResult, RegisterCmdExt},
-};
+use bevy_mod_commands::{ExecResult, RegisterCmdExt};
+
+use crate::client;
 
 use bevy::prelude::*;
 use clap::Parser;

@@ -20,10 +20,9 @@
 
 use std::{fmt::Debug, str::FromStr};
 
-use crate::{
-    client::menu::Menu,
-    common::console::{CName, SetCvar},
-};
+use bevy_mod_commands::{CName, SetCvar};
+
+use crate::client::menu::Menu;
 
 use anyhow::ensure;
 use bevy::ecs::system::{Commands, SystemId};

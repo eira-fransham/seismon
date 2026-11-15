@@ -15,23 +15,28 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use crate::{
-    client::input::game::{Binding, BindingValidState, Trigger},
-    common::{
-        console::{CmdName, RunCmd},
-        parse::quoted,
-    },
-};
+//! [`nom`] parsers for command scripts.
 
 use nom::{
     Parser,
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, take_while1},
     character::complete::{line_ending, not_line_ending, one_of, space0},
     combinator::{opt, recognize},
     multi::many0,
     sequence::{delimited, preceded, terminated, tuple},
 };
+
+use crate::{CmdName, RunCmd, Trigger};
+
+fn string_contents(input: &str) -> nom::IResult<&str, &str> {
+    take_while1(|c: char| !"\"".contains(c) && c.is_ascii() && !c.is_ascii_control())(input)
+}
+
+/// Match a double-quoted string, returning its contents.
+pub fn quoted(input: &str) -> nom::IResult<&str, &str> {
+    delimited(tag("\""), string_contents, tag("\""))(input)
+}
 
 /// Match a line comment.
 ///
@@ -150,23 +155,6 @@ pub fn command(input: &str) -> nom::IResult<&str, RunCmd<'_>> {
     tuple((command_name, arg_list)).map(|(cmd, rest)| RunCmd(cmd, rest.into())).parse(input)
 }
 
-/// Match a binding - command set possibly preceded by `*` in order to make the binding valid for
-/// any focus state.
-///
-/// A command is considered to be composed of:
-/// - Zero or more leading non-newline whitespace characters
-/// - One or more arguments, separated by non-newline whitespace characters
-pub fn binding(input: &str) -> nom::IResult<&str, Binding<'_>> {
-    tuple((
-        opt(tag("*")).map(|val| {
-            if val.is_some() { BindingValidState::Any } else { BindingValidState::Game }
-        }),
-        commands,
-    ))
-    .map(|(valid, commands)| Binding { commands, valid })
-    .parse(input)
-}
-
 pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
     delimited(
         tuple((many0(command_terminator), space0)),
@@ -188,6 +176,12 @@ pub fn commands(input: &str) -> nom::IResult<&str, Vec<RunCmd<'_>>> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_quoted() {
+        let s = "\"hello\"";
+        assert_eq!(quoted(s), Ok(("", "hello")))
+    }
 
     #[test]
     fn test_line_comment() {
@@ -256,7 +250,7 @@ mod test {
     }
 
     #[test]
-    fn test_commands_quake_rc() {
+    fn test_commands_script() {
         let script = "
 // load the base configuration
 exec default.cfg

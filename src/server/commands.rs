@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use clap::Parser;
 
-use crate::common::console::{ExecResult, RegisterCmdExt};
+use bevy_mod_commands::{ExecResult, RegisterCmdExt};
 
 use super::*;
 
