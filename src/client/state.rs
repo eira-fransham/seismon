@@ -117,6 +117,8 @@ pub struct ClientState {
     /// The entity that we are viewing the world through.
     pub view: Option<u16>,
 
+    pub look_angles: QAngles,
+
     /// Quake 1 deletes any entities that haven't received new messages on a given frame.
     pub frame_keepalive: BitVec,
 
@@ -207,6 +209,7 @@ impl ClientState {
 
         Ok(ClientState {
             view: None,
+            look_angles: Default::default(),
             worldspawn: worldspawn.id(),
             models,
             frame_keepalive: default(),

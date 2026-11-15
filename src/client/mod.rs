@@ -859,7 +859,10 @@ mod systems {
     use bevy_trenchbroom::bsp::Bsp;
     use common::net::MessageKind;
 
-    use crate::{client::state::Worldspawn, common::net::ButtonFlags};
+    use crate::{
+        client::{state::Worldspawn, view::MouseVars},
+        common::net::ButtonFlags,
+    };
 
     use bevy_mod_commands::Registry;
 
@@ -941,12 +944,14 @@ mod systems {
         frame_time: Res<Time<Virtual>>,
         mut client_events: MessageWriter<ClientMessage>,
         mut impulses: MessageReader<Impulse>,
+        mut commands: Commands,
     ) -> Result<(), ClientError> {
         fn handle_input(
             registry: &Registry,
             frame_time: Duration,
+            look_angles: &mut QAngles,
             move_vars: MoveVars,
-            // mouse_vars: MouseVars,
+            mouse_vars: MouseVars,
             impulse: Option<u8>,
         ) -> Option<ClientCmd> {
             let mlook = registry.is_pressed("mlook");
@@ -968,8 +973,8 @@ mod systems {
             let mut forwardmove = 0.0;
             if !registry.is_pressed("klook") {
                 forwardmove +=
-                    move_vars.cl_forwardspeed * registry.is_pressed("forward") as i32 as f32;
-                forwardmove -= move_vars.cl_backspeed * registry.is_pressed("back") as i32 as f32;
+                    move_vars.cl_forwardspeed * f32::from(registry.is_pressed("forward"));
+                forwardmove -= move_vars.cl_backspeed * f32::from(registry.is_pressed("back"));
             }
 
             if registry.is_pressed("speed") {
@@ -992,14 +997,24 @@ mod systems {
                 button_flags |= ButtonFlags::USE;
             }
 
-            if !mlook {
-                // TODO: IN_Move (mouse / joystick / gamepad)
+            if mlook {
+                let pitch_factor = mouse_vars.pitch_factor * mouse_vars.sensitivity;
+                let yaw_factor = mouse_vars.yaw_factor * mouse_vars.sensitivity;
+                match registry.read_cvar::<Vec2>("mousedelta") {
+                    Ok(mouse_move) => {
+                        let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
+                        look_angles.yaw_deg -= mouse_move.x;
+                        look_angles.pitch_deg += mouse_move.y;
+                    }
+                    Err(e) => {
+                        error!("Could not read mouse delta: {e}");
+                    }
+                }
             }
 
             Some(ClientCmd::Move {
                 delta_time: frame_time,
-                // TODO: Look
-                angles: Default::default(),
+                angles: *look_angles,
                 fwd_move: forwardmove as i16,
                 side_move: sidemove as i16,
                 up_move: upmove as i16,
@@ -1010,7 +1025,7 @@ mod systems {
         }
 
         let Connection {
-            client_state: _,
+            client_state,
             target: ConnectionTarget::Server { stage: ConnectionStage::Connected, .. },
             ..
         } = &mut *conn
@@ -1020,14 +1035,41 @@ mod systems {
 
         // TODO: Error handling
         let move_vars: MoveVars = registry.read_cvars().unwrap();
+        let mouse_vars: MouseVars = registry.read_cvars().unwrap();
 
         // TODO: Unclear fromm the bevy documentation if this drops all other events for the frame,
         //       but in this case it's almost certainly fine
         let impulse = impulses.read().next().map(|i| i.0);
 
-        let Some(move_cmd) = handle_input(&registry, frame_time.delta(), move_vars, impulse) else {
+        let mut dummy_look_angles = QAngles::default();
+
+        let look_angles =
+            client_state.as_mut().map(|s| &mut s.look_angles).unwrap_or(&mut dummy_look_angles);
+
+        let Some(move_cmd) = handle_input(
+            &registry,
+            frame_time.delta(),
+            look_angles,
+            move_vars,
+            mouse_vars,
+            impulse,
+        ) else {
             return Ok(());
         };
+
+        // TODO: We want to honor the server's view angles but we also want to keep
+        // our own higher-resolution angles where possible, is there a better way?
+        let look_angles = *look_angles;
+
+        if let Some(state) = client_state.as_mut()
+            && let Some(view) = state.view
+        {
+            commands.run_system_cached_with(
+                ClientState::update_entity,
+                (EntityUpdate::new_angles(view, look_angles), conn.last_msg_time.as_secs_f64()),
+            );
+        }
+
         let mut msg = Vec::new();
         move_cmd.serialize(&mut msg)?;
         client_events.write(ClientMessage {
@@ -1356,6 +1398,8 @@ mod systems {
                         if let Some(state) = conn.client_state.as_mut()
                             && let Some(view) = state.view
                         {
+                            state.look_angles = angles;
+
                             commands.run_system_cached_with(
                                 ClientState::update_entity,
                                 (
