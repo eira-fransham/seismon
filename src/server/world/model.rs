@@ -1,31 +1,12 @@
-// Copyright © 2018 Cormac O'Brien
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
-// and associated documentation files (the "Software"), to deal in the Software without
-// restriction, including without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all copies or
-// substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
-// BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 use bevy::{log::debug, math::Vec3};
 use bevy_mod_mdl::MdlFileError;
 use seismon_utils::model::{ModelFlags, SyncType};
 use thiserror::Error;
 
-use crate::common::bsp::{BspFileError, BspModel};
+use crate::server::world::hull::BrushModel;
 
 #[derive(Error, Debug)]
 pub enum ModelError {
-    #[error("BSP file error: {0}")]
-    BspFile(#[from] BspFileError),
     #[error("MDL file error: {0}")]
     MdlFile(#[from] MdlFileError),
     #[error("SPR file error")]
@@ -60,7 +41,7 @@ pub enum ModelKind<A = AliasModel, S = SpriteModel> {
     // TODO: find a more elegant way to express the null model
     #[default]
     None,
-    Brush(BspModel),
+    Brush(BrushModel),
     Alias(A),
     Sprite(S),
 }
@@ -97,7 +78,7 @@ impl Model {
     }
 
     /// Construct a new generic model from a brush model.
-    pub fn from_brush_model<Str>(name: Str, brush_model: BspModel) -> Model
+    pub fn from_brush_model<Str>(name: Str, brush_model: BrushModel) -> Model
     where
         Str: AsRef<str>,
     {

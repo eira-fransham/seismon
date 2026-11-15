@@ -123,5 +123,4 @@ pub fn register_cvars(app: &mut App) {
         "sets the duration that the pitch and roll are adjusted when player takes damage",
     );
     app.cvar("scr_centertime", "2", "sets the duration that center text remains on the screen");
-    app.cvar("sv_gravity", "800", "sets the server's gravity");
 }

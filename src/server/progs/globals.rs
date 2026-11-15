@@ -267,7 +267,7 @@ impl GlobalAddr for GlobalAddrFunction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Globals {
     defs: Arc<[GlobalDef]>,
     addrs: Box<[[u8; 4]]>,

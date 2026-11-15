@@ -72,7 +72,7 @@ impl fmt::Display for FunctionId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FunctionKind {
     BuiltIn(BuiltinFunctionId),
     QuakeC(usize),
@@ -155,7 +155,7 @@ pub enum BuiltinFunctionId {
     SetSpawnArgs = 78,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub kind: FunctionKind,
     pub arg_start: usize,
@@ -166,7 +166,7 @@ pub struct FunctionDef {
     pub argsz: [u8; MAX_ARGS],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Functions {
     pub defs: Box<[FunctionDef]>,
     pub statements: Box<[Statement]>,

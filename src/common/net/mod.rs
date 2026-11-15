@@ -27,12 +27,12 @@ use std::{
     io::{self, BufRead, BufReader, Cursor, Read, Write},
     mem,
     net::{SocketAddr, UdpSocket},
-    sync::{Arc, mpsc},
+    sync::Arc,
     time::Duration,
 };
 
 use beef::Cow;
-use bevy::{platform::cell::SyncCell, prelude::*};
+use bevy::prelude::*;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
@@ -63,54 +63,6 @@ pub const MAX_CLIENTS: usize = 16;
 pub const MAX_ITEMS: usize = 32;
 
 pub const DEFAULT_VIEWHEIGHT: f32 = 22.0;
-
-// TODO: Use `lightyear` once this is working again.
-#[derive(Resource)]
-pub struct InMemoryMessagingClient {
-    client_to_server: SyncCell<mpsc::Sender<ClientMessage>>,
-    client_from_server: SyncCell<mpsc::Receiver<ServerMessage>>,
-}
-
-// TODO: Use `lightyear` once this is working again.
-#[derive(Resource)]
-pub struct InMemoryMessagingServer {
-    server_to_client: SyncCell<mpsc::Sender<ServerMessage>>,
-    server_from_client: SyncCell<mpsc::Receiver<ClientMessage>>,
-}
-
-pub fn in_memory_messaging() -> (InMemoryMessagingClient, InMemoryMessagingServer) {
-    let (client_to_server, server_from_client) = mpsc::channel();
-    let (server_to_client, client_from_server) = mpsc::channel();
-    let (client_to_server, server_from_client) =
-        (SyncCell::new(client_to_server), SyncCell::new(server_from_client));
-    let (server_to_client, client_from_server) =
-        (SyncCell::new(server_to_client), SyncCell::new(client_from_server));
-
-    (
-        InMemoryMessagingClient { client_to_server, client_from_server },
-        InMemoryMessagingServer { server_to_client, server_from_client },
-    )
-}
-
-impl InMemoryMessagingClient {
-    pub fn send(&mut self, message: ClientMessage) {
-        let _ = self.client_to_server.get().send(message);
-    }
-
-    pub fn recv(&mut self) -> impl Iterator<Item = ServerMessage> {
-        std::iter::from_fn(|| self.client_from_server.get().try_recv().ok())
-    }
-}
-
-impl InMemoryMessagingServer {
-    pub fn send(&mut self, message: ServerMessage) {
-        let _ = self.server_to_client.get().send(message);
-    }
-
-    pub fn recv(&mut self) -> impl Iterator<Item = ClientMessage> {
-        std::iter::from_fn(|| self.server_from_client.get().try_recv().ok())
-    }
-}
 
 #[derive(Clone, Message, Debug)]
 pub struct ServerMessage {

@@ -16,6 +16,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 pub mod entity;
+pub mod hull;
+pub mod model;
 pub mod phys;
 
 use std::{
@@ -37,17 +39,15 @@ use self::{
 use hashbrown::HashSet;
 
 use crate::{
-    common::{
-        bsp::{self, BspCollisionHull, BspLeafContents},
-        model::ModelKind,
-        parse,
-        vfs::Vfs,
-    },
+    common::parse,
     server::{
-        Model,
         progs::{
             EntityFieldAddr, EntityId, FieldAddr, FieldDef, FunctionId, ProgsError, StringId,
             StringTable, Type,
+        },
+        world::{
+            hull::{BspCollisionHull, BspLeafContents},
+            model::{Model, ModelKind},
         },
     },
 };
@@ -503,7 +503,7 @@ impl World {
         let mut models = Vec::with_capacity(brush_models.len() + 1);
 
         // put null model at index 0
-        models.push(crate::common::model::Model::none("").cast());
+        models.push(Model::none("").cast());
 
         // take ownership of all brush models
         models.append(&mut brush_models);
@@ -524,32 +524,27 @@ impl World {
         self.entities.diff(other)
     }
 
-    pub fn add_model(
-        &mut self,
-        vfs: &Vfs,
-        strs: &StringTable,
-        name_id: StringId,
-    ) -> Result<(), ProgsError> {
+    pub fn add_model(&mut self, strs: &StringTable, name_id: StringId) -> Result<(), ProgsError> {
         let name = strs.get(name_id).unwrap();
 
+        // TODO: `add_model` (from the `precache_model` builtin) is only valid during level load.
+        // We should initiate the asset server loads here and then wait until level load is done.
+        // This may require `await`ing on `AssetServer::wait_for_asset` (requiring converting this
+        // method and its callers to `async`), as `precache_model` is synchronous in Quake.
+        //
+        // While we will have to check, it's unlikely for the level load routine to directly
+        // access the models, so even better would be to simply store handles and if we try to
+        // access them in e.g. a builtin then we await there. This would require converting far
+        // more of the code to `async`, however.
         if name.ends_with(b".bsp") {
-            let data = vfs.open(name.to_str()).unwrap();
-            let (brush_models, _) = bsp::load(data).unwrap();
-            if brush_models.len() > 1 {
-                return Err(ProgsError::with_msg(
-                    "Complex brush models must be loaded before world creation",
-                ));
-            }
-            self.models.extend(brush_models.into_iter().map(|m| m.cast()));
+            todo!()
         } else if name.ends_with(b".mdl") {
             todo!()
         } else if name.ends_with(b".spr") {
             todo!()
         } else {
-            return Err(ProgsError::with_msg(format!("Unrecognized model type: {name}")));
+            Err(ProgsError::with_msg(format!("Unrecognized model type: {name}")))
         }
-
-        Ok(())
     }
 
     pub fn alloc_uninitialized(&mut self) -> Result<EntityId, ProgsError> {

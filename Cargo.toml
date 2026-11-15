@@ -95,7 +95,6 @@ futures.workspace = true
 futures-byteorder.workspace = true
 hashbrown.workspace = true
 itertools.workspace = true
-memmap2.workspace = true
 nom.workspace = true
 num.workspace = true
 num-derive.workspace = true

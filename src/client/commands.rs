@@ -10,9 +10,9 @@ use crate::{
             AliasInfo, CommandIncomplete, ExecResult, PendingCommands, RegisterCmdExt as _,
             Registry, RunCmd, TextAsset,
         },
-        net::{ClientCmd, ClientMessage, MessageKind, ServerMessage, SignOnStage},
+        net::SignOnStage,
     },
-    server::Session,
+    server::{PendingLevel, Session},
 };
 
 use super::{
@@ -197,7 +197,8 @@ pub fn register_commands(app: &mut App) {
          assets: Res<AssetServer>,
          mut time: ResMut<Time<Virtual>>,
          mut demo_queue: ResMut<DemoQueue>,
-         server: Option<Res<Session>>| {
+         server: Option<Res<Session>>,
+         pending_level: Option<Res<PendingLevel>>| {
             if demos.is_empty() {
                 demo_queue.reset();
             } else {
@@ -209,6 +210,7 @@ pub fn register_commands(app: &mut App) {
             // Only actually start playing the demos if we aren't already running a server
             // (this appears to be Quake's expected behaviour?)
             if server.is_none()
+                && pending_level.is_none()
                 && let Some(demo) = demo_queue.next_demo()
             {
                 // TODO: This should look for demos in root or `/demos`
@@ -459,42 +461,4 @@ pub fn register_commands(app: &mut App) {
             Err(e) => format!("Error: {e}").into(),
         }
     });
-
-    #[derive(Parser)]
-    #[command(name = "map", about = "Load and start a new map")]
-    struct Map {
-        map_name: String,
-    }
-
-    // TODO: Can probably do this better but it's also possibly fine because it's a system
-    fn cmd_map(
-        In(Map { map_name }): In<Map>,
-        mut commands: Commands,
-        mut client_events: ResMut<Messages<ClientMessage>>,
-        mut server_events: ResMut<Messages<ServerMessage>>,
-    ) -> ExecResult {
-        client_events.clear();
-        server_events.clear();
-
-        let mut bytes = vec![];
-        ClientCmd::StringCmd { cmd: format!("map {map_name}").into() }
-            .serialize(&mut bytes)
-            .unwrap();
-
-        client_events.write(ClientMessage {
-            client_id: 0,
-            packet: bytes.into(),
-            kind: MessageKind::Reliable,
-        });
-
-        // TODO: This should not be handled here, server and client should be decoupled
-        commands.write_message(NewConnection::Server(
-            None,
-            ConnectionStage::SignOn(SignOnStage::Prespawn),
-        ));
-
-        Default::default()
-    }
-
-    app.command(cmd_map);
 }

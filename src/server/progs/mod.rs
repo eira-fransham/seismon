@@ -98,20 +98,19 @@ pub mod globals;
 mod ops;
 mod string_table;
 
-use std::{
-    fmt,
-    io::{Read, Seek, SeekFrom},
-    iter,
-    result::Result as StdResult,
-};
+use std::{fmt, io::SeekFrom, iter, result::Result as StdResult};
 
 use crate::{
-    common::{bsp::BspError, console::ConsoleError, net::NetError},
-    server::world::{EntityError, EntityTypeDef},
+    common::{console::ConsoleError, net::NetError},
+    server::world::{EntityError, EntityTypeDef, hull::HullError},
 };
 
-use bevy::prelude::*;
-use byteorder::{LittleEndian, ReadBytesExt};
+use bevy::{
+    asset::{AssetLoader, LoadContext, io::Reader},
+    prelude::*,
+};
+use futures::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
+use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use snafu::{Backtrace, prelude::*};
@@ -175,8 +174,8 @@ pub enum ProgsError {
         backtrace: Backtrace,
     },
     #[snafu(context(false))]
-    Bsp {
-        source: BspError,
+    Hull {
+        source: HullError,
         backtrace: Backtrace,
     },
     CallStackOverflow {
@@ -386,213 +385,260 @@ impl fmt::Display for FieldDefFormatter<'_> {
     }
 }
 
-/// The values returned by loading a `progs.dat` file.
-pub struct LoadProgs {
+/// A parsed `progs.dat` file.
+///
+/// Levels should start from a clone of this, so that each level gets a fresh VM state (as Quake
+/// does in `SV_SpawnServer`).
+#[derive(Asset, TypePath, Clone)]
+pub struct ProgsAsset {
     pub cx: ExecutionContext,
     pub globals: Globals,
     pub entity_def: EntityTypeDef,
     pub string_table: StringTable,
 }
 
-/// Loads all data from a `progs.dat` file.
-///
-/// This returns objects representing the necessary context to execute QuakeC bytecode.
-pub fn load<R>(mut src: R) -> Result<LoadProgs>
-where
-    R: Read + Seek,
-{
-    assert!(src.read_i32::<LittleEndian>()? == VERSION);
-    assert!(src.read_i32::<LittleEndian>()? == CRC);
+impl ProgsAsset {
+    /// Loads all data from a `progs.dat` file.
+    ///
+    /// This returns objects representing the necessary context to execute QuakeC bytecode.
+    async fn load<R>(src: &mut R) -> Result<ProgsAsset>
+    where
+        R: AsyncRead + AsyncSeek + Unpin,
+    {
+        let mut src = AsyncReadBytes::new(src);
 
-    let mut lumps = [Lump { offset: 0, count: 0 }; LUMP_COUNT];
+        assert!(src.read_i32::<LittleEndian>().await? == VERSION);
+        assert!(src.read_i32::<LittleEndian>().await? == CRC);
 
-    for (i, lump) in lumps.iter_mut().enumerate() {
-        *lump = Lump {
-            offset: src.read_i32::<LittleEndian>()? as usize,
-            count: src.read_i32::<LittleEndian>()? as usize,
-        };
+        let mut lumps = [Lump { offset: 0, count: 0 }; LUMP_COUNT];
 
-        debug!("{:?}: {:?}", i, lump);
-    }
+        for (i, lump) in lumps.iter_mut().enumerate() {
+            *lump = Lump {
+                offset: src.read_i32::<LittleEndian>().await? as usize,
+                count: src.read_i32::<LittleEndian>().await? as usize,
+            };
 
-    let ent_addr_count = src.read_i32::<LittleEndian>()? as usize;
-    debug!("Field count: {}", ent_addr_count);
+            debug!("{:?}: {:?}", i, lump);
+        }
 
-    // Read string data and construct StringTable
+        let ent_addr_count = src.read_i32::<LittleEndian>().await? as usize;
+        debug!("Field count: {}", ent_addr_count);
 
-    let string_lump = &lumps[LumpId::Strings as usize];
-    src.seek(SeekFrom::Start(string_lump.offset as u64))?;
-    let mut strings = Vec::new();
-    (&mut src).take(string_lump.count as u64).read_to_end(&mut strings)?;
-    let string_table = StringTable::new(strings);
+        // Read string data and construct StringTable
 
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start((string_lump.offset + string_lump.count) as u64,))?
-    );
+        let string_lump = &lumps[LumpId::Strings as usize];
+        src.seek(SeekFrom::Start(string_lump.offset as u64)).await?;
+        let mut strings = Vec::new();
+        (&mut *src).take(string_lump.count as u64).read_to_end(&mut strings).await?;
+        let string_table = StringTable::new(strings);
 
-    // Read function definitions and statements and construct Functions
-
-    let function_lump = &lumps[LumpId::Functions as usize];
-    src.seek(SeekFrom::Start(function_lump.offset as u64))?;
-    let mut function_defs = Vec::with_capacity(function_lump.count);
-    for i in 0..function_lump.count {
         assert_eq!(
-            src.stream_position()?,
-            src.seek(SeekFrom::Start((function_lump.offset + i * FUNCTION_SIZE) as u64,))?
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start((string_lump.offset + string_lump.count) as u64,)).await?
         );
 
-        let kind = match src.read_i32::<LittleEndian>()? {
-            x if x < 0 => match BuiltinFunctionId::from_i32(-x) {
-                Some(f) => FunctionKind::BuiltIn(f),
-                None => {
-                    return Err(ProgsError::with_msg(format!(
-                        "Invalid built-in function ID {}",
-                        -x
-                    )));
-                }
-            },
-            x => FunctionKind::QuakeC(x as usize),
+        // Read function definitions and statements and construct Functions
+
+        let function_lump = &lumps[LumpId::Functions as usize];
+        src.seek(SeekFrom::Start(function_lump.offset as u64)).await?;
+        let mut function_defs = Vec::with_capacity(function_lump.count);
+        for i in 0..function_lump.count {
+            assert_eq!(
+                src.stream_position().await?,
+                src.seek(SeekFrom::Start((function_lump.offset + i * FUNCTION_SIZE) as u64,))
+                    .await?
+            );
+
+            let kind = match src.read_i32::<LittleEndian>().await? {
+                x if x < 0 => match BuiltinFunctionId::from_i32(-x) {
+                    Some(f) => FunctionKind::BuiltIn(f),
+                    None => {
+                        return Err(ProgsError::with_msg(format!(
+                            "Invalid built-in function ID {}",
+                            -x
+                        )));
+                    }
+                },
+                x => FunctionKind::QuakeC(x as usize),
+            };
+
+            let arg_start = src.read_i32::<LittleEndian>().await?;
+            let locals = src.read_i32::<LittleEndian>().await?;
+
+            // throw away profile variable
+            let _ = src.read_i32::<LittleEndian>().await?;
+
+            let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>().await?)?;
+            let srcfile_id = string_table.id_from_i32(src.read_i32::<LittleEndian>().await?)?;
+
+            let argc = src.read_i32::<LittleEndian>().await?;
+            let mut argsz = [0; MAX_ARGS];
+            src.read_exact(&mut argsz).await?;
+
+            function_defs.push(FunctionDef {
+                kind,
+                arg_start: arg_start as usize,
+                locals: locals as usize,
+                name_id,
+                srcfile_id,
+                argc: argc as usize,
+                argsz,
+            });
+        }
+
+        assert_eq!(
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start(
+                (function_lump.offset + function_lump.count * FUNCTION_SIZE) as u64,
+            ))
+            .await?
+        );
+
+        let statement_lump = &lumps[LumpId::Statements as usize];
+        src.seek(SeekFrom::Start(statement_lump.offset as u64)).await?;
+        let mut statements = Vec::with_capacity(statement_lump.count);
+        for _ in 0..statement_lump.count {
+            statements.push(Statement::new(
+                src.read_i16::<LittleEndian>().await?,
+                src.read_i16::<LittleEndian>().await?,
+                src.read_i16::<LittleEndian>().await?,
+                src.read_i16::<LittleEndian>().await?,
+            )?);
+        }
+
+        assert_eq!(
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start(
+                (statement_lump.offset + statement_lump.count * STATEMENT_SIZE) as u64,
+            ))
+            .await?
+        );
+
+        let functions = Functions {
+            defs: function_defs.into_boxed_slice(),
+            statements: statements.into_boxed_slice(),
         };
 
-        let arg_start = src.read_i32::<LittleEndian>()?;
-        let locals = src.read_i32::<LittleEndian>()?;
-
-        // throw away profile variable
-        let _ = src.read_i32::<LittleEndian>()?;
-
-        let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
-        let srcfile_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
-
-        let argc = src.read_i32::<LittleEndian>()?;
-        let mut argsz = [0; MAX_ARGS];
-        src.read_exact(&mut argsz)?;
-
-        function_defs.push(FunctionDef {
-            kind,
-            arg_start: arg_start as usize,
-            locals: locals as usize,
-            name_id,
-            srcfile_id,
-            argc: argc as usize,
-            argsz,
-        });
-    }
-
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (function_lump.offset + function_lump.count * FUNCTION_SIZE) as u64,
-        ))?
-    );
-
-    let statement_lump = &lumps[LumpId::Statements as usize];
-    src.seek(SeekFrom::Start(statement_lump.offset as u64))?;
-    let mut statements = Vec::with_capacity(statement_lump.count);
-    for _ in 0..statement_lump.count {
-        statements.push(Statement::new(
-            src.read_i16::<LittleEndian>()?,
-            src.read_i16::<LittleEndian>()?,
-            src.read_i16::<LittleEndian>()?,
-            src.read_i16::<LittleEndian>()?,
-        )?);
-    }
-
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (statement_lump.offset + statement_lump.count * STATEMENT_SIZE) as u64,
-        ))?
-    );
-
-    let functions = Functions {
-        defs: function_defs.into_boxed_slice(),
-        statements: statements.into_boxed_slice(),
-    };
-
-    let globaldef_lump = &lumps[LumpId::GlobalDefs as usize];
-    src.seek(SeekFrom::Start(globaldef_lump.offset as u64))?;
-    let mut globaldefs = Vec::new();
-    for _ in 0..globaldef_lump.count {
-        let type_ = src.read_u16::<LittleEndian>()?;
-        let offset = src.read_u16::<LittleEndian>()?;
-        let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
-        let debug_name = format!("{}", string_table.get(name_id).unwrap_or_default());
-        globaldefs.push(GlobalDef {
-            _save: type_ & SAVE_GLOBAL != 0,
-            type_: Type::from_u16(type_ & !SAVE_GLOBAL).unwrap(),
-            offset,
-            name_id,
-            debug_name,
-        });
-    }
-
-    globaldefs.sort_by_key(|def| def.offset);
-
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start(
-            (globaldef_lump.offset + globaldef_lump.count * DEF_SIZE) as u64,
-        ))?
-    );
-
-    let fielddef_lump = &lumps[LumpId::Fielddefs as usize];
-    src.seek(SeekFrom::Start(fielddef_lump.offset as u64))?;
-    let mut field_defs = Vec::new();
-    for _ in 0..fielddef_lump.count {
-        let type_ = src.read_u16::<LittleEndian>()?;
-        let offset = src.read_u16::<LittleEndian>()?;
-        let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>()?)?;
-
-        if type_ & SAVE_GLOBAL != 0 {
-            return Err(ProgsError::with_msg("Save flag not allowed in field definitions"));
+        let globaldef_lump = &lumps[LumpId::GlobalDefs as usize];
+        src.seek(SeekFrom::Start(globaldef_lump.offset as u64)).await?;
+        let mut globaldefs = Vec::new();
+        for _ in 0..globaldef_lump.count {
+            let type_ = src.read_u16::<LittleEndian>().await?;
+            let offset = src.read_u16::<LittleEndian>().await?;
+            let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>().await?)?;
+            let debug_name = format!("{}", string_table.get(name_id).unwrap_or_default());
+            globaldefs.push(GlobalDef {
+                _save: type_ & SAVE_GLOBAL != 0,
+                type_: Type::from_u16(type_ & !SAVE_GLOBAL).unwrap(),
+                offset,
+                name_id,
+                debug_name,
+            });
         }
-        field_defs.push(FieldDef { type_: Type::from_u16(type_).unwrap(), offset, name_id });
+
+        globaldefs.sort_by_key(|def| def.offset);
+
+        assert_eq!(
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start(
+                (globaldef_lump.offset + globaldef_lump.count * DEF_SIZE) as u64,
+            ))
+            .await?
+        );
+
+        let fielddef_lump = &lumps[LumpId::Fielddefs as usize];
+        src.seek(SeekFrom::Start(fielddef_lump.offset as u64)).await?;
+        let mut field_defs = Vec::new();
+        for _ in 0..fielddef_lump.count {
+            let type_ = src.read_u16::<LittleEndian>().await?;
+            let offset = src.read_u16::<LittleEndian>().await?;
+            let name_id = string_table.id_from_i32(src.read_i32::<LittleEndian>().await?)?;
+
+            if type_ & SAVE_GLOBAL != 0 {
+                return Err(ProgsError::with_msg("Save flag not allowed in field definitions"));
+            }
+            field_defs.push(FieldDef { type_: Type::from_u16(type_).unwrap(), offset, name_id });
+        }
+
+        assert_eq!(
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start(
+                (fielddef_lump.offset + fielddef_lump.count * DEF_SIZE) as u64,
+            ))
+            .await?
+        );
+
+        let globals_lump = &lumps[LumpId::Globals as usize];
+        src.seek(SeekFrom::Start(globals_lump.offset as u64)).await?;
+
+        if globals_lump.count < GLOBAL_STATIC_COUNT {
+            return Err(ProgsError::with_msg("Global count lower than static global count"));
+        }
+
+        let mut addrs = Vec::with_capacity(globals_lump.count);
+        for _ in 0..globals_lump.count {
+            let mut block = [0; 4];
+            src.read_exact(&mut block).await?;
+
+            // TODO: handle endian conversions (BigEndian systems should use BigEndian internally)
+            addrs.push(block);
+        }
+
+        assert_eq!(
+            src.stream_position().await?,
+            src.seek(SeekFrom::Start((globals_lump.offset + globals_lump.count * 4) as u64,))
+                .await?
+        );
+
+        let cx = ExecutionContext::create(functions);
+
+        let globals = Globals::new(globaldefs.into_boxed_slice(), addrs.into_boxed_slice());
+
+        let entity_def = EntityTypeDef::new(ent_addr_count, field_defs.into_boxed_slice())?;
+
+        Ok(ProgsAsset { cx, globals, entity_def, string_table })
     }
-
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start((fielddef_lump.offset + fielddef_lump.count * DEF_SIZE) as u64,))?
-    );
-
-    let globals_lump = &lumps[LumpId::Globals as usize];
-    src.seek(SeekFrom::Start(globals_lump.offset as u64))?;
-
-    if globals_lump.count < GLOBAL_STATIC_COUNT {
-        return Err(ProgsError::with_msg("Global count lower than static global count"));
-    }
-
-    let mut addrs = Vec::with_capacity(globals_lump.count);
-    for _ in 0..globals_lump.count {
-        let mut block = [0; 4];
-        src.read_exact(&mut block)?;
-
-        // TODO: handle endian conversions (BigEndian systems should use BigEndian internally)
-        addrs.push(block);
-    }
-
-    assert_eq!(
-        src.stream_position()?,
-        src.seek(SeekFrom::Start((globals_lump.offset + globals_lump.count * 4) as u64,))?
-    );
-
-    let cx = ExecutionContext::create(functions);
-
-    let globals = Globals::new(globaldefs.into_boxed_slice(), addrs.into_boxed_slice());
-
-    let entity_def = EntityTypeDef::new(ent_addr_count, field_defs.into_boxed_slice())?;
-
-    Ok(LoadProgs { cx, globals, entity_def, string_table })
 }
 
-#[derive(Debug)]
+/// Loads `progs.dat` as a [`ProgsAsset`].
+#[derive(Default, TypePath)]
+pub struct ProgsLoader;
+
+impl AssetLoader for ProgsLoader {
+    type Asset = ProgsAsset;
+    type Settings = ();
+    type Error = ProgsError;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset> {
+        // `ProgsAsset::load` needs to seek in order to follow lump offsets.
+        match reader.seekable() {
+            Ok(mut reader) => ProgsAsset::load(&mut reader).await,
+            Err(_) => {
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes).await?;
+                ProgsAsset::load(&mut futures::io::Cursor::new(bytes)).await
+            }
+        }
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["dat"]
+    }
+}
+
+#[derive(Debug, Clone)]
 struct StackFrame {
     instr_id: usize,
     func_id: FunctionId,
 }
 
 /// A QuakeC VM context.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExecutionContext {
     functions: Functions,
     pc: usize,

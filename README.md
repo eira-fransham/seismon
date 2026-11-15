@@ -208,3 +208,7 @@ Due to licensing restrictions, the data files necessary to run Quake cannot be d
 package. `pak0.pak`, which contains the files for the first episode ("shareware Quake"), can be
 retrieved from id's FTP server at `ftp://ftp.idsoftware.com/idstuff/quake`. The full game can be
 purchased from a number of retailers including Steam and GOG.
+
+## AI Disclosure
+
+Claude Code was used for porting between Bevy versions, as well as for help diagnosing issues and some refactoring work that does not affect behaviour. All design and behaviour-relevant implementation work was and is done by hand.

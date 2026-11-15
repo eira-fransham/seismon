@@ -492,6 +492,17 @@ pub struct EntityTypeDef {
     name_cache: Mutex<LRUCache<FieldDefCacheEntry, 16>>,
 }
 
+impl Clone for EntityTypeDef {
+    fn clone(&self) -> Self {
+        Self {
+            addr_count: self.addr_count,
+            field_defs: self.field_defs.clone(),
+            // We can ignore this when cloning, since it's just a cache
+            name_cache: default(),
+        }
+    }
+}
+
 impl EntityTypeDef {
     pub fn new(
         addr_count: usize,

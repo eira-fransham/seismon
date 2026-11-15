@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use seismon_utils::QStr;
 use std::str;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringTable {
     /// Interned string data.
     data: Vec<u8>,

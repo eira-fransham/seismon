@@ -23,7 +23,7 @@ use std::{
     process::exit,
 };
 
-use seismon::common::pak::Pak;
+use bevy_mod_pakfile::Pak;
 
 use clap::Parser;
 

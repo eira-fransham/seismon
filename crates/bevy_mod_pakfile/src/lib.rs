@@ -23,7 +23,7 @@ use bevy_asset::{
 use bevy_log as log;
 use futures::StreamExt as _;
 use hashbrown::HashSet;
-use pak::Pak;
+pub use pak::{Pak, PakError};
 use tokio::sync::SetOnce;
 
 mod pak;

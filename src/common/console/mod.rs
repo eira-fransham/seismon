@@ -38,7 +38,7 @@ use crate::client::{
     input::{InputFocus, game::Trigger},
 };
 
-use super::{parse, vfs::Vfs};
+use super::parse;
 
 #[derive(Default)]
 pub struct SeismonConsoleCorePlugin<T = PostUpdate>(pub T)
@@ -145,20 +145,7 @@ pub struct SeismonConsoleRenderPlugin;
 
 impl Plugin for SeismonConsoleRenderPlugin {
     fn build(&self, app: &mut App) {
-        let vfs = app.world().resource::<Vfs>();
-
-        let mut history = lined::History::default();
-
-        // TODO: Remove `Vfs`
-        if let Ok(history_path) = vfs.find_writable_filename("history.cfg") {
-            match history.set_file_name_and_load_history(history_path) {
-                Ok(_) => history.inc_append = true,
-                Err(e) => {
-                    warn!(target: "console", "Error loading history: {}", e);
-                    history = lined::History::default();
-                }
-            }
-        }
+        warn!(target: "console", "Console history unimplemented for now");
 
         fn resize_small(mut console_ui: Query<&mut Node, With<ConsoleUi>>) {
             for mut style in &mut console_ui {
@@ -175,7 +162,7 @@ impl Plugin for SeismonConsoleRenderPlugin {
         app.add_plugins(SeismonConsoleCorePlugin::new())
             .add_message::<UnhandledCmd>()
             .init_resource::<ConsoleOutput>()
-            .insert_resource(ConsoleInput::new(history).unwrap())
+            .insert_resource(ConsoleInput::new(Default::default()).unwrap())
             .init_resource::<RenderConsoleOutput>()
             .init_resource::<RenderConsoleInput>()
             .init_resource::<ConsoleAlertSettings>()

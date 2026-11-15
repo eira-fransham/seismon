@@ -20,10 +20,7 @@
 
 mod music;
 
-use bevy::{
-    app::{Main, Plugin},
-    prelude::*,
-};
+use bevy::{app::Plugin, prelude::*};
 use bevy_seedling::prelude::*;
 
 pub use music::MusicPlayer;
@@ -119,7 +116,7 @@ impl Plugin for SeismonSoundPlugin {
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
             .add_message::<MixerMessage>()
-            .add_systems(Main, systems::update_mixer);
+            .add_systems(Update, systems::update_mixer);
     }
 }
 

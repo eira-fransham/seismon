@@ -16,6 +16,5 @@ byteorder.workspace = true
 futures.workspace = true
 futures-byteorder.workspace = true
 nom.workspace = true
-num.workspace = true
 num-derive.workspace = true
 num-traits.workspace = true

@@ -36,22 +36,31 @@ use thiserror::Error;
 const PAK_MAGIC: &[u8; 4] = b"PACK";
 const PAK_ENTRY_SIZE: u32 = 64;
 
+/// An error encountered while parsing a `.pak` archive.
 #[derive(Error, Debug)]
 pub enum PakError {
+    /// The archive could not be read.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
+    /// The archive had an unexpected magic number (should be `PACK` in ASCII).
     #[error("Invalid magic number: {0:?}")]
     InvalidMagicNumber([u8; 4]),
+    /// The offset of the file table was <= 0.
     #[error("Invalid file table offset: {0}")]
     InvalidTableOffset(i32),
+    /// The size of the file table was not a multiple of the entry size.
     #[error("Invalid file table size: {0}")]
     InvalidTableSize(u32),
+    /// The offset of a file was not positive.
     #[error("Invalid file offset: {0}")]
     InvalidFileOffset(i32),
+    /// The size of a file was not positive.
     #[error("Invalid file size: {0}")]
     InvalidFileSize(i32),
+    /// A file name was longer than 56 bytes.
     #[error("File name too long: {0}")]
     FileNameTooLong(String),
+    /// A file name was not valid UTF-8.
     #[error("Non-UTF-8 file name: {0}")]
     NonUtf8FileName(#[from] std::string::FromUtf8Error),
 }
@@ -180,10 +189,32 @@ impl AssetReader for Pak {
 }
 
 impl Pak {
+    /// The name of this archive (usually its path).
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Opens the `.pak` file at `path` by memory-mapping it.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, PakError> {
+        let path = path.as_ref();
+
+        // Safety: See `PakSource::load_pak`. The file is only ever accessed as a blob of bytes,
+        // but since it means data can change behind a `&` reference it is technically unsound
+        // to open a memmap for any purpose.
+        let mmap = unsafe { Mmap::map(&std::fs::File::open(path)?)? };
+
+        Self::from_backing(path.display(), mmap)
+    }
+
+    /// Iterates over the paths and contents of every file in this archive.
+    pub fn iter(&self) -> impl Iterator<Item = (&Path, &[u8])> + '_ {
+        self.entries.iter().filter_map(|(path, entry)| match entry {
+            PakEntry::File(range) => Some((&**path, &self.memory.as_ref()[range.clone()])),
+            PakEntry::Directory(_) => None,
+        })
+    }
+
+    /// Parses an archive from its bytes.
     pub fn from_backing<S: ToString, B: Into<PakBacking>>(
         name: S,
         bytes: B,

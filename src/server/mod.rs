@@ -32,23 +32,21 @@ use std::{
 
 use crate::{
     common::{
-        bsp::BspLeafContents,
         console::{Registry, RunCmd, SeismonConsoleCorePlugin},
         math::{CollisionResult, Hyperplane},
-        model::Model,
-        net::{
-            ClientMessage, EntityState, InMemoryMessagingClient, InMemoryMessagingServer,
-            ServerCmd, ServerMessage, in_memory_messaging,
-        },
+        net::{ClientMessage, EntityState, ServerCmd, ServerMessage},
         parse,
-        vfs::Vfs,
     },
     server::{
         progs::{
             GlobalAddrFunction,
             functions::{BuiltinFunctionId, FunctionKind},
         },
-        world::{FieldAddrEntityId, FieldAddrVector, MoveKind},
+        world::{
+            FieldAddrEntityId, FieldAddrVector, MoveKind,
+            hull::{BrushModel, BspLeafContents},
+            model::Model,
+        },
     },
 };
 
@@ -56,7 +54,8 @@ use self::{
     precache::Precache,
     progs::{
         EntityFieldAddr, EntityId, ExecutionContext, FunctionId, GlobalAddrEntity, GlobalAddrFloat,
-        GlobalAddrVector, Globals, LoadProgs, Opcode, ProgsError, StringId, StringTable,
+        GlobalAddrVector, Globals, Opcode, ProgsAsset, ProgsError, ProgsLoader, StringId,
+        StringTable,
         globals::{
             GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2, GLOBAL_ADDR_ARG_3,
             GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN,
@@ -70,12 +69,8 @@ use self::{
 
 use anyhow::bail;
 use arrayvec::ArrayVec;
-use bevy::{
-    app::{AppLabel, FixedMain, MainSchedulePlugin},
-    prelude::*,
-    shape::Aabb3d,
-    time::TimePlugin,
-};
+use bevy::{prelude::*, shape::Aabb3d};
+use bevy_trenchbroom::bsp::Bsp;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, WriteBytesExt as _};
 use hashbrown::{HashMap, HashSet};
@@ -84,6 +79,9 @@ use num::FromPrimitive;
 use seismon_utils::{QStr, QString, duration_from_f32, duration_to_f32};
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
+
+use crate::client::{ConnectionStage, NewConnection};
+use crate::common::net::SignOnStage;
 
 /// The destination of a message in the `Write*` family of QuakeC fns
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
@@ -127,100 +125,85 @@ const TICK_RATE: f32 = 0.05;
 #[derive(Default, Copy, Clone)]
 pub struct SeismonServerPlugin;
 
+/// Enable running a listen server that the local client can connect to directly,
+/// e.g. for single-player games.
 #[derive(Default, Copy, Clone)]
 pub struct SeismonListenServerPlugin;
 
+/// Notify the local client that the server has initiated a level load.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct LocalLevelStarted;
+
 impl Plugin for SeismonListenServerPlugin {
     fn build(&self, app: &mut App) {
-        use bevy::ecs::schedule::ScheduleLabel as _;
-
-        pub fn server_send_to_client(
-            mut sender: ResMut<InMemoryMessagingServer>,
-            mut server_events: MessageReader<ServerMessage>,
+        /// Connect the local client to the level that the local server just started loading.
+        fn connect_to_local_server(
+            mut client_messages: ResMut<Messages<ClientMessage>>,
+            mut server_messages: ResMut<Messages<ServerMessage>>,
+            mut new_connection: MessageWriter<NewConnection>,
         ) {
-            for event in server_events.read().cloned() {
-                sender.send(event);
+            // Drop any messages that were sent to or from the previous level.
+            client_messages.clear();
+            server_messages.clear();
+
+            new_connection
+                .write(NewConnection::Server(None, ConnectionStage::SignOn(SignOnStage::Prespawn)));
+        }
+
+        fn shutdown_on_remote_connect(
+            mut commands: Commands,
+            mut new_connections: MessageReader<NewConnection>,
+        ) {
+            // If we connect to a remote server, i.e. `NewConnection::Server` with a `QSocket`,
+            // shut down the listen server session.
+            if new_connections.read().any(|conn| matches!(conn, NewConnection::Server(Some(_), _)))
+            {
+                commands.remove_resource::<Session>();
+                commands.remove_resource::<PendingLevel>();
             }
         }
 
-        pub fn server_recv_from_client(
-            mut receiver: ResMut<InMemoryMessagingServer>,
-            mut client_events: MessageWriter<ClientMessage>,
-        ) {
-            client_events.write_batch(receiver.recv());
-        }
-
-        pub fn client_send_to_server(
-            mut sender: ResMut<InMemoryMessagingClient>,
-            mut client_events: MessageReader<ClientMessage>,
-        ) {
-            for event in client_events.read().cloned() {
-                sender.send(event);
-            }
-        }
-
-        pub fn client_recv_from_server(
-            mut receiver: ResMut<InMemoryMessagingClient>,
-            mut server_events: MessageWriter<ServerMessage>,
-        ) {
-            server_events.write_batch(receiver.recv());
-        }
-
-        #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, AppLabel)]
-        struct ServerApp;
-
-        let (client_messaging, server_messaging) = in_memory_messaging();
-        app.add_message::<ServerMessage>()
-            .add_message::<ClientMessage>()
-            .insert_resource(client_messaging)
-            .add_systems(First, client_recv_from_server)
-            .add_systems(Last, client_send_to_server);
-
-        let asset_server = app.world().resource::<AssetServer>().clone();
-        let app_type_registry = app.world().resource::<AppTypeRegistry>().clone();
-        let vfs = app.world().resource::<Vfs>().clone();
-
-        let mut server_sub_app = SubApp::new();
-        server_sub_app
-            .add_plugins(MainSchedulePlugin)
-            .insert_resource(app_type_registry)
-            .insert_resource(asset_server)
-            .insert_resource(vfs)
-            .insert_resource(server_messaging)
-            .add_systems(FixedFirst, server_recv_from_client)
-            .add_systems(FixedLast, server_send_to_client)
-            .add_plugins(SeismonServerPlugin)
-            .add_plugins(TimePlugin);
-
-        server_sub_app.update_schedule = Some(FixedMain.intern());
-
-        // server_sub_app.set_extract(|client_world, server_world| {
-        //     server_world.resource_mut::<Messages<ClientMessage>>().write_batch(
-        //         client_world
-        //             .resource::<Messages<ClientMessage>>()
-        //             .iter_current_update_messages()
-        //             .cloned(),
-        //     );
-        //     client_world.resource_mut::<Messages<ServerMessage>>().write_batch(
-        //         server_world
-        //             .resource::<Messages<ServerMessage>>()
-        //             .iter_current_update_messages()
-        //             .cloned(),
-        //     );
-        // });
-
-        app.insert_sub_app(ServerApp, server_sub_app);
+        app.add_plugins(SeismonServerPlugin).add_systems(
+            Last,
+            (
+                connect_to_local_server.run_if(on_message::<LocalLevelStarted>),
+                shutdown_on_remote_connect.run_if(on_message::<NewConnection>),
+            ),
+        );
     }
 }
 
 impl Plugin for SeismonServerPlugin {
     fn build(&self, app: &mut App) {
-        // TODO: Should we share consoles between client and server? Seems like it'd be better to
-        // keep them separate.
-        app.init_resource::<Vfs>()
+        // The console is shared with the client if both are running in the same app.
+        if !app.is_plugin_added::<SeismonConsoleCorePlugin>() {
+            app.add_plugins(SeismonConsoleCorePlugin::new());
+        }
+
+        assert!(
+            app.world().contains_resource::<Assets<Bsp>>(),
+            // TODO: We can probably just re-register the asset or even simply re-add
+            // `TrenchBroomPlugins`.
+            "`TrenchBroomPlugins` should be added before `SeismonServerPlugin`",
+        );
+
+        app.init_asset::<ProgsAsset>()
+            .init_asset_loader::<ProgsLoader>()
             .add_systems(FixedPreUpdate, systems::recv_client_messages)
             .add_systems(
-                FixedMain,
+                Update,
+                systems::advance_pending_level
+                    .pipe(|In(res), mut commands: Commands| {
+                        if let Err(e) = res {
+                            error!("Failed loading level: {e:#}");
+                            commands.remove_resource::<PendingLevel>();
+                            commands.write_message(RunCmd::from("startdemos"));
+                        }
+                    })
+                    .run_if(resource_exists::<PendingLevel>),
+            )
+            .add_systems(
+                FixedUpdate,
                 (
                     systems::server_update,
                     systems::server_spawn.pipe(
@@ -239,8 +222,8 @@ impl Plugin for SeismonServerPlugin {
             )
             .add_message::<ClientMessage>()
             .add_message::<ServerMessage>()
-            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _))
-            .add_plugins(SeismonConsoleCorePlugin(FixedPostUpdate));
+            .add_message::<LocalLevelStarted>()
+            .insert_resource(Time::<Fixed>::from_seconds(TICK_RATE as _));
 
         commands::register_commands(app);
         cvars::register_cvars(app);
@@ -422,6 +405,17 @@ pub enum SessionState {
     Active,
 }
 
+/// A level which is waiting for its assets to load before it can be spawned.
+///
+/// See `systems::advance_pending_level`.
+#[derive(Resource)]
+pub struct PendingLevel {
+    /// The path of the map, e.g. `maps/e1m1.bsp`.
+    map_name: String,
+    bsp: Handle<Bsp>,
+    progs: Handle<ProgsAsset>,
+}
+
 /// A server instance.
 #[derive(Resource)]
 pub struct Session {
@@ -435,15 +429,14 @@ impl Session {
         bsp_name: String,
         max_clients: usize,
         registry: Mut<Registry>,
-        vfs: &Vfs,
-        progs: LoadProgs,
+        progs: ProgsAsset,
         models: Vec<Model>,
         entmap: String,
     ) -> Session {
         Session {
             persist: SessionPersistent::new(max_clients),
             state: SessionState::Loading,
-            level: LevelState::new(bsp_name, progs, models, entmap, registry, vfs),
+            level: LevelState::new(bsp_name, progs, models, entmap, registry),
         }
     }
 
@@ -465,7 +458,6 @@ impl Session {
         // TODO: Handle client slot
         _slot: usize,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> anyhow::Result<()> {
         let Some(client) = self.persist.client_slots.find_available() else {
             // TODO: Error handling
@@ -474,7 +466,7 @@ impl Session {
 
         let set_new_args =
             self.level.globals.get_function_id(GlobalAddrFunction::SetNewArgs as i16)?;
-        self.level.execute_program(set_new_args, registry.reborrow(), vfs)?;
+        self.level.execute_program(set_new_args, registry.reborrow())?;
 
         for (i, arg_addr) in SPAWN_PARAM_ADDRS.iter().enumerate() {
             client.spawn_params[i] = self.level.globals.load(*arg_addr)?;
@@ -521,7 +513,6 @@ impl Session {
         &mut self,
         slot: usize,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> anyhow::Result<()> {
         let client_entity = self.level.world.alloc_uninitialized_reserved()?;
 
@@ -542,14 +533,14 @@ impl Session {
         self.level.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.level.time))?;
         let client_connect =
             self.level.globals.get_function_id(GlobalAddrFunction::ClientConnect as i16)?;
-        self.level.execute_program(client_connect, registry.reborrow(), vfs)?;
+        self.level.execute_program(client_connect, registry.reborrow())?;
 
         self.level.globals.store(GlobalAddrEntity::Self_, client_entity)?;
         self.level.globals.store(GlobalAddrEntity::World, EntityId(0))?;
         self.level.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.level.time))?;
         let put_client_in_server =
             self.level.globals.get_function_id(GlobalAddrFunction::PutClientInServer as i16)?;
-        self.level.execute_program(put_client_in_server, registry.reborrow(), vfs)?;
+        self.level.execute_program(put_client_in_server, registry.reborrow())?;
 
         Ok(())
     }
@@ -731,13 +722,12 @@ fn angle_vectors(angles: Vec3, movement: Vec3) -> Vec3 {
 impl LevelState {
     pub fn new(
         map_path: String,
-        progs: LoadProgs,
+        progs: ProgsAsset,
         models: Vec<Model>,
         entmap: String,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> LevelState {
-        let LoadProgs { cx, mut globals, entity_def, mut string_table } = progs;
+        let ProgsAsset { cx, mut globals, entity_def, mut string_table } = progs;
 
         globals.store(GlobalAddrFloat::FrameTime, TICK_RATE).unwrap();
 
@@ -780,7 +770,7 @@ impl LevelState {
         };
 
         for entity in entity_list {
-            if let Err(e) = level.spawn_entity_from_map(entity, registry.reborrow(), vfs) {
+            if let Err(e) = level.spawn_entity_from_map(entity, registry.reborrow()) {
                 error!("Failed spawning entity: {e}");
             }
         }
@@ -857,7 +847,6 @@ impl LevelState {
         &mut self,
         builtin_id: BuiltinFunctionId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         use BuiltinFunctionId::*;
 
@@ -889,7 +878,7 @@ impl LevelState {
             Cvar => self.builtin_cvar(&registry)?,
             CvarSet => self.builtin_cvar_set(registry.reborrow())?,
             DPrint => self.builtin_dprint()?,
-            DropToFloor => self.builtin_drop_to_floor(registry.reborrow(), vfs)?,
+            DropToFloor => self.builtin_drop_to_floor(registry.reborrow())?,
             EPrint => todo_builtin!(EPrint),
             Error => self.builtin_err("Error")?,
             FAbs => self.globals.builtin_f_abs()?,
@@ -901,7 +890,7 @@ impl LevelState {
             LocalCmd => todo_builtin!(LocalCmd),
             MakeStatic => self.builtin_make_static()?,
             MakeVectors => self.globals.make_vectors()?,
-            MoveToGoal => self.builtin_move_to_goal(registry.reborrow(), vfs)?,
+            MoveToGoal => self.builtin_move_to_goal(registry.reborrow())?,
             NextEnt => todo_builtin!(NextEnt),
             Normalize => self.builtin_normalize()?,
             ObjError => self.builtin_err("Object error")?,
@@ -912,17 +901,17 @@ impl LevelState {
             // Only used in `qcc`, does nothing at runtime
             PrecacheFile2 => {}
             // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
-            PrecacheModel | PrecacheModel2 => self.builtin_precache_model(vfs)?,
+            PrecacheModel | PrecacheModel2 => self.builtin_precache_model()?,
             PrecacheSound | PrecacheSound2 => self.builtin_precache_sound()?,
             Random => self.globals.builtin_random()?,
             Remove => self.builtin_remove()?,
             RInt => self.globals.builtin_r_int()?,
             SetModel => self.builtin_set_model()?,
-            SetOrigin => self.builtin_set_origin(registry.reborrow(), vfs)?,
+            SetOrigin => self.builtin_set_origin(registry.reborrow())?,
             SetSize => self.builtin_set_size()?,
             SetSpawnArgs => todo_builtin!(SetSpawnArgs),
             Sound => self.builtin_sound()?,
-            Spawn => self.builtin_spawn(registry.reborrow(), vfs)?,
+            Spawn => self.builtin_spawn(registry.reborrow())?,
             SPrint => self.builtin_sprint()?,
             StuffCmd => self.builtin_stuffcmd()?,
             TraceLine => self.builtin_trace_line()?,
@@ -932,7 +921,7 @@ impl LevelState {
             VecToYaw => self.globals.builtin_vec_to_yaw()?,
             VLen => self.globals.builtin_v_len()?,
             VToS => self.builtin_vtos()?,
-            WalkMove => self.builtin_walk_move(registry.reborrow(), vfs)?,
+            WalkMove => self.builtin_walk_move(registry.reborrow())?,
             WriteAngle => self.builtin_write_angle()?,
             WriteByte => self.builtin_write_byte()?,
             WriteChar => self.builtin_write_char()?,
@@ -951,7 +940,6 @@ impl LevelState {
         &mut self,
         f: FunctionId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         use Opcode::*;
 
@@ -1043,7 +1031,7 @@ impl LevelState {
                     }
 
                     if let FunctionKind::BuiltIn(b) = def.kind {
-                        self.enter_builtin(b, registry.reborrow(), vfs)?;
+                        self.enter_builtin(b, registry.reborrow())?;
                         debug!(
                             "Returning from built-in function {}",
                             self.string_table.get(name_id).unwrap()
@@ -1122,14 +1110,13 @@ impl LevelState {
         &mut self,
         name: S,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()>
     where
         S: AsRef<str>,
     {
         let name = name.as_ref();
         let func_id = self.cx.find_function_by_name(&self.string_table, name)?;
-        self.execute_program(func_id, registry, vfs)?;
+        self.execute_program(func_id, registry)?;
 
         Ok(())
     }
@@ -1143,21 +1130,20 @@ impl LevelState {
         ent_id: EntityId,
         touch_triggers: bool,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         self.world.link_entity(ent_id)?;
 
         if touch_triggers {
-            self.touch_triggers(ent_id, registry, vfs)?;
+            self.touch_triggers(ent_id, registry)?;
         }
 
         Ok(())
     }
 
-    pub fn spawn_entity(&mut self, registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<EntityId> {
+    pub fn spawn_entity(&mut self, registry: Mut<Registry>) -> progs::Result<EntityId> {
         let ent_id = self.world.alloc_uninitialized()?;
 
-        self.link_entity(ent_id, false, registry, vfs)?;
+        self.link_entity(ent_id, false, registry)?;
 
         self.new_entities.insert(ent_id);
 
@@ -1168,7 +1154,6 @@ impl LevelState {
         &mut self,
         map: I,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<EntityId> {
         let ent_id = self.world.alloc_from_map(&mut self.string_table, map)?;
 
@@ -1182,7 +1167,7 @@ impl LevelState {
         // set `self` before calling spawn function
         self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
         self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-        self.execute_program_by_name(&classname, registry.reborrow(), vfs)?;
+        self.execute_program_by_name(&classname, registry.reborrow())?;
 
         Ok(ent_id)
     }
@@ -1192,10 +1177,9 @@ impl LevelState {
         ent_id: EntityId,
         origin: Vec3,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         self.world.get_mut(ent_id)?.store(FieldAddrVector::Origin, origin)?;
-        self.link_entity(ent_id, false, registry, vfs)?;
+        self.link_entity(ent_id, false, registry)?;
 
         Ok(())
     }
@@ -1239,7 +1223,6 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<bool> {
         loop {
             let mut ent = self.world.get_mut(ent_id)?;
@@ -1259,7 +1242,7 @@ impl LevelState {
             let think = ent.load(FieldAddrFunctionId::Think)?;
             self.globals.store(GlobalAddrFloat::Time, think_time)?;
             self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
-            self.execute_program(think, registry.reborrow(), vfs)?;
+            self.execute_program(think, registry.reborrow())?;
 
             if !self.world.exists(ent_id) {
                 return Ok(false);
@@ -1267,7 +1250,7 @@ impl LevelState {
         }
     }
 
-    pub fn start_frame(&mut self, mut registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<()> {
+    pub fn start_frame(&mut self, mut registry: Mut<Registry>) -> progs::Result<()> {
         self.cx.reset();
 
         self.globals.store(GlobalAddrEntity::Self_, EntityId(0))?;
@@ -1276,7 +1259,7 @@ impl LevelState {
         self.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
 
         let start_frame = self.globals.get_function_id(GlobalAddrFunction::StartFrame as i16)?;
-        self.execute_program(start_frame, registry.reborrow(), vfs)?;
+        self.execute_program(start_frame, registry.reborrow())?;
 
         Ok(())
     }
@@ -1287,7 +1270,6 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<CollisionResult<Option<Trace>>> {
         const BUMP_COUNT: usize = 4;
         const MAX_CLIP_PLANES: usize = 5;
@@ -1364,7 +1346,7 @@ impl LevelState {
             }
 
             if let Some(touched_ent_id) = touched_ent_id {
-                self.run_impact_callbacks(ent_id, touched_ent_id, registry.reborrow(), vfs)?;
+                self.run_impact_callbacks(ent_id, touched_ent_id, registry.reborrow())?;
             }
 
             if planes.try_push(plane.clone()).is_err() {
@@ -1400,7 +1382,6 @@ impl LevelState {
         frame_time: Duration,
         server_vars: &ServerVars,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         const ORIGIN_EPSILON: f32 = 0.03125;
 
@@ -1415,7 +1396,7 @@ impl LevelState {
         let water_level = ent.water_level()?;
         let move_kind = ent.move_kind()?;
 
-        let clip = self.physics_player_fly(ent_id, frame_time, registry.reborrow(), vfs)?;
+        let clip = self.physics_player_fly(ent_id, frame_time, registry.reborrow())?;
 
         if
         // Move didn't block on a wall/step.
@@ -1443,9 +1424,9 @@ impl LevelState {
 
         ent.set_velocity(old_velocity.with_z(0.))?;
 
-        self.push_entity(ent_id, upmove, registry.reborrow(), vfs)?;
+        self.push_entity(ent_id, upmove, registry.reborrow())?;
 
-        let clip = self.physics_player_fly(ent_id, frame_time, registry.reborrow(), vfs)?;
+        let clip = self.physics_player_fly(ent_id, frame_time, registry.reborrow())?;
 
         let mut ent = self.world.get(ent_id)?;
         let post_step_origin = ent.origin()?;
@@ -1459,7 +1440,7 @@ impl LevelState {
             error!("TODO: SV_WallFriction");
         }
 
-        let (downtrace, down_ent) = self.push_entity(ent_id, downmove, registry.reborrow(), vfs)?;
+        let (downtrace, down_ent) = self.push_entity(ent_id, downmove, registry.reborrow())?;
         if downtrace.plane().map(|plane| plane.is_floor()).unwrap_or_default() {
             let mut ent = self.world.get_mut(ent_id)?;
             if ent.solid()? == EntitySolid::Bsp {
@@ -1482,38 +1463,35 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let server_vars: ServerVars = registry.read_cvars()?;
 
         let mut ent = self.world.get(ent_id)?;
         match ent.move_kind()? {
             MoveKind::Walk => {
-                self.physics_walk(ent_id, frame_time, &server_vars, registry.reborrow(), vfs)?
+                self.physics_walk(ent_id, frame_time, &server_vars, registry.reborrow())?
             }
 
-            MoveKind::Push => self.physics_push(ent_id, frame_time, registry.reborrow(), vfs)?,
-            MoveKind::NoClip => {
-                self.physics_noclip(ent_id, frame_time, registry.reborrow(), vfs)?
-            }
-            MoveKind::Step => self.physics_step(ent_id, frame_time, vfs, registry.reborrow())?,
+            MoveKind::Push => self.physics_push(ent_id, frame_time, registry.reborrow())?,
+            MoveKind::NoClip => self.physics_noclip(ent_id, frame_time, registry.reborrow())?,
+            MoveKind::Step => self.physics_step(ent_id, frame_time, registry.reborrow())?,
             MoveKind::Fly | MoveKind::FlyMissile => {
-                self.physics_toss(ent_id, frame_time, vfs, registry.reborrow(), false, 1.)?;
+                self.physics_toss(ent_id, frame_time, registry.reborrow(), false, 1.)?;
             }
             MoveKind::Bounce => {
-                self.physics_toss(ent_id, frame_time, vfs, registry.reborrow(), true, 1.5)?
+                self.physics_toss(ent_id, frame_time, registry.reborrow(), true, 1.5)?
             }
             MoveKind::Toss => {
-                self.physics_toss(ent_id, frame_time, vfs, registry.reborrow(), true, 1.)?
+                self.physics_toss(ent_id, frame_time, registry.reborrow(), true, 1.)?
             }
             // No actual physics for this entity, but still let it think.
             MoveKind::None => {
-                self.think(ent_id, frame_time, registry.reborrow(), vfs)?;
+                self.think(ent_id, frame_time, registry.reborrow())?;
             }
 
             MoveKind::AngleNoClip | MoveKind::AngleClip => {
                 warn!("TODO: Fly physics");
-                self.think(ent_id, frame_time, registry.reborrow(), vfs)?;
+                self.think(ent_id, frame_time, registry.reborrow())?;
             }
         }
 
@@ -1525,14 +1503,13 @@ impl LevelState {
         player_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let server_vars: ServerVars = registry.read_cvars()?;
 
         let pre_think = self.globals.load(GlobalAddrFunction::PlayerPreThink)?;
         self.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
         self.globals.store(GlobalAddrEntity::Self_, player_id)?;
-        self.execute_program(pre_think, registry.reborrow(), vfs)?;
+        self.execute_program(pre_think, registry.reborrow())?;
 
         let mut player = self.world.get_mut(player_id)?;
 
@@ -1540,10 +1517,10 @@ impl LevelState {
 
         match player.move_kind()? {
             MoveKind::None => {
-                self.think(player_id, frame_time, registry.reborrow(), vfs)?;
+                self.think(player_id, frame_time, registry.reborrow())?;
             }
             MoveKind::Walk => {
-                if !self.think(player_id, frame_time, registry.reborrow(), vfs)? {
+                if !self.think(player_id, frame_time, registry.reborrow())? {
                     return Ok(());
                 }
 
@@ -1553,17 +1530,17 @@ impl LevelState {
                     ent.velocity()? - Vec3::Z * server_vars.gravity * duration_to_f32(frame_time);
                 ent.set_velocity(with_gravity)?;
 
-                self.physics_walk(player_id, frame_time, &server_vars, registry.reborrow(), vfs)?;
+                self.physics_walk(player_id, frame_time, &server_vars, registry.reborrow())?;
             }
             _ => error!("TODO: Non-walk players"),
         }
 
-        self.link_entity(player_id, true, registry.reborrow(), vfs)?;
+        self.link_entity(player_id, true, registry.reborrow())?;
 
         let post_think = self.globals.load(GlobalAddrFunction::PlayerPostThink)?;
         self.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
         self.globals.store(GlobalAddrEntity::Self_, player_id)?;
-        self.execute_program(post_think, registry, vfs)?;
+        self.execute_program(post_think, registry)?;
 
         Ok(())
     }
@@ -1573,16 +1550,15 @@ impl LevelState {
         clients: &ClientSlots,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<HashMap<EntityId, ProgsError>> {
         self.globals.store(GlobalAddrFloat::FrameTime, duration_to_f32(frame_time))?;
 
-        self.start_frame(registry.reborrow(), vfs)?;
+        self.start_frame(registry.reborrow())?;
 
         let mut ent_error_map = HashMap::<EntityId, ProgsError>::new();
 
         for (_, ClientActive { entity_id, .. }) in clients.active_clients() {
-            if let Err(e) = self.physics_client(*entity_id, frame_time, registry.reborrow(), vfs) {
+            if let Err(e) = self.physics_client(*entity_id, frame_time, registry.reborrow()) {
                 ent_error_map.insert(*entity_id, e);
             }
         }
@@ -1600,7 +1576,7 @@ impl LevelState {
                 // Quake solves this by using a linked list and always spawning
                 // at the end so that newly spawned entities always have physics
                 // run this frame.
-                if let Err(e) = self.link_entity(ent_id, true, registry.reborrow(), vfs) {
+                if let Err(e) = self.link_entity(ent_id, true, registry.reborrow()) {
                     ent_error_map.insert(ent_id, e);
                     continue;
                 }
@@ -1613,7 +1589,7 @@ impl LevelState {
             let max_clients = clients.limit();
             if !ent_id.is_none()
                 && ent_id.0 as usize > max_clients
-                && let Err(e) = self.ent_physics(ent_id, frame_time, registry.reborrow(), vfs)
+                && let Err(e) = self.ent_physics(ent_id, frame_time, registry.reborrow())
             {
                 ent_error_map.insert(ent_id, e);
             }
@@ -1800,7 +1776,6 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let mut ent = self.world.get_mut(ent_id)?;
 
@@ -1816,7 +1791,7 @@ impl LevelState {
         };
 
         if move_time > Duration::ZERO {
-            self.move_push(ent_id, move_time, registry.reborrow(), vfs)?;
+            self.move_push(ent_id, move_time, registry.reborrow())?;
         }
 
         let mut ent = self.world.get_mut(ent_id)?;
@@ -1832,7 +1807,7 @@ impl LevelState {
             self.globals.store(GlobalAddrFloat::Time, duration_to_f32(self.time))?;
             self.globals.store(GlobalAddrEntity::Self_, ent_id)?;
             self.globals.store(GlobalAddrEntity::Other, EntityId(0))?;
-            self.execute_program(think, registry, vfs)?;
+            self.execute_program(think, registry)?;
         }
 
         Ok(())
@@ -1843,7 +1818,6 @@ impl LevelState {
         ent_id: EntityId,
         frame_time: Duration,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let mut ent = self.world.get_mut(ent_id)?;
 
@@ -1875,7 +1849,7 @@ impl LevelState {
             self.globals.put_entity_id(EntityId(0), GlobalAddrEntity::Other as i16)?;
             self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
 
-            self.think(ent_id, frame_time, registry, vfs)?;
+            self.think(ent_id, frame_time, registry)?;
         }
 
         Ok(())
@@ -1885,7 +1859,6 @@ impl LevelState {
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
-        vfs: &Vfs,
         mut registry: Mut<Registry>,
     ) -> progs::Result<()> {
         let ServerVars { gravity, max_entity_velocity: max_velocity, .. } =
@@ -1908,8 +1881,8 @@ impl LevelState {
             self.world.get_mut(ent_id)?.limit_velocity(max_velocity)?;
 
             // Move the entity and relink it.
-            self.move_ballistic(frame_time, ent_id, registry.reborrow(), vfs)?;
-            self.link_entity(ent_id, true, registry.reborrow(), vfs)?;
+            self.move_ballistic(frame_time, ent_id, registry.reborrow())?;
+            self.link_entity(ent_id, true, registry.reborrow())?;
 
             let mut ent = self.world.get_mut(ent_id)?;
 
@@ -1921,7 +1894,7 @@ impl LevelState {
             }
         }
 
-        self.think(ent_id, frame_time, registry, vfs)?;
+        self.think(ent_id, frame_time, registry)?;
 
         debug!("TODO: SV_CheckWaterTransition");
 
@@ -1932,7 +1905,6 @@ impl LevelState {
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
-        vfs: &Vfs,
         mut registry: Mut<Registry>,
         has_gravity: bool,
         overbounce: f32,
@@ -1940,7 +1912,7 @@ impl LevelState {
         let ServerVars { gravity, max_entity_velocity: max_velocity, .. } =
             registry.read_cvars()?;
 
-        if !self.think(ent_id, frame_time, registry.reborrow(), vfs)? {
+        if !self.think(ent_id, frame_time, registry.reborrow())? {
             return Ok(());
         }
 
@@ -1970,7 +1942,7 @@ impl LevelState {
 
         let frame_velocity = ent.velocity()? * dt;
 
-        let (trace, _) = self.push_entity(ent_id, frame_velocity, registry, vfs)?;
+        let (trace, _) = self.push_entity(ent_id, frame_velocity, registry)?;
 
         if !self.world.exists(ent_id) {
             return Ok(());
@@ -1994,7 +1966,6 @@ impl LevelState {
         ent_id: EntityId,
         move_dir: Vec3,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<(Trace, Option<EntityId>)> {
         let mut ent = self.world.get(ent_id)?;
         let start = ent.origin()?;
@@ -2015,10 +1986,10 @@ impl LevelState {
 
         ent.set_origin(trace.end_point())?;
 
-        self.link_entity(ent_id, true, registry.reborrow(), vfs)?;
+        self.link_entity(ent_id, true, registry.reborrow())?;
 
         if let Some(hit) = hit {
-            self.impact_entities(ent_id, hit, registry, vfs)?;
+            self.impact_entities(ent_id, hit, registry)?;
         }
 
         Ok((trace, hit))
@@ -2029,7 +2000,6 @@ impl LevelState {
         pusher_id: EntityId,
         move_time: Duration,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let mut pusher = self.world.get_mut(pusher_id)?;
 
@@ -2058,7 +2028,7 @@ impl LevelState {
         debug!("Moving pusher by {move_amt}");
         pusher.set_origin(new_origin)?;
 
-        self.link_entity(pusher_id, false, registry.reborrow(), vfs)?;
+        self.link_entity(pusher_id, false, registry.reborrow())?;
 
         // TODO: Don't need to collect here
         for other_id in self.world.iter().filter(|e| *e != pusher_id).collect::<Vec<_>>() {
@@ -2091,7 +2061,7 @@ impl LevelState {
 
             if !self.world.entity_is_stuck(other_id, |_| true)? {
                 debug!("Moved pushed by {move_amt}");
-                self.link_entity(other_id, false, registry.reborrow(), vfs)?;
+                self.link_entity(other_id, false, registry.reborrow())?;
                 continue;
             }
 
@@ -2118,16 +2088,16 @@ impl LevelState {
                 other.set_min(mins)?;
                 other.set_max(mins)?;
 
-                self.link_entity(other_id, false, registry.reborrow(), vfs)?;
+                self.link_entity(other_id, false, registry.reborrow())?;
                 continue;
             }
 
             other.set_origin(old_origin)?;
-            self.link_entity(other_id, true, registry.reborrow(), vfs)?;
+            self.link_entity(other_id, true, registry.reborrow())?;
 
             debug!("Resetting pusher origin");
             self.world.get_mut(pusher_id)?.set_origin(pusher_origin)?;
-            self.link_entity(pusher_id, false, registry.reborrow(), vfs)?;
+            self.link_entity(pusher_id, false, registry.reborrow())?;
 
             let mut pusher = self.world.get_mut(pusher_id)?;
             let new_local_time = pusher.local_time()? - move_time_f32;
@@ -2139,7 +2109,7 @@ impl LevelState {
                 self.globals.store(GlobalAddrEntity::Self_, pusher_id)?;
                 self.globals.store(GlobalAddrEntity::Other, other_id)?;
                 self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-                self.execute_program(pusher_blocked_fn, registry, vfs)?;
+                self.execute_program(pusher_blocked_fn, registry)?;
             }
 
             debug!("Resetting all positions");
@@ -2161,7 +2131,6 @@ impl LevelState {
         sim_time: Duration,
         ent_id: EntityId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> Result<CollisionResult<Option<Trace>>, ProgsError> {
         let mut sim_time_f = duration_to_f32(sim_time);
 
@@ -2237,7 +2206,7 @@ impl LevelState {
                 out.metadata = Some(trace.clone());
             }
 
-            self.impact_entities(ent_id, hit_entity, registry.reborrow(), vfs)?;
+            self.impact_entities(ent_id, hit_entity, registry.reborrow())?;
             if !self.world.exists(ent_id) {
                 // Entity removed by touch function.
                 break;
@@ -2286,7 +2255,6 @@ impl LevelState {
         &mut self,
         ent_id: EntityId,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<bool> {
         debug!("Finding floor for entity with ID {}", ent_id.0);
         let mut ent = self.world.get(ent_id)?;
@@ -2316,7 +2284,7 @@ impl LevelState {
             {
                 // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
                 self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
-                self.link_entity(ent_id, false, registry, vfs)?;
+                self.link_entity(ent_id, false, registry)?;
                 let mut ent = self.world.get_mut(ent_id)?;
                 ent.add_flags(EntityFlags::ON_GROUND)?;
                 ent.set_ground(collide_entity)?;
@@ -2332,7 +2300,6 @@ impl LevelState {
         &mut self,
         ent_id: EntityId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         thread_local! {
             static TOUCHED_TRIGGERS_BUF: RefCell<Vec<EntityId>> = Vec::new().into();
@@ -2358,7 +2325,7 @@ impl LevelState {
 
                 self.globals.store(GlobalAddrEntity::Self_, *trigger_id)?;
                 self.globals.store(GlobalAddrEntity::Other, ent_id)?;
-                self.execute_program(trigger_touch, registry.reborrow(), vfs)?;
+                self.execute_program(trigger_touch, registry.reborrow())?;
             }
 
             // Restore state.
@@ -2376,7 +2343,6 @@ impl LevelState {
         ent_a_id: EntityId,
         ent_b_id: EntityId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let restore_self = self.globals.load(GlobalAddrEntity::Self_)?;
         let restore_other = self.globals.load(GlobalAddrEntity::Other)?;
@@ -2392,13 +2358,13 @@ impl LevelState {
         if !touch_a.is_none() && solid_a != EntitySolid::Not {
             self.globals.store(GlobalAddrEntity::Self_, ent_a_id)?;
             self.globals.store(GlobalAddrEntity::Other, ent_b_id)?;
-            self.execute_program(touch_a, registry.reborrow(), vfs)?;
+            self.execute_program(touch_a, registry.reborrow())?;
         }
 
         if !touch_b.is_none() && solid_b != EntitySolid::Not {
             self.globals.store(GlobalAddrEntity::Self_, ent_b_id)?;
             self.globals.store(GlobalAddrEntity::Other, ent_a_id)?;
-            self.execute_program(touch_b, registry.reborrow(), vfs)?;
+            self.execute_program(touch_b, registry.reborrow())?;
         }
 
         // Restore state.
@@ -2414,7 +2380,6 @@ impl LevelState {
         ent_a: EntityId,
         ent_b: EntityId,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let restore_self = self.globals.load(GlobalAddrEntity::Self_)?;
         let restore_other = self.globals.load(GlobalAddrEntity::Other)?;
@@ -2428,7 +2393,7 @@ impl LevelState {
             self.globals.store(GlobalAddrEntity::Self_, ent_a)?;
             self.globals.store(GlobalAddrEntity::Other, ent_b)?;
             self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-            self.execute_program(touch_a, registry.reborrow(), vfs)?;
+            self.execute_program(touch_a, registry.reborrow())?;
         }
 
         // Set up and run Entity B's touch function.
@@ -2438,7 +2403,7 @@ impl LevelState {
             self.globals.store(GlobalAddrEntity::Self_, ent_b)?;
             self.globals.store(GlobalAddrEntity::Other, ent_a)?;
             self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-            self.execute_program(touch_b, registry.reborrow(), vfs)?;
+            self.execute_program(touch_b, registry.reborrow())?;
         }
 
         self.globals.store(GlobalAddrEntity::Self_, restore_self)?;
@@ -2732,10 +2697,10 @@ impl LevelState {
         )))
     }
 
-    pub fn builtin_set_origin(&mut self, registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<()> {
+    pub fn builtin_set_origin(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
         let e_id = self.globals.get_entity_id(GLOBAL_ADDR_ARG_0 as i16)?;
         let origin = self.globals.get_vector(GLOBAL_ADDR_ARG_1 as i16)?;
-        self.set_entity_origin(e_id, origin, registry, vfs)?;
+        self.set_entity_origin(e_id, origin, registry)?;
 
         Ok(())
     }
@@ -2765,8 +2730,8 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_spawn(&mut self, registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<()> {
-        let ent_id = self.spawn_entity(registry, vfs)?;
+    pub fn builtin_spawn(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
+        let ent_id = self.spawn_entity(registry)?;
         self.globals.put_entity_id(ent_id, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
@@ -2787,12 +2752,12 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_precache_model(&mut self, vfs: &Vfs) -> progs::Result<()> {
+    pub fn builtin_precache_model(&mut self) -> progs::Result<()> {
         // TODO: disable precaching after server is active
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
         if self.model_id(s_id).is_none() {
             self.precache_model(s_id);
-            self.world.add_model(vfs, &self.string_table, s_id)?;
+            self.world.add_model(&self.string_table, s_id)?;
         }
 
         self.globals.put_string_id(s_id, GLOBAL_ADDR_RETURN as i16)?;
@@ -2894,13 +2859,9 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_drop_to_floor(
-        &mut self,
-        registry: Mut<Registry>,
-        vfs: &Vfs,
-    ) -> progs::Result<()> {
+    pub fn builtin_drop_to_floor(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
         let ent_id = self.globals.get_entity_id(GlobalAddrEntity::Self_ as i16)?;
-        let hit_floor = self.drop_entity_to_floor(ent_id, registry, vfs)?;
+        let hit_floor = self.drop_entity_to_floor(ent_id, registry)?;
         self.globals.put_float(hit_floor as u8 as f32, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
@@ -3083,7 +3044,7 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_walk_move(&mut self, registry: Mut<Registry>, vfs: &Vfs) -> progs::Result<()> {
+    pub fn builtin_walk_move(&mut self, registry: Mut<Registry>) -> progs::Result<()> {
         let yaw = self.globals.get_float(GLOBAL_ADDR_ARG_0 as i16)?;
         let dist = self.globals.get_float(GLOBAL_ADDR_ARG_1 as i16)?;
 
@@ -3100,7 +3061,7 @@ impl LevelState {
 
         let func = self.cx.current_function();
 
-        let did_move = self.move_step(this_id, move_dir, true, registry, vfs)?;
+        let did_move = self.move_step(this_id, move_dir, true, registry)?;
         self.globals.put_float(if did_move { 1. } else { 0. }, GLOBAL_ADDR_RETURN as i16)?;
 
         // Restore after `move_step`.
@@ -3314,7 +3275,6 @@ impl LevelState {
         move_dir: Vec3,
         relink: bool,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<bool> {
         let mut ent = self.world.get(ent_id)?;
         let ent_flags = ent.flags()?;
@@ -3361,7 +3321,7 @@ impl LevelState {
                 self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
 
                 if relink {
-                    self.link_entity(ent_id, true, registry, vfs)?;
+                    self.link_entity(ent_id, true, registry)?;
                 }
 
                 return Ok(true);
@@ -3382,7 +3342,6 @@ impl LevelState {
         move_dir: Vec3,
         relink: bool,
         registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<bool> {
         let server_vars = registry.read_cvars::<ServerVars>()?;
 
@@ -3394,7 +3353,7 @@ impl LevelState {
         let old_origin = ent.origin()?;
 
         if ent_flags.intersects(EntityFlags::SWIM | EntityFlags::FLY) {
-            return self.move_step_fly(ent_id, move_dir, relink, registry, vfs);
+            return self.move_step_fly(ent_id, move_dir, relink, registry);
         }
 
         let new_origin = old_origin + move_dir;
@@ -3444,7 +3403,7 @@ impl LevelState {
                 ent.remove_flags(EntityFlags::ON_GROUND)?;
 
                 if relink {
-                    self.link_entity(ent_id, true, registry, vfs)?;
+                    self.link_entity(ent_id, true, registry)?;
                 }
 
                 debug!("Entity had ground moved out from underneath");
@@ -3463,7 +3422,7 @@ impl LevelState {
             let mut ent = self.world.get_mut(ent_id)?;
             return Ok(if ent.has_flag(EntityFlags::PARTIAL_GROUND)? {
                 if relink {
-                    self.link_entity(ent_id, true, registry, vfs)?;
+                    self.link_entity(ent_id, true, registry)?;
                 }
 
                 true
@@ -3480,7 +3439,7 @@ impl LevelState {
         ent.set_ground(ground_ent.unwrap_or(EntityId(-1)))?;
 
         if relink {
-            self.link_entity(ent_id, true, registry, vfs)?;
+            self.link_entity(ent_id, true, registry)?;
         }
 
         Ok(true)
@@ -3492,7 +3451,6 @@ impl LevelState {
         yaw: f32,
         dist: f32,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<bool> {
         let mut ent = self.world.get_mut(ent_id)?;
         let old_origin = ent.origin()?;
@@ -3500,7 +3458,7 @@ impl LevelState {
         self.change_yaw(ent_id)?;
 
         let move_dir = Vec2::from_angle(yaw.to_radians()).extend(0.) * dist;
-        let did_move = self.move_step(ent_id, move_dir, false, registry.reborrow(), vfs)?;
+        let did_move = self.move_step(ent_id, move_dir, false, registry.reborrow())?;
 
         if did_move {
             let mut ent = self.world.get_mut(ent_id)?;
@@ -3515,7 +3473,7 @@ impl LevelState {
             }
         }
 
-        self.link_entity(ent_id, true, registry, vfs)?;
+        self.link_entity(ent_id, true, registry)?;
 
         Ok(did_move)
     }
@@ -3526,7 +3484,6 @@ impl LevelState {
         goal_id: EntityId,
         dist: f32,
         mut registry: Mut<Registry>,
-        vfs: &Vfs,
     ) -> progs::Result<()> {
         let server_vars: ServerVars = registry.read_cvars()?;
 
@@ -3564,7 +3521,7 @@ impl LevelState {
 
         if let Some(turn_dir) = turn_dir
             && (turn_dir - turn_around).abs() > f32::EPSILON
-            && self.step_direction(this_id, turn_dir, dist, registry.reborrow(), vfs)?
+            && self.step_direction(this_id, turn_dir, dist, registry.reborrow())?
         {
             return Ok(());
         }
@@ -3577,14 +3534,14 @@ impl LevelState {
 
         if let Some(dir_a) = dir_a
             && (dir_a - turn_around).abs() > f32::EPSILON
-            && self.step_direction(this_id, dir_a, dist, registry.reborrow(), vfs)?
+            && self.step_direction(this_id, dir_a, dist, registry.reborrow())?
         {
             return Ok(());
         }
 
         if let Some(dir_b) = dir_b
             && (dir_b - turn_around).abs() > f32::EPSILON
-            && self.step_direction(this_id, dir_b, dist, registry.reborrow(), vfs)?
+            && self.step_direction(this_id, dir_b, dist, registry.reborrow())?
         {
             return Ok(());
         }
@@ -3596,13 +3553,13 @@ impl LevelState {
 
         for turn_dir in search_dirs {
             if (turn_dir - turn_around).abs() > f32::EPSILON
-                && self.step_direction(this_id, turn_dir, dist, registry.reborrow(), vfs)?
+                && self.step_direction(this_id, turn_dir, dist, registry.reborrow())?
             {
                 return Ok(());
             }
         }
 
-        if self.step_direction(this_id, turn_around, dist, registry.reborrow(), vfs)? {
+        if self.step_direction(this_id, turn_around, dist, registry.reborrow())? {
             return Ok(());
         }
 
@@ -3615,11 +3572,7 @@ impl LevelState {
         Ok(())
     }
 
-    pub fn builtin_move_to_goal(
-        &mut self,
-        mut registry: Mut<Registry>,
-        vfs: &Vfs,
-    ) -> progs::Result<()> {
+    pub fn builtin_move_to_goal(&mut self, mut registry: Mut<Registry>) -> progs::Result<()> {
         let dist = self.globals.get_float(GLOBAL_ADDR_ARG_0 as i16)?;
         let this_id = self.globals.load(GlobalAddrEntity::Self_)?;
         let mut this = self.world.get(this_id)?;
@@ -3638,10 +3591,10 @@ impl LevelState {
         }
 
         let ideal_yaw = this.ideal_yaw()?;
-        let did_move = self.step_direction(this_id, ideal_yaw, dist, registry.reborrow(), vfs)?;
+        let did_move = self.step_direction(this_id, ideal_yaw, dist, registry.reborrow())?;
 
         if !did_move || rand::random_bool(0.25) {
-            self.new_chase_dir(this_id, goal_id, dist, registry.reborrow(), vfs)?;
+            self.new_chase_dir(this_id, goal_id, dist, registry.reborrow())?;
         }
 
         self.globals.put_float(if did_move { 1. } else { 0. }, GLOBAL_ADDR_RETURN as i16)?;
@@ -3724,6 +3677,8 @@ impl LevelState {
 }
 
 pub mod systems {
+    use bevy::asset::LoadState;
+
     use crate::common::{
         console::CmdName,
         net::{
@@ -3738,10 +3693,7 @@ pub mod systems {
         mut server: Option<ResMut<Session>>,
         mut client_msgs: MessageReader<ClientMessage>,
         mut server_messages: MessageWriter<ServerMessage>,
-
-        mut run_cmds: MessageWriter<RunCmd<'static>>,
         mut registry: ResMut<Registry>,
-        vfs: Res<Vfs>,
     ) {
         let mut out_packet = Vec::new();
         for ClientMessage { client_id, packet, kind: _ } in client_msgs.read() {
@@ -3773,11 +3725,7 @@ pub mod systems {
                                         };
 
                                         server
-                                            .clientcmd_prespawn(
-                                                client_id,
-                                                registry.reborrow(),
-                                                &vfs,
-                                            )
+                                            .clientcmd_prespawn(client_id, registry.reborrow())
                                             .unwrap();
 
                                         ServerCmd::SignOnStage { stage: SignOnStage::ClientInfo }
@@ -3824,7 +3772,7 @@ pub mod systems {
                                         };
 
                                         server
-                                            .clientcmd_begin(client_id, registry.reborrow(), &vfs)
+                                            .clientcmd_begin(client_id, registry.reborrow())
                                             .unwrap();
 
                                         let client_ent =
@@ -3840,11 +3788,11 @@ pub mod systems {
                                             .unwrap();
                                     }
                                     _ => {
-                                        run_cmds.write(
-                                            RunCmd(CmdName { name, trigger }, args).into_owned(),
-                                        );
-                                        // HACK: We need to wait a frame to process messages.
-                                        return;
+                                        // Don't forward to the console: the console and the
+                                        // server are shared in a listen server, so commands
+                                        // that the console doesn't handle would be sent
+                                        // straight back here.
+                                        warn!("Unhandled client command: {name}");
                                     }
                                 }
                             }
@@ -3902,12 +3850,61 @@ pub mod systems {
         }
     }
 
+    pub fn advance_pending_level(
+        mut commands: Commands,
+        pending: Res<PendingLevel>,
+        asset_server: Res<AssetServer>,
+        bsps: Res<Assets<Bsp>>,
+        progs_assets: Res<Assets<ProgsAsset>>,
+        mut registry: ResMut<Registry>,
+    ) -> anyhow::Result<()> {
+        for (name, state) in [
+            (pending.map_name.as_str(), asset_server.load_state(&pending.bsp)),
+            ("progs.dat", asset_server.load_state(&pending.progs)),
+        ] {
+            if let LoadState::Failed(e) = state {
+                bail!("Failed loading {name}: {e}");
+            }
+        }
+
+        let (Some(bsp), Some(progs)) = (bsps.get(&pending.bsp), progs_assets.get(&pending.progs))
+        else {
+            return Ok(());
+        };
+
+        // TODO: We can probably do better than deep-cloning the progs here.
+        // The only mutable part of the loaded progs is the globals, everything
+        // else can be shared.
+        let progs = progs.clone();
+        let models = BrushModel::from_bsp_data(&bsp.data)?
+            .into_iter()
+            .enumerate()
+            .map(|(i, model)| Model::from_brush_model(format!("*{i}"), model).cast())
+            .collect();
+        let entmap = String::from_utf8_lossy(&bsp.data.entities).into_owned();
+
+        // TODO: Make `max_clients` a cvar
+        // TODO: When we start the server, `precache_model` and friends will be called
+        // for all the relevant submodels. The level load has not fully finished until
+        // those precached models are also loaded.
+        commands.insert_resource(Session::new(
+            pending.map_name.clone(),
+            8,
+            registry.reborrow(),
+            progs,
+            models,
+            entmap,
+        ));
+        commands.remove_resource::<PendingLevel>();
+
+        Ok(())
+    }
+
     pub fn server_spawn(
         mut server: ResMut<Session>,
         mut registry: ResMut<Registry>,
         mut server_messages: MessageWriter<ServerMessage>,
         time: Res<Time<Fixed>>,
-        vfs: Res<Vfs>,
     ) -> progs::Result<()> {
         if !server.loading() {
             return Ok(());
@@ -3921,7 +3918,6 @@ pub mod systems {
                 &server.persist.client_slots,
                 time.delta(),
                 registry.reborrow(),
-                &vfs,
             )?;
         }
 
@@ -3970,7 +3966,6 @@ pub mod systems {
         time: Res<Time<Fixed>>,
         mut server_messages: MessageWriter<ServerMessage>,
         mut registry: ResMut<Registry>,
-        vfs: Res<Vfs>,
     ) {
         if server.loading()
             || registry.read_cvar::<u8>("sv_paused").unwrap() != 0
@@ -3983,8 +3978,7 @@ pub mod systems {
 
         let send_diff = match &mut *server {
             Session { persist, state: SessionState::Active, level } => {
-                match level.physics(&persist.client_slots, time.delta(), registry.reborrow(), &vfs)
-                {
+                match level.physics(&persist.client_slots, time.delta(), registry.reborrow()) {
                     Ok(map) => {
                         for (ent, err) in map {
                             error!("Failed running frame for {ent}: {}", Report::from_error(err));

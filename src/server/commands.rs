@@ -38,9 +38,7 @@ struct Map {
 fn cmd_map(
     In(Map { mut map_name }): In<Map>,
     mut commands: Commands,
-    session: Option<ResMut<Session>>,
-    vfs: Res<Vfs>,
-    mut registry: ResMut<Registry>,
+    asset_server: Res<AssetServer>,
 ) -> anyhow::Result<()> {
     if map_name.extension().is_none() {
         map_name.set_extension("bsp");
@@ -48,25 +46,22 @@ fn cmd_map(
 
     let path = PathBuf::from("maps").join(map_name);
 
-    let bsp_name = format!("{}", path.display());
-    // TODO: Use `bevy_trenchbroom` for this too (may require ugly hacks or a small fork of
-    // `bevy_trenchbroom`)
-    let bsp = vfs.open(&bsp_name)?;
-    let (models, entmap) = crate::common::bsp::load(bsp)?;
+    // TODO: Asset paths always use `/`, should we handle this more robustly?
+    let map_name = format!("{}", path.display());
 
-    let models = models.into_iter().map(|m| m.cast()).collect();
+    // Immediately close the session for the previous level, to prevent clients from
+    // receiving messages while the level load is in progress.
+    // TODO: Keep `SessionPersistent` when implementing `changelevel`.
+    commands.remove_resource::<Session>();
 
-    let progs = vfs.open("progs.dat")?;
-    let progs = crate::server::progs::load(progs)?;
+    // See the `advance_pending_level` system.
+    commands.insert_resource(PendingLevel {
+        bsp: asset_server.load(&map_name),
+        progs: asset_server.load("progs.dat"),
+        map_name,
+    });
 
-    // TODO: Make `max_clients` a cvar
-    let new_session = Session::new(bsp_name, 8, registry.reborrow(), &vfs, progs, models, entmap);
-
-    if let Some(mut session) = session {
-        *session = new_session;
-    } else {
-        commands.insert_resource(new_session);
-    }
+    commands.write_message(LocalLevelStarted);
 
     Ok(())
 }

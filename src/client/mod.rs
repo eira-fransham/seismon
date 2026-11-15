@@ -46,7 +46,6 @@ use crate::{
             QSocket, ServerCmd, ServerMessage, SignOnStage,
             connect::{CONNECT_PROTOCOL_VERSION, ConnectSocket, Request, Response},
         },
-        vfs::{Vfs, VfsError},
         wad::{Palette, PaletteLoader, QPicLoader, Wad, WadLoader},
     },
 };
@@ -191,6 +190,28 @@ where
             app.insert_resource(menu);
         }
 
+        let base_dir = self.base_dir.clone().unwrap_or_else(common::default_base_dir);
+
+        if !base_dir.join("id1").is_dir() {
+            error!(concat!(
+                "`id1/` directory does not exist! Use the `--base-dir` option with the name of the",
+                " directory which contains `id1/`."
+            ));
+
+            std::process::exit(1);
+        }
+
+        if let Some(game) = &self.game
+            && !base_dir.join(game).is_dir()
+        {
+            error!(
+                "`{game}/` directory does not exist! Use the `--base-dir` option with the name of \
+                 the directory which contains `{game}/`."
+            );
+
+            std::process::exit(1);
+        }
+
         let default_world_camera_template = app.world_mut().spawn(default_world_camera()).id();
         let default_overlay_camera_template = app.world_mut().spawn(default_overlay_camera()).id();
 
@@ -211,7 +232,7 @@ where
             .init_asset_loader::<TextLoader>()
             .interpolate_component::<Transform, Virtual>()
             .insert_resource(SeismonGameSettings {
-                base_dir: self.base_dir.clone().unwrap_or_else(common::default_base_dir),
+                base_dir,
                 game: self.game.clone(),
                 camera_templates: Default::default(),
                 default_world_camera_template,
@@ -219,7 +240,6 @@ where
             })
             .init_state::<ClientGameState>()
             .init_state::<SignOn>()
-            .init_resource::<Vfs>()
             .init_resource::<Conchars>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
@@ -377,8 +397,6 @@ pub enum ClientError {
     Network(#[from] NetError),
     #[error("Failed to load sound: {0}")]
     Sound(#[from] SoundError),
-    #[error("Virtual filesystem error: {0}")]
-    Vfs(#[from] VfsError),
 }
 
 impl From<ConsoleError> for ClientError {
@@ -861,6 +879,12 @@ mod systems {
         mut conn: ResMut<Connection>,
         registry: Res<Registry>,
     ) -> Result<(), ClientError> {
+        // `SignOn` starts as `Not`, and this runs the first time a connection exists. We haven't
+        // received a sign-on stage from the server yet, so there's nothing to do.
+        if stage.0 == SignOnStage::Not {
+            return Ok(());
+        }
+
         // `serde_lexpr` doesn't allow us to configure deserialising strings and doesn't
         // recognise symbols as valid strings, so we need to use
         // `.value().as_name()` and can't use `read_cvars`.
@@ -1598,7 +1622,9 @@ mod systems {
                             }));
                         }
                     }
-                    ServerCmd::SellScreen => todo!(),
+                    ServerCmd::SellScreen => {
+                        msg_todo!("Display upsell screen");
+                    }
                 }
             };
 
