@@ -1,11 +1,13 @@
-//! Command-line support for actions and inputs, modeled after the console in engines such as
+//! Command-line support for commands and actions, modeled after the console in engines such as
 //! Goldsrc, Source and the idtech lineage.
 //!
 //! This crate provides a [`Registry`] of named commands, cvars (configuration variables), aliases
-//! and `+`/`-` actions. Commands are defined as systems taking a [`clap::Parser`] type as input.
-//! See [`RegisterCmdExt`] for more information about registering commands.
+//! and "actions", which are toggleable input states denoted with `+`/`-`.
 //!
-//! Add [`CommandsPlugin`] to get started.
+//! Commands are implemented using systems taking a [`clap::Parser`] type as input. See
+//! [`RegisterCmdExt`] for more information about registering commands.
+//!
+//! Add [`CommandsPlugin`] to your app to get started.
 
 mod builtins;
 mod cmd;
@@ -33,14 +35,6 @@ pub use self::{
     register::RegisterCmdExt,
     registry::{AliasInfo, CmdKind, CommandImpl, Registry},
 };
-
-pub mod prelude {
-    #[doc(hidden)]
-    pub use crate::{
-        CName, CmdName, CommandOutput, CommandsPlugin, CommandsSystems, Cvar, ExecResult,
-        OutputType, PendingCommands, RegisterCmdExt, Registry, RunCmd, Trigger, UnhandledCmd,
-    };
-}
 
 /// Systems that execute pending commands and run cvar change handlers.
 ///

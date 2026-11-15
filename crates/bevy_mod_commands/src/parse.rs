@@ -1,4 +1,7 @@
 //! [`nom`] parsers for command scripts.
+//!
+//! Currently exposed so that consumers can use these parsers if a command should
+//! take other commands as arguments (e.g. `bind`).
 
 use nom::{
     Parser,

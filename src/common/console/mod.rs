@@ -34,13 +34,11 @@ impl Plugin for SeismonConsoleCorePlugin {
         #[command(name = "stuffcmds", about = "Run the commands from the CLI input arguments")]
         struct StuffCmdsArgs;
 
-        if !app.is_plugin_added::<CommandsPlugin>() {
-            app.add_plugins(CommandsPlugin {
-                capture_out: true,
-                capture_unhandled: true,
-                register_builtins: true,
-            });
-        }
+        app.add_plugins(CommandsPlugin {
+            capture_out: true,
+            capture_unhandled: true,
+            register_builtins: true,
+        });
 
         app.init_resource::<StuffCmds>().command(
             |In(StuffCmdsArgs),
