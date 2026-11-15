@@ -1883,11 +1883,6 @@ impl ServerCmd {
                 origin,
                 angles,
             } => {
-                // Entities with no model ID should not be sent to the client.
-                if model_id == 0 {
-                    return Ok(());
-                }
-
                 writer.write_u16::<LittleEndian>(ent_id)?;
                 writer.write_u8(model_id)?;
                 writer.write_u8(frame_id)?;
@@ -2485,6 +2480,38 @@ mod test {
         src.serialize(&mut packet).unwrap();
         let mut reader = BufReader::new(packet.as_slice());
         let dst = ServerCmd::deserialize(&mut reader).unwrap().unwrap();
+
+        assert_eq!(src, dst);
+    }
+
+    #[test]
+    fn test_server_cmd_spawn_baseline_stream_read_write_eq() {
+        // A baseline without a model should still be serialized.
+        let src = [0u8, 3, 0, 7]
+            .into_iter()
+            .enumerate()
+            .map(|(i, model_id)| ServerCmd::SpawnBaseline {
+                ent_id: i as u16 + 1,
+                model_id,
+                frame_id: i as u8,
+                colormap: 0,
+                skin_id: 1,
+                origin: Vec3::new(16. * i as f32, -8., 0.5),
+                angles: Vec3::new(0., 90., 0.),
+            })
+            .chain([ServerCmd::Version { version: 42 }])
+            .collect::<Vec<_>>();
+
+        let mut packet = Vec::new();
+        for cmd in &src {
+            cmd.serialize(&mut packet).unwrap();
+        }
+
+        let mut reader = BufReader::new(packet.as_slice());
+        let mut dst = Vec::new();
+        while let Some(cmd) = ServerCmd::deserialize(&mut reader).unwrap() {
+            dst.push(cmd);
+        }
 
         assert_eq!(src, dst);
     }

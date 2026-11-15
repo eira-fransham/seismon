@@ -247,6 +247,9 @@ impl World {
 pub struct Entities {
     fields: im::Vector<EntityField>,
     slots: im::Vector<AreaEntitySlot>,
+    /// Slots which have been freed or overwritten since the last call to
+    /// [`Entities::take_recycled`]. Any per-client networking state for these IDs is stale.
+    recycled: Vec<EntityId>,
 }
 
 impl Entities {
@@ -261,7 +264,7 @@ impl Entities {
 
         let fields = iter::repeat_n(default(), MAX_ENTITIES * type_def.addr_count()).collect();
 
-        Self { slots, fields }
+        Self { slots, fields, recycled: Vec::new() }
     }
 
     pub fn get<'a>(
@@ -325,6 +328,10 @@ impl Entities {
     ) -> EntityMut<'a> {
         if entity_id.0 < 0 {
             panic!("Invalid entity_id {entity_id}");
+        }
+
+        if !matches!(self.slots[entity_id.0 as usize], AreaEntitySlot::Vacant) {
+            self.recycled.push(entity_id);
         }
 
         self.slots[entity_id.0 as usize] = AreaEntitySlot::Occupied(default());
@@ -461,7 +468,14 @@ impl Entities {
         }
 
         self.slots[entity_id.0 as usize] = AreaEntitySlot::Vacant;
+        self.recycled.push(entity_id);
         Ok(())
+    }
+
+    /// Drain the list of entity IDs whose slots have been freed or overwritten since the last
+    /// call.
+    pub fn take_recycled(&mut self) -> impl Iterator<Item = EntityId> + '_ {
+        self.recycled.drain(..)
     }
 
     fn area_entity(&self, entity_id: EntityId) -> Result<&AreaEntity, ProgsError> {
@@ -549,6 +563,12 @@ impl World {
 
     pub fn alloc_uninitialized(&mut self) -> Result<EntityId, ProgsError> {
         self.entities.alloc_uninitialized(&self.type_def)
+    }
+
+    /// Drain the list of entity IDs whose slots have been freed or overwritten since the last
+    /// call. Clients must be sent a fresh baseline for any of these IDs that are reused.
+    pub fn take_recycled(&mut self) -> impl Iterator<Item = EntityId> + '_ {
+        self.entities.take_recycled()
     }
 
     pub fn alloc_uninitialized_reserved(&mut self) -> Result<EntityId, ProgsError> {

@@ -820,13 +820,7 @@ impl LevelState {
     }
 
     pub fn is_networked(&self, id: EntityId) -> bool {
-        self.world
-            .get(id)
-            .ok()
-            .and_then(|mut ent| ent.solid().ok())
-            // TODO: Is this the right way to hide triggers client-side?
-            .map(|s| s != EntitySolid::Trigger)
-            .unwrap_or_default()
+        self.world.get(id).is_ok_and(|mut e| e.is_networked())
     }
 
     pub fn init_frame(&mut self) {
@@ -4015,6 +4009,14 @@ pub mod systems {
         if send_diff {
             let Session { persist, level, .. } = &mut *server;
 
+            // Slots which were freed or reused since the last update need a fresh baseline.
+            for entity_id in level.world.take_recycled() {
+                let index = usize::try_from(entity_id.0).expect("Invalid entity ID");
+                for (_, client) in persist.client_slots.active_clients_mut() {
+                    client.sent_baseline.set(index, false);
+                }
+            }
+
             // TODO: Stop hardcoding `8` for max players
             for (client_id, client) in
                 persist.client_slots.active_clients_mut().collect::<ArrayVec<_, 8>>()
@@ -4030,29 +4032,47 @@ pub mod systems {
                     .unwrap();
 
                 unsent_entity_cache.extend(level.world.iter().filter(|e_id| {
-                    !client
-                        .sent_baseline
-                        .replace(e_id.0.try_into().expect("Invalid entity ID"), true)
+                    !client.sent_baseline[usize::try_from(e_id.0).expect("Invalid entity ID")]
                 }));
 
+                // Only mark a baseline as sent once it has actually been written, so entities
+                // which aren't networked yet (no model, trigger, etc.) get one when they become
+                // networked.
                 for entity_id in unsent_entity_cache.drain(..) {
                     if level.is_networked(entity_id)
                         && let Some(state) = level.entity_state(entity_id)
                     {
                         state.spawn_baseline(entity_id.0 as _).serialize(&mut packet).unwrap();
+                        // TODO: This is leftover from when we had `new_entities`, we need to
+                        // reimplement it properly since this will break if we have multiple clients.
                         level.world.get_mut(entity_id).unwrap().baseline = state;
+                        client.sent_baseline.set(entity_id.0 as usize, true);
                     }
                 }
 
                 // Skip world entity
                 for ent in level.world.range(1..) {
-                    // TODO: Handle deletions
+                    // Never send an update for an entity the client has no baseline for.
+                    if !client.sent_baseline[ent.0 as usize] {
+                        continue;
+                    }
+
+                    if !level.is_networked(ent) {
+                        continue;
+                    };
+
                     let Ok(mut entity) = level.world.get(ent) else {
                         continue;
                     };
 
-                    let update = entity.state().unwrap().make_update(ent.0 as _, &entity.baseline);
+                    let Some(state) = entity.state() else {
+                        continue;
+                    };
 
+                    let update = state.make_update(ent.0 as _, &entity.baseline);
+
+                    // We send a `FastUpdate` even if the update is empty, as the client
+                    // will delete entities if it doesn't receive an update.
                     ServerCmd::FastUpdate(update).serialize(&mut packet).unwrap();
                 }
 

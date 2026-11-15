@@ -558,6 +558,15 @@ pub enum EntitySolid {
     Bsp = 4,
 }
 
+impl EntitySolid {
+    pub fn is_networked(&self) -> bool {
+        match self {
+            EntitySolid::Not | EntitySolid::Trigger => false,
+            EntitySolid::BBox | EntitySolid::SlideBox | EntitySolid::Bsp => true,
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct EntityMeta {
     pub leaf_count: usize,
@@ -722,7 +731,7 @@ impl<Addrs, Meta> Entity<'_, Addrs, Meta>
 where
     Addrs: FocusIndex<Output = EntityField>,
 {
-    pub fn type_check(&mut self, addr: usize, type_: Type) -> Result<(), EntityError> {
+    pub fn type_check(&self, addr: usize, type_: Type) -> Result<(), EntityError> {
         match self
             .type_def
             .field_defs
@@ -989,6 +998,13 @@ where
                 Err(EntityError::with_msg(format!("Invalid value for entity.solid ({solid_i})",)))
             }
         }
+    }
+
+    pub fn is_networked(&mut self) -> bool {
+        let has_model = self.model_index().is_ok_and(|i| i != 0.);
+        let is_networked_solid = self.solid().is_ok_and(|solid| solid.is_networked());
+
+        has_model && is_networked_solid
     }
 
     field_accessors! {
