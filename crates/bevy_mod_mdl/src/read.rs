@@ -29,7 +29,9 @@ use seismon_utils::{
 use bevy_log as log;
 use bevy_math::{UVec2, Vec2, Vec3};
 
-use crate::MdlFileError;
+use snafu::OptionExt as _;
+
+use crate::{KeyframeNameTooLongSnafu, MdlFileError};
 
 pub const MAGIC: i32 = i32::from_le_bytes(*b"IDPO");
 pub const VERSION: i32 = 6;
@@ -365,12 +367,12 @@ where
 
     let magic = try_!(reader.read_i32::<LittleEndian>().await);
     if magic != MAGIC {
-        fatal!(MdlFileError::InvalidMagicNumber(magic));
+        fatal!(MdlFileError::InvalidMagicNumber { magic });
     }
 
     let version = try_!(reader.read_i32::<LittleEndian>().await);
     if version != VERSION {
-        fatal!(MdlFileError::UnrecognizedVersion(version));
+        fatal!(MdlFileError::UnrecognizedVersion { version });
     }
 
     let scale: Vec3 = try_!(read_f32_3_async(&mut reader).await).into();
@@ -381,36 +383,36 @@ where
     let texture_count = try_!(reader.read_i32::<LittleEndian>().await);
     let texture_width = try_!(reader.read_i32::<LittleEndian>().await);
     if texture_width <= 0 {
-        fatal!(MdlFileError::InvalidTextureWidth(texture_width));
+        fatal!(MdlFileError::InvalidTextureWidth { width: texture_width });
     }
     let texture_height = try_!(reader.read_i32::<LittleEndian>().await);
     if texture_height <= 0 {
-        fatal!(MdlFileError::InvalidTextureHeight(texture_height));
+        fatal!(MdlFileError::InvalidTextureHeight { height: texture_height });
     }
     let vertex_count = try_!(reader.read_i32::<LittleEndian>().await);
     if vertex_count <= 0 {
-        fatal!(MdlFileError::InvalidVertexCount(vertex_count));
+        fatal!(MdlFileError::InvalidVertexCount { count: vertex_count });
     }
     let poly_count = try_!(reader.read_i32::<LittleEndian>().await);
     if poly_count <= 0 {
-        fatal!(MdlFileError::InvalidPolygonCount(poly_count));
+        fatal!(MdlFileError::InvalidPolygonCount { count: poly_count });
     }
     let keyframe_count = try_!(reader.read_i32::<LittleEndian>().await);
     if keyframe_count <= 0 {
-        fatal!(MdlFileError::InvalidKeyframeCount(keyframe_count));
+        fatal!(MdlFileError::InvalidKeyframeCount { count: keyframe_count });
     }
 
     let _sync_type = SyncType::from_i32(try_!(reader.read_i32::<LittleEndian>().await));
 
     let mut flags_bits = try_!(reader.read_i32::<LittleEndian>().await);
     if flags_bits < 0 || flags_bits > u8::MAX as i32 {
-        nonfatal!(MdlFileError::InvalidFlags(flags_bits));
+        nonfatal!(MdlFileError::InvalidFlags { flags: flags_bits });
         flags_bits = flags_bits as u8 as i32;
     }
     let flags = match ModelFlags::from_bits(flags_bits as u8) {
         Some(flags) => flags,
         None => {
-            nonfatal!(MdlFileError::InvalidFlags(flags_bits));
+            nonfatal!(MdlFileError::InvalidFlags { flags: flags_bits });
             ModelFlags::from_bits_truncate(flags_bits as u8)
         }
     };
@@ -479,7 +481,7 @@ where
                 }
 
                 k => {
-                    fatal!(MdlFileError::InvalidTextureKind(k));
+                    fatal!(MdlFileError::InvalidTextureKind { kind: k });
                 }
             };
 
@@ -497,7 +499,7 @@ where
                 0 => false,
                 0x20 => true,
                 x => {
-                    nonfatal!(MdlFileError::InvalidSeamFlag(x));
+                    nonfatal!(MdlFileError::InvalidSeamFlag { flag: x });
                     false
                 }
             };
@@ -505,7 +507,7 @@ where
             let s = try_!(reader.read_i32::<LittleEndian>().await);
             let t = try_!(reader.read_i32::<LittleEndian>().await);
             let (s, t) = if s < 0 || t < 0 {
-                nonfatal!(MdlFileError::InvalidTexcoord([s, t]));
+                nonfatal!(MdlFileError::InvalidTexcoord { texcoord: [s, t] });
                 (0, 0)
             } else {
                 (s as u32, t as u32)
@@ -526,7 +528,7 @@ where
                 // Some models in MALICE have this set to `9`, we report the error
                 // and assume x != 0 means front-facing.
                 x => {
-                    nonfatal!(MdlFileError::InvalidFrontFacing(x));
+                    nonfatal!(MdlFileError::InvalidFrontFacing { flag: x });
                     true
                 }
             };
@@ -562,7 +564,7 @@ where
                             bytes
                                 .iter()
                                 .position(|b| *b == 0)
-                                .ok_or(MdlFileError::KeyframeNameTooLong(bytes))
+                                .context(KeyframeNameTooLongSnafu { name: bytes })
                         );
                         try_!(String::from_utf8(bytes[0..(len + 1)].to_vec()))
                     };
@@ -610,7 +612,7 @@ where
                                 bytes
                                     .iter()
                                     .position(|b| *b == 0)
-                                    .ok_or(MdlFileError::KeyframeNameTooLong(bytes))
+                                    .context(KeyframeNameTooLongSnafu { name: bytes })
                             );
                             try_!(String::from_utf8(bytes[0..(len + 1)].to_vec()))
                         };

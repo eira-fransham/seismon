@@ -31,47 +31,71 @@ use bevy_reflect::TypePath;
 use byteorder::{LittleEndian, ReadBytesExt as _};
 use hashbrown::HashMap;
 use memmap2::Mmap;
-use thiserror::Error;
+use snafu::{OptionExt as _, Snafu};
 
 const PAK_MAGIC: &[u8; 4] = b"PACK";
 const PAK_ENTRY_SIZE: u32 = 64;
 
 /// An error encountered while parsing a `.pak` archive.
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum PakError {
     /// The archive could not be read.
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+    #[snafu(context(false), display("I/O error: {source}"))]
+    Io {
+        /// The underlying I/O error.
+        source: io::Error,
+    },
     /// The archive had an unexpected magic number (should be `PACK` in ASCII).
-    #[error("Invalid magic number: {0:?}")]
-    InvalidMagicNumber([u8; 4]),
+    #[snafu(display("Invalid magic number: {magic:?}"))]
+    InvalidMagicNumber {
+        /// The magic number that was found.
+        magic: [u8; 4],
+    },
     /// The offset of the file table was <= 0.
-    #[error("Invalid file table offset: {0}")]
-    InvalidTableOffset(i32),
+    #[snafu(display("Invalid file table offset: {offset}"))]
+    InvalidTableOffset {
+        /// The offset that was found.
+        offset: i32,
+    },
     /// The size of the file table was not a multiple of the entry size.
-    #[error("Invalid file table size: {0}")]
-    InvalidTableSize(u32),
+    #[snafu(display("Invalid file table size: {size}"))]
+    InvalidTableSize {
+        /// The size that was found.
+        size: u32,
+    },
     /// The offset of a file was not positive.
-    #[error("Invalid file offset: {0}")]
-    InvalidFileOffset(i32),
+    #[snafu(display("Invalid file offset: {offset}"))]
+    InvalidFileOffset {
+        /// The offset that was found.
+        offset: i32,
+    },
     /// The size of a file was not positive.
-    #[error("Invalid file size: {0}")]
-    InvalidFileSize(i32),
+    #[snafu(display("Invalid file size: {size}"))]
+    InvalidFileSize {
+        /// The size that was found.
+        size: i32,
+    },
     /// A file name was longer than 56 bytes.
-    #[error("File name too long: {0}")]
-    FileNameTooLong(String),
+    #[snafu(display("File name too long: {name}"))]
+    FileNameTooLong {
+        /// The (lossily-decoded) file name.
+        name: String,
+    },
     /// A file name was not valid UTF-8.
-    #[error("Non-UTF-8 file name: {0}")]
-    NonUtf8FileName(#[from] std::string::FromUtf8Error),
+    #[snafu(context(false), display("Non-UTF-8 file name: {source}"))]
+    NonUtf8FileName {
+        /// The underlying UTF-8 decoding error.
+        source: std::string::FromUtf8Error,
+    },
 }
 
 impl From<PakError> for AssetReaderError {
     fn from(value: PakError) -> Self {
         match value {
-            PakError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            PakError::Io { source: error } if error.kind() == std::io::ErrorKind::NotFound => {
                 AssetReaderError::NotFound(PathBuf::new())
             }
-            PakError::Io(error) => AssetReaderError::Io(error.into()),
+            PakError::Io { source: error } => AssetReaderError::Io(error.into()),
             other => AssetReaderError::Io(std::io::Error::other(other).into()),
         }
     }
@@ -226,19 +250,19 @@ impl Pak {
         reader.read_exact(&mut magic)?;
 
         if &magic != PAK_MAGIC {
-            Err(PakError::InvalidMagicNumber(magic))?;
+            InvalidMagicNumberSnafu { magic }.fail()?;
         }
 
         // Locate the file table
         let table_offset = match reader.read_i32::<LittleEndian>()? {
-            o if o <= 0 => Err(PakError::InvalidTableOffset(o))?,
+            o if o <= 0 => InvalidTableOffsetSnafu { offset: o }.fail()?,
             o => o as u32,
         };
 
         let table_size = reader.read_u32::<LittleEndian>()?;
 
         if !table_size.is_multiple_of(PAK_ENTRY_SIZE) {
-            return Err(PakError::InvalidTableSize(table_size));
+            return InvalidTableSizeSnafu { size: table_size }.fail();
         }
 
         let mut map = HashMap::default();
@@ -251,18 +275,18 @@ impl Pak {
             reader.read_exact(&mut path_bytes)?;
 
             let file_offset = match reader.read_i32::<LittleEndian>()? {
-                o if o <= 0 => Err(PakError::InvalidFileOffset(o))?,
+                o if o <= 0 => InvalidFileOffsetSnafu { offset: o }.fail()?,
                 o => o as u32,
             };
 
             let file_size = match reader.read_i32::<LittleEndian>()? {
-                s if s <= 0 => Err(PakError::InvalidFileSize(s))?,
+                s if s <= 0 => InvalidFileSizeSnafu { size: s }.fail()?,
                 s => s as u32,
             };
 
-            let last = path_bytes.iter().position(|b| *b == 0).ok_or(PakError::FileNameTooLong(
-                String::from_utf8_lossy(&path_bytes).into_owned(),
-            ))?;
+            let last = path_bytes.iter().position(|b| *b == 0).context(FileNameTooLongSnafu {
+                name: String::from_utf8_lossy(&path_bytes).into_owned(),
+            })?;
             let path = String::from_utf8(path_bytes[0..last].to_vec())?;
 
             map.insert(

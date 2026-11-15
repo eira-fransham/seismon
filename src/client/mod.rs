@@ -69,7 +69,7 @@ use menu::Menu;
 use seismon_utils::{QAngles, QString};
 use serde::Deserialize;
 use sound::SoundError;
-use thiserror::Error;
+use snafu::Snafu;
 use wgpu::BlendState;
 
 // connections are tried 3 times, see
@@ -352,57 +352,51 @@ where
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum ClientError {
-    #[error("Connection rejected: {0}")]
-    ConnectionRejected(String),
-    #[error("Couldn't read cvar value: {0}")]
-    Cvar(ConsoleError),
-    #[error("Server sent an invalid port number ({0})")]
-    InvalidConnectPort(i32),
-    #[error("Server sent an invalid connect response")]
+    #[snafu(display("Connection rejected: {message}"))]
+    ConnectionRejected { message: String },
+    #[snafu(context(false), display("Couldn't read cvar value: {source}"))]
+    Cvar { source: ConsoleError },
+    #[snafu(display("Server sent an invalid port number ({port})"))]
+    InvalidConnectPort { port: i32 },
+    #[snafu(display("Server sent an invalid connect response"))]
     InvalidConnectResponse,
-    #[error("Invalid server address")]
+    #[snafu(display("Invalid server address"))]
     InvalidServerAddress,
-    #[error("No response from server")]
+    #[snafu(display("No response from server"))]
     NoResponse,
-    #[error("Unrecognized protocol: {0}")]
-    UnrecognizedProtocol(i32),
-    #[error("Client is not connected")]
+    #[snafu(display("Unrecognized protocol: {version}"))]
+    UnrecognizedProtocol { version: i32 },
+    #[snafu(display("Client is not connected"))]
     NotConnected,
-    #[error("Client has already signed on")]
+    #[snafu(display("Client has already signed on"))]
     AlreadySignedOn,
-    #[error("No client with ID {0}")]
-    NoSuchClient(usize),
-    #[error("No player with ID {0}")]
-    NoSuchPlayer(usize),
-    #[error("No entity with ID {0}")]
-    NoSuchEntity(usize),
-    #[error("Null entity access")]
+    #[snafu(display("No client with ID {id}"))]
+    NoSuchClient { id: usize },
+    #[snafu(display("No player with ID {id}"))]
+    NoSuchPlayer { id: usize },
+    #[snafu(display("No entity with ID {id}"))]
+    NoSuchEntity { id: usize },
+    #[snafu(display("Null entity access"))]
     NullEntity,
-    #[error("Entity already exists: {0}")]
-    EntityExists(usize),
-    #[error("Invalid view entity: {0}")]
-    InvalidViewEntity(usize),
-    #[error("Too many static entities")]
+    #[snafu(display("Entity already exists: {id}"))]
+    EntityExists { id: usize },
+    #[snafu(display("Invalid view entity: {id}"))]
+    InvalidViewEntity { id: usize },
+    #[snafu(display("Too many static entities"))]
     TooManyStaticEntities,
-    #[error("No such lightmap animation: {0}")]
-    NoSuchLightmapAnimation(usize),
+    #[snafu(display("No such lightmap animation: {id}"))]
+    NoSuchLightmapAnimation { id: usize },
     // TODO: wrap PlayError
-    #[error("Failed to open audio output stream")]
+    #[snafu(display("Failed to open audio output stream"))]
     OutputStream,
-    #[error("Demo server error: {0}")]
-    DemoServer(#[from] DemoError),
-    #[error("Network error: {0}")]
-    Network(#[from] NetError),
-    #[error("Failed to load sound: {0}")]
-    Sound(#[from] SoundError),
-}
-
-impl From<ConsoleError> for ClientError {
-    fn from(value: ConsoleError) -> Self {
-        Self::Cvar(value)
-    }
+    #[snafu(context(false), display("Demo server error: {source}"))]
+    DemoServer { source: DemoError },
+    #[snafu(context(false), display("Network error: {source}"))]
+    Network { source: NetError },
+    #[snafu(context(false), display("Failed to load sound: {source}"))]
+    Sound { source: SoundError },
 }
 
 #[derive(Deserialize, Copy, Clone, Debug)]
@@ -551,7 +545,7 @@ impl ConnectionTarget {
                     LoadState::Loading => return Ok(Err(ConnectionStatus::Maintain)),
                     LoadState::NotLoaded => return Ok(Err(ConnectionStatus::NextDemo)),
                     LoadState::Failed(err) => {
-                        return Err(ClientError::DemoServer(DemoError::Load(err)));
+                        return Err(DemoError::from(err).into());
                     }
                 };
 
@@ -738,7 +732,7 @@ where
     let mut con_sock = ConnectSocket::bind("0.0.0.0:0")?;
     let server_addr = match server_addrs.to_socket_addrs() {
         Ok(ref mut a) => a.next().ok_or(ClientError::InvalidServerAddress),
-        Err(_) => Err(ClientError::InvalidServerAddress),
+        Err(_) => InvalidServerAddressSnafu.fail(),
     }?;
 
     let mut response = None;
@@ -779,7 +773,7 @@ where
         Response::Accept(accept) => {
             // validate port number
             if accept.port < 0 || accept.port >= u16::MAX as i32 {
-                Err(ClientError::InvalidConnectPort(accept.port))?;
+                InvalidConnectPortSnafu { port: accept.port }.fail()?;
             }
 
             debug!("Connection accepted on port {}", accept.port);
@@ -788,12 +782,12 @@ where
 
         // our request was rejected.
         Response::Reject(reject) => {
-            Err(ClientError::ConnectionRejected(reject.message.into_string()))?
+            ConnectionRejectedSnafu { message: reject.message.into_string() }.fail()?
         }
 
         // the server sent back a response that doesn't make sense here (i.e. something other
         // than an Accept or Reject).
-        _ => Err(ClientError::InvalidConnectResponse)?,
+        _ => InvalidConnectResponseSnafu.fail()?,
     };
 
     let mut new_addr = server_addr;
@@ -892,9 +886,9 @@ mod systems {
         let client_vars: ClientVars = ClientVars {
             name: registry
                 .get_cvar("_cl_name")
-                .ok_or(ClientError::Cvar(ConsoleError::CvarParseInvalid {
+                .ok_or_else(|| ConsoleError::CvarParseInvalid {
                     backtrace: snafu::Backtrace::capture(),
-                }))?
+                })?
                 .value()
                 .as_name()
                 .unwrap_or("player"),
@@ -1251,7 +1245,7 @@ mod systems {
                     } => {
                         // check protocol version
                         if protocol_version != net::PROTOCOL_VERSION as i32 {
-                            Err(ClientError::UnrecognizedProtocol(protocol_version))?;
+                            UnrecognizedProtocolSnafu { version: protocol_version }.fail()?;
                         }
 
                         console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
@@ -1604,7 +1598,7 @@ mod systems {
 
                     ServerCmd::Version { version } => {
                         if version != net::PROTOCOL_VERSION as i32 {
-                            return Err(ClientError::UnrecognizedProtocol(version));
+                            return UnrecognizedProtocolSnafu { version }.fail();
                         }
                     }
 

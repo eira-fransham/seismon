@@ -27,16 +27,16 @@ pub use music::MusicPlayer;
 
 use std::io;
 
-use thiserror::Error;
+use snafu::Snafu;
 
 pub const REVERB_AMT: f32 = 0.1;
 
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum SoundError {
-    #[error("No such music track: {0}")]
-    NoSuchTrack(String),
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+    #[snafu(display("No such music track: {name}"))]
+    NoSuchTrack { name: String },
+    #[snafu(context(false), display("I/O error: {source}"))]
+    Io { source: io::Error },
 }
 
 /// Data needed for sound spatialization.

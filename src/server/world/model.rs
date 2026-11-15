@@ -1,15 +1,15 @@
 use bevy::{log::debug, math::Vec3};
 use bevy_mod_mdl::MdlFileError;
 use seismon_utils::model::{ModelFlags, SyncType};
-use thiserror::Error;
+use snafu::Snafu;
 
 use crate::server::world::hull::BrushModel;
 
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum ModelError {
-    #[error("MDL file error: {0}")]
-    MdlFile(#[from] MdlFileError),
-    #[error("SPR file error")]
+    #[snafu(context(false), display("MDL file error: {source}"))]
+    MdlFile { source: MdlFileError },
+    #[snafu(display("SPR file error"))]
     SprFile,
 }
 

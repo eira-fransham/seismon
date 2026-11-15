@@ -1,9 +1,10 @@
+use snafu::OptionExt as _;
 use std::{iter, mem};
 
 use super::view::BobVars;
 use crate::{
     client::{
-        ClientError, Connection, OVERLAY_RENDER_LAYER,
+        ClientError, Connection, InvalidConnectResponseSnafu, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
         inventory::Health,
         post_process::{ColorShift, Powerup},
@@ -130,7 +131,7 @@ impl ClientState {
 
         // TODO: Better error
         let worldspawn_path =
-            model_precache.next().ok_or_else(|| ClientError::InvalidConnectResponse)?;
+            model_precache.next().context(InvalidConnectResponseSnafu)?;
 
         let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned();
 

@@ -11,23 +11,23 @@ use bevy::{
 };
 use futures_byteorder::{AsyncReadBytes, LittleEndian};
 use seismon_utils::{QAngles, read_f32_3_async};
-use thiserror::Error;
+use snafu::Snafu;
 
 /// An error returned by a demo server.
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum DemoError {
-    #[error("Invalid CD track number")]
+    #[snafu(display("Invalid CD track number"))]
     InvalidCdTrack,
-    #[error("No such CD track: {0}")]
-    NoSuchCdTrack(i32),
-    #[error("Message size ({0}) exceeds maximum allowed size {}", net::MAX_MESSAGE)]
-    MessageTooLong(u32),
-    #[error("Load error: {0}")]
-    Load(#[from] Arc<AssetLoadError>),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Network error: {0}")]
-    Net(#[from] NetError),
+    #[snafu(display("No such CD track: {track}"))]
+    NoSuchCdTrack { track: i32 },
+    #[snafu(display("Message size ({size}) exceeds maximum allowed size {}", net::MAX_MESSAGE))]
+    MessageTooLong { size: u32 },
+    #[snafu(context(false), display("Load error: {source}"))]
+    Load { source: Arc<AssetLoadError> },
+    #[snafu(context(false), display("IO error: {source}"))]
+    Io { source: std::io::Error },
+    #[snafu(context(false), display("Network error: {source}"))]
+    Net { source: NetError },
 }
 
 #[derive(Clone, Reflect)]

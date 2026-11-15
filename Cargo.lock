@@ -1653,7 +1653,7 @@ dependencies = [
  "qbsp",
  "seismon-utils",
  "serde",
- "thiserror 1.0.69",
+ "snafu",
 ]
 
 [[package]]
@@ -1669,7 +1669,7 @@ dependencies = [
  "futures",
  "hashbrown 0.15.5",
  "memmap2",
- "thiserror 1.0.69",
+ "snafu",
  "tokio",
 ]
 
@@ -7124,7 +7124,6 @@ dependencies = [
  "snafu",
  "strum 0.26.3",
  "strum_macros 0.26.4",
- "thiserror 1.0.69",
  "tracing",
  "uluru",
  "uuid",

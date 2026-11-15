@@ -17,5 +17,5 @@ byteorder.workspace = true
 futures.workspace = true
 memmap2.workspace = true
 hashbrown.workspace = true
-thiserror.workspace = true
+snafu.workspace = true
 tokio = { workspace = true, features = ["sync"] }

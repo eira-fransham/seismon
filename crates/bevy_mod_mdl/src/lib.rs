@@ -26,7 +26,7 @@ use bevy_world_serialization::WorldAsset;
 use seismon_utils::model::ModelFlags;
 use serde::{Deserialize, Serialize};
 use std::{cell::OnceCell, collections::HashSet, io};
-use thiserror::Error;
+use snafu::{OptionExt as _, Snafu};
 
 pub use qbsp::Palette;
 
@@ -56,45 +56,45 @@ impl Plugin for MdlPlugin {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 pub enum MdlFileError {
-    #[error("No meshes")]
+    #[snafu(display("No meshes"))]
     NoMeshes,
-    #[error("No textures")]
+    #[snafu(display("No textures"))]
     NoSkins,
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
-    #[error("Invalid magic number: found {0}, expected {}", read::MAGIC)]
-    InvalidMagicNumber(i32),
-    #[error("Unrecognized version: {0}")]
-    UnrecognizedVersion(i32),
-    #[error("Invalid texture width: {0}")]
-    InvalidTextureWidth(i32),
-    #[error("Invalid texture height: {0}")]
-    InvalidTextureHeight(i32),
-    #[error("Invalid vertex count: {0}")]
-    InvalidVertexCount(i32),
-    #[error("Invalid polygon count: {0}")]
-    InvalidPolygonCount(i32),
-    #[error("Invalid keyframe count: {0}")]
-    InvalidKeyframeCount(i32),
-    #[error("Invalid model flags: {0:X?}")]
-    InvalidFlags(i32),
-    #[error("Invalid texture kind: {0}")]
-    InvalidTextureKind(i32),
-    #[error("Invalid seam flag: {0}")]
-    InvalidSeamFlag(i32),
-    #[error("Invalid texture coordinates: {0:?}")]
-    InvalidTexcoord([i32; 2]),
-    #[error("Invalid front-facing flag: {0}")]
-    InvalidFrontFacing(i32),
-    #[error("Keyframe name too long: {0:?}")]
-    KeyframeNameTooLong([u8; 16]),
-    #[error("Non-UTF-8 keyframe name: {0}")]
-    NonUtf8KeyframeName(#[from] std::string::FromUtf8Error),
-    #[error("Extra data found at end of file")]
+    #[snafu(context(false), display("I/O error: {source}"))]
+    Io { source: io::Error },
+    #[snafu(display("Invalid magic number: found {magic}, expected {}", read::MAGIC))]
+    InvalidMagicNumber { magic: i32 },
+    #[snafu(display("Unrecognized version: {version}"))]
+    UnrecognizedVersion { version: i32 },
+    #[snafu(display("Invalid texture width: {width}"))]
+    InvalidTextureWidth { width: i32 },
+    #[snafu(display("Invalid texture height: {height}"))]
+    InvalidTextureHeight { height: i32 },
+    #[snafu(display("Invalid vertex count: {count}"))]
+    InvalidVertexCount { count: i32 },
+    #[snafu(display("Invalid polygon count: {count}"))]
+    InvalidPolygonCount { count: i32 },
+    #[snafu(display("Invalid keyframe count: {count}"))]
+    InvalidKeyframeCount { count: i32 },
+    #[snafu(display("Invalid model flags: {flags:X?}"))]
+    InvalidFlags { flags: i32 },
+    #[snafu(display("Invalid texture kind: {kind}"))]
+    InvalidTextureKind { kind: i32 },
+    #[snafu(display("Invalid seam flag: {flag}"))]
+    InvalidSeamFlag { flag: i32 },
+    #[snafu(display("Invalid texture coordinates: {texcoord:?}"))]
+    InvalidTexcoord { texcoord: [i32; 2] },
+    #[snafu(display("Invalid front-facing flag: {flag}"))]
+    InvalidFrontFacing { flag: i32 },
+    #[snafu(display("Keyframe name too long: {name:?}"))]
+    KeyframeNameTooLong { name: [u8; 16] },
+    #[snafu(context(false), display("Non-UTF-8 keyframe name: {source}"))]
+    NonUtf8KeyframeName { source: std::string::FromUtf8Error },
+    #[snafu(display("Extra data found at end of file"))]
     Misaligned,
-    #[error("Unknown error")]
+    #[snafu(display("Unknown error"))]
     Unknown,
 }
 
@@ -461,7 +461,7 @@ async fn load_mdl(
         ),
         transform: raw.transform(),
         radius: raw.radius(),
-        default_mesh: default_mesh.take().ok_or(MdlFileError::NoMeshes)?,
+        default_mesh: default_mesh.take().context(NoMeshesSnafu)?,
         textures,
         animations,
         flags: raw
@@ -503,9 +503,9 @@ async fn load_mdl_as_scene(
     let transform = mdl.transform;
 
     let anim_player =
-        MeshAnimPlayer::new(mdl.animations.first().ok_or(MdlFileError::NoMeshes)?.clone());
+        MeshAnimPlayer::new(mdl.animations.first().context(NoMeshesSnafu)?.clone());
 
-    let texture = GenericMaterial3d(mdl.textures.first().ok_or(MdlFileError::NoSkins)?.clone());
+    let texture = GenericMaterial3d(mdl.textures.first().context(NoSkinsSnafu)?.clone());
 
     let mesh = Mesh3d(Handle::default());
 

@@ -72,7 +72,6 @@ serde = { version = "1.0", features = ["derive"] }
 snafu = { version = "0.8" }
 strip-ansi-escapes = "0.2"
 termion = "4.0"
-thiserror = "1.0"
 tokio = "1.49"
 unicode-width = "0.2"
 qbsp = { version = "0.17", features = ["bevy_reflect", "serde"] }
@@ -102,7 +101,6 @@ num-traits.workspace = true
 serde-lexpr.workspace = true
 serde.workspace = true
 snafu.workspace = true
-thiserror.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
 arrayvec = "0.7"
