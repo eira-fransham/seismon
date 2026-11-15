@@ -2,23 +2,6 @@
 
 ### An extensible, modern Quake engine
 
-> #### NOTE
->
-> This branch is for a migration away from "hand-rolled" solutions for things like state storage, rendering and networking.
->
-> This currently includes:
->
-> - [`bevy_mod_scripting`](https://github.com/eira-fransham/bevy_mod_scripting_qcvm) for the QuakeC VM
-> - [`bevy_trenchbroom`](https://github.com/eira-fransham/bevy_trenchbroom/tree/each-model-separate-sub-asset-bevy-0.18) for the map loading/rendering
->
-> and in the future, will include using `lightyear` or a similar mechanism for networking, along with some other improvements.
->
-> The hope is that once this refactor is completed, Seismon will be able to use Lua as an alternate scripting language, will be able to load non-Quake 1
-> maps and models (e.g. Half-Life), and will be able to run in FTEQW- or DarkPlaces-compatible modes, as well as potentially supporting Quake 3's map
-> and VM formats.
->
-> Currently, it is less functional than the default [`bevy`](https://github.com/eira-fransham/seismon/tree/bevy) branch, but improvements are being made.
-
 #### Click here for a preview video:
 
 [![Preview video](https://img.youtube.com/vi/Hy5QStHHv8A/0.jpg)](https://www.youtube.com/watch?v=Hy5QStHHv8A)
@@ -72,16 +55,14 @@ extensible way than the original Richter implementation.
 Audio is done using `bevy_seedling`, a modern audiograph-based audio system replacing Bevy's default. This lets us apply
 effects to the audio, and while it is relatively simple for now it should allow for some more advanced features later.
 
-Hosting a server has preliminary support - the server can run all the initialisation code in QuakeC, and it can
-load into any level from the original game. The server can correctly load entities, run the initialisation routines for
-the player and entities, do basic physics, and send the resultant information to the client. The client can send input, which
-is passed to QuakeC, but as player physics are not yet fully implemented the input can't actually move the player. The next
-steps are to finish the physics and implement a couple of routines that are needed to make monsters move around. Basic collision
-with the world and entities appears to work, but the best it can do right now is make the player awkwardly scoot around the level
-when they spawn clipped into an entity (like on some levels where you start on an ammo/health pickup). Here is an example of the
-client connected to the local Seismon server running `e3m6`:
+Hosting a listen server is currently working to a reasonable degree, in that the game is playable. There are plenty of
+bugs and instances of weird behaviour, but previously the player would just fall through the world and enemies would run
+away instead of trying to reach you, so this is a huge improvement. Here's a video of playing the game on `e1m1.bsp`
+(excuse the awful gameplay, I was playing on a trackpad):
 
-![Preview of running server](content/seismon-server.png)
+#### Click here for a preview video:
+
+[![Preview of running server](https://img.youtube.com/vi/cYRXDSovfwI/0.jpg)](https://www.youtube.com/watch?v=cYRXDSovfwI)
 
 Networking is untested since beginning the rewrite, and I've been only using demos as a testcase. It is a priority to get this
 working again once the client update code is ported to use the ECS. I haven't touched most of the networking code, so in
@@ -108,12 +89,11 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-u
 ```bash
 cd /path/to/quake
 # To run Quake 1 (id1 folder)
-cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client
+cargo run --release --bin quake-client -- --base-dir /path/to/quake
 # To run other games
-cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client -- --game [GAME_NAME]
-# To run commands on startup (may require editing `quake.rc`, as `startdemos xxx` in the .rc
-# may overwrite commands from `stuffcmds`)
-cargo +nightly run --release --manifest-path /path/to/seismon --bin quake-client -- +map e1m1
+cargo run --release --bin quake-client -- --base-dir /path/to/quake --game [GAME_NAME]
+# To run extra commands on startup
+cargo run --release --bin quake-client -- --base-dir /path/to/quake +map e1m1
 ```
 
 #### Feature checklist
