@@ -642,33 +642,45 @@ pub fn vec3_truncate_n(v: Vec3, n: usize) -> Vec2 {
 mod test {
     use super::*;
 
+    const SLOP_FACTOR: f32 = 0.001;
+
+    // TODO: We have something like this in a couple of places, maybe worth extracting into
+    // `seismon-utils`
+    fn assert_approx_eq(a: f32, b: f32) {
+        assert!((a - b).abs() < SLOP_FACTOR, "{a} != {b}");
+    }
+
+    fn assert_approx_eq_v3(a: Vec3, b: Vec3) {
+        assert!((a - b).length() < SLOP_FACTOR, "{a} != {b}");
+    }
+
     #[test]
     fn test_hyperplane_side_x() {
-        let plane = Hyperplane::axis_x(1.0);
-        assert_eq!(plane.point_side(Vec3::X * 2.0), HyperplaneSide::Positive);
-        assert_eq!(plane.point_side(Vec3::X * -2.0), HyperplaneSide::Negative);
+        let plane = Hyperplane::axis_x(1.);
+        assert_eq!(plane.point_side(Vec3::X * 2.), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::X * -2.), HyperplaneSide::Negative);
     }
 
     #[test]
     fn test_hyperplane_side_y() {
-        let plane = Hyperplane::axis_y(1.0);
-        assert_eq!(plane.point_side(Vec3::Y * 2.0), HyperplaneSide::Positive);
-        assert_eq!(plane.point_side(Vec3::Y * -2.0), HyperplaneSide::Negative);
+        let plane = Hyperplane::axis_y(1.);
+        assert_eq!(plane.point_side(Vec3::Y * 2.), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::Y * -2.), HyperplaneSide::Negative);
     }
 
     #[test]
     fn test_hyperplane_side_z() {
-        let plane = Hyperplane::axis_z(1.0);
-        assert_eq!(plane.point_side(Vec3::Z * 2.0), HyperplaneSide::Positive);
-        assert_eq!(plane.point_side(Vec3::Z * -2.0), HyperplaneSide::Negative);
+        let plane = Hyperplane::axis_z(1.);
+        assert_eq!(plane.point_side(Vec3::Z * 2.), HyperplaneSide::Positive);
+        assert_eq!(plane.point_side(Vec3::Z * -2.), HyperplaneSide::Negative);
     }
 
     #[test]
     fn test_hyperplane_side_arbitrary() {
         // test 16 hyperplanes around the origin
-        for x_comp in [1.0, -1.0].into_iter() {
-            for y_comp in [1.0, -1.0].into_iter() {
-                for z_comp in [1.0, -1.0].into_iter() {
+        for x_comp in [1., -1.].into_iter() {
+            for y_comp in [1., -1.].into_iter() {
+                for z_comp in [1., -1.].into_iter() {
                     for dist in [1, -1].into_iter() {
                         let base_vector = Vec3::new(x_comp, y_comp, z_comp);
                         let plane = Hyperplane::new(base_vector, dist as f32);
@@ -681,7 +693,7 @@ mod test {
                             }
                         );
                         assert_eq!(
-                            plane.point_side(base_vector * 2.0 * dist as f32),
+                            plane.point_side(base_vector * 2. * dist as f32),
                             match dist {
                                 1 => HyperplaneSide::Positive,
                                 -1 => HyperplaneSide::Negative,
@@ -696,56 +708,56 @@ mod test {
 
     #[test]
     fn test_hyperplane_point_dist_x() {
-        let plane = Hyperplane::axis_x(1.0);
-        assert_eq!(plane.point_dist(Vec3::X * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::axis_x(1.);
+        assert_eq!(plane.point_dist(Vec3::X * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_point_dist_y() {
-        let plane = Hyperplane::axis_y(1.0);
-        assert_eq!(plane.point_dist(Vec3::Y * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::axis_y(1.);
+        assert_eq!(plane.point_dist(Vec3::Y * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_point_dist_z() {
-        let plane = Hyperplane::axis_z(1.0);
-        assert_eq!(plane.point_dist(Vec3::Z * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::axis_z(1.);
+        assert_eq!(plane.point_dist(Vec3::Z * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_point_dist_x_no_axis() {
-        let plane = Hyperplane::from_normal(Vec3::X, 1.0);
-        assert_eq!(plane.point_dist(Vec3::X * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::X, 1.);
+        assert_eq!(plane.point_dist(Vec3::X * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_point_dist_y_no_axis() {
-        let plane = Hyperplane::from_normal(Vec3::Y, 1.0);
-        assert_eq!(plane.point_dist(Vec3::Y * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::Y, 1.);
+        assert_eq!(plane.point_dist(Vec3::Y * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_point_dist_z_no_axis() {
-        let plane = Hyperplane::from_normal(Vec3::Z, 1.0);
-        assert_eq!(plane.point_dist(Vec3::Z * 2.0), 1.0);
-        assert_eq!(plane.point_dist(Vec3::ZERO), -1.0);
+        let plane = Hyperplane::from_normal(Vec3::Z, 1.);
+        assert_eq!(plane.point_dist(Vec3::Z * 2.), 1.);
+        assert_eq!(plane.point_dist(Vec3::ZERO), -1.);
     }
 
     #[test]
     fn test_hyperplane_line_segment_intersection_x() {
-        let plane = Hyperplane::axis_x(1.0);
-        let start = Vec3::new(0.0, 0.5, 0.5);
-        let end = Vec3::new(2.0, 0.5, 0.5);
+        let plane = Hyperplane::axis_x(1.);
+        let start = Vec3::new(0., 0.5, 0.5);
+        let end = Vec3::new(2., 0.5, 0.5);
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vec3::new(1.0, 0.5, 0.5));
+                assert_approx_eq(p_i.ratio(), 0.5);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(1., 0.5, 0.5));
             }
             _ => panic!(),
         }
@@ -753,14 +765,14 @@ mod test {
 
     #[test]
     fn test_hyperplane_line_segment_intersection_y() {
-        let plane = Hyperplane::axis_y(1.0);
-        let start = Vec3::new(0.5, 0.0, 0.5);
-        let end = Vec3::new(0.5, 2.0, 0.5);
+        let plane = Hyperplane::axis_y(1.);
+        let start = Vec3::new(0.5, 0., 0.5);
+        let end = Vec3::new(0.5, 2., 0.5);
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vec3::new(0.5, 1.0, 0.5));
+                assert_approx_eq(p_i.ratio(), 0.5);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 1., 0.5));
             }
             _ => panic!(),
         }
@@ -768,14 +780,14 @@ mod test {
 
     #[test]
     fn test_hyperplane_line_segment_intersection_z() {
-        let plane = Hyperplane::axis_z(1.0);
-        let start = Vec3::new(0.5, 0.5, 0.0);
-        let end = Vec3::new(0.5, 0.5, 2.0);
+        let plane = Hyperplane::axis_z(1.);
+        let start = Vec3::new(0.5, 0.5, 0.);
+        let end = Vec3::new(0.5, 0.5, 2.);
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_eq!(p_i.ratio(), 0.5);
-                assert_eq!(p_i.point(), Vec3::new(0.5, 0.5, 1.0));
+                assert_approx_eq(p_i.ratio(), 0.5);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 0.5, 1.));
             }
             _ => panic!(),
         }
@@ -785,16 +797,16 @@ mod test {
     fn test_collinear() {
         let cases = vec![
             (vec![Vec3::X, Vec3::Y, Vec3::Z], false),
-            (vec![Vec3::X, Vec3::X * 2.0, Vec3::X * 3.0], true),
+            (vec![Vec3::X, Vec3::X * 2., Vec3::X * 3.], true),
             (
                 vec![
-                    [1400.0, 848.0, -456.0].into(),
-                    [1352.0, 848.0, -456.0].into(),
-                    [1272.0, 848.0, -456.0].into(),
-                    [1256.0, 848.0, -456.0].into(),
-                    [1208.0, 848.0, -456.0].into(),
-                    [1192.0, 848.0, -456.0].into(),
-                    [1176.0, 848.0, -456.0].into(),
+                    [1400., 848., -456.].into(),
+                    [1352., 848., -456.].into(),
+                    [1272., 848., -456.].into(),
+                    [1256., 848., -456.].into(),
+                    [1208., 848., -456.].into(),
+                    [1192., 848., -456.].into(),
+                    [1176., 848., -456.].into(),
                 ],
                 true,
             ),
@@ -810,39 +822,39 @@ mod test {
         let cases = vec![
             (
                 vec![
-                    [1176.0, 992.0, -456.0].into(),
-                    [1176.0, 928.0, -456.0].into(),
-                    [1176.0, 880.0, -456.0].into(),
-                    [1176.0, 864.0, -456.0].into(),
-                    [1176.0, 848.0, -456.0].into(),
-                    [1120.0, 848.0, -456.0].into(),
-                    [1120.0, 992.0, -456.0].into(),
+                    [1176., 992., -456.].into(),
+                    [1176., 928., -456.].into(),
+                    [1176., 880., -456.].into(),
+                    [1176., 864., -456.].into(),
+                    [1176., 848., -456.].into(),
+                    [1120., 848., -456.].into(),
+                    [1120., 992., -456.].into(),
                 ],
                 vec![
-                    [1176.0, 992.0, -456.0].into(),
-                    [1176.0, 848.0, -456.0].into(),
-                    [1120.0, 848.0, -456.0].into(),
-                    [1120.0, 992.0, -456.0].into(),
+                    [1176., 992., -456.].into(),
+                    [1176., 848., -456.].into(),
+                    [1120., 848., -456.].into(),
+                    [1120., 992., -456.].into(),
                 ],
             ),
             (
                 vec![
-                    [1400.0, 768.0, -456.0].into(),
-                    [1400.0, 848.0, -456.0].into(),
-                    [1352.0, 848.0, -456.0].into(),
-                    [1272.0, 848.0, -456.0].into(),
-                    [1256.0, 848.0, -456.0].into(),
-                    [1208.0, 848.0, -456.0].into(),
-                    [1192.0, 848.0, -456.0].into(),
-                    [1176.0, 848.0, -456.0].into(),
-                    [1120.0, 848.0, -456.0].into(),
-                    [1200.0, 768.0, -456.0].into(),
+                    [1400., 768., -456.].into(),
+                    [1400., 848., -456.].into(),
+                    [1352., 848., -456.].into(),
+                    [1272., 848., -456.].into(),
+                    [1256., 848., -456.].into(),
+                    [1208., 848., -456.].into(),
+                    [1192., 848., -456.].into(),
+                    [1176., 848., -456.].into(),
+                    [1120., 848., -456.].into(),
+                    [1200., 768., -456.].into(),
                 ],
                 vec![
-                    [1400.0, 768.0, -456.0].into(),
-                    [1400.0, 848.0, -456.0].into(),
-                    [1120.0, 848.0, -456.0].into(),
-                    [1200.0, 768.0, -456.0].into(),
+                    [1400., 768., -456.].into(),
+                    [1400., 848., -456.].into(),
+                    [1120., 848., -456.].into(),
+                    [1200., 768., -456.].into(),
                 ],
             ),
         ];
