@@ -21,9 +21,10 @@ use bevy_seedling::spatial::SpatialListener3D;
 use clap::Parser;
 use seismon::{
     client::{
-        SeismonClientPlugin, SeismonGameSettings, default_overlay_camera, default_world_camera,
+        SeismonClientPlugin, SeismonGameSettings, check_game_dirs, default_overlay_camera,
+        default_world_camera,
     },
-    common::{Template, console::StuffCmds},
+    common::{Template, console::StuffCmds, default_base_dir},
     server::SeismonListenServerPlugin,
 };
 use serde_lexpr::Value;
@@ -204,6 +205,13 @@ fn startup(
 
 fn main() -> ExitCode {
     let opt = Opt::parse();
+
+    let base_dir = opt.base_dir.clone().unwrap_or_else(default_base_dir);
+    if let Err(e) = check_game_dirs(&base_dir, opt.game.as_deref()) {
+        // Logging isn't set up until the app is built, so print directly.
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
+    }
 
     let mut app = App::new();
     let default_plugins = DefaultPlugins

@@ -602,20 +602,24 @@ impl World {
     }
 
     /// Convert the internal representation of a field offset back to struct form.
-    pub fn ent_fld_addr_from_i32(&self, val: i32) -> EntityFieldAddr {
+    pub fn ent_fld_addr_from_i32(&self, val: i32) -> Result<EntityFieldAddr, ProgsError> {
         if val < 0 {
-            panic!("ent_fld_addr_from_i32: negative value ({val})");
+            return Err(ProgsError::with_msg(format!(
+                "ent_fld_addr_from_i32: negative value ({val})"
+            )));
         }
 
         if val % 4 != 0 {
-            panic!("ent_fld_addr_from_i32: value % 4 != 0 ({val})");
+            return Err(ProgsError::with_msg(format!(
+                "ent_fld_addr_from_i32: value % 4 != 0 ({val})"
+            )));
         }
 
         let total_addr = val as usize / mem::size_of::<f32>();
-        EntityFieldAddr {
+        Ok(EntityFieldAddr {
             entity_id: EntityId((total_addr / self.type_def.addr_count()) as i32),
             field_addr: FieldAddr(total_addr % self.type_def.addr_count()),
-        }
+        })
     }
 
     /// Allocate a new entity and initialize it with the data in the given map.
@@ -992,6 +996,11 @@ impl World {
 
         debug!("End position after collision test with world hull: {:?}", world_trace.end_point());
 
+        // If the world trace starts and ends in a solid, don't even try to trace against entities.
+        if world_trace.all_solid() {
+            return Ok((world_trace, Some(EntityId(0))));
+        }
+
         // if this is a rocket or a grenade, expand the monster collision box
         let (monster_min, monster_max) = match kind {
             CollideKind::Missile => (Vec3::splat(15.0), Vec3::splat(15.0)),
@@ -1034,31 +1043,38 @@ impl World {
     where
         F: Fn(EntityId) -> bool,
     {
-        self.collide_area(0, collide, &filter)
+        let mut best = (Trace::uninitialized(collide.start, collide.end), None);
+        self.collide_area(0, collide, &filter, &mut best)?;
+        Ok(best)
     }
 
     pub fn entity_area(&self, ent_id: EntityId) -> Result<Option<usize>, ProgsError> {
         self.entities.area_entity(ent_id).map(|e| e.area_id)
     }
 
+    /// Traces `collide` against the solid entities in area node `area_id` and its children.
+    ///
+    /// `best` holds the closest hit found so far and the entity that was hit, and is only
+    /// replaced (both parts together) when a closer hit is found, as in Quake's `SV_ClipToLinks`.
     fn collide_area<F>(
         &self,
         area_id: usize,
         collide: &Collide,
         filter: F,
-    ) -> Result<(Trace, Option<EntityId>), ProgsError>
+        best: &mut (Trace, Option<EntityId>),
+    ) -> Result<(), ProgsError>
     where
         F: Fn(EntityId) -> bool + Copy,
     {
-        let mut trace = Trace::uninitialized(collide.start, collide.end);
-
-        let mut collide_entity = None;
-
         let area = &self.area_nodes[area_id];
 
         'collide_entity: for touch in
             area.solids.iter().filter(|e| filter(**e) && Some(**e) != collide.e_id)
         {
+            if best.0.all_solid() {
+                return Ok(());
+            }
+
             match self.get(*touch)?.solid()? {
                 // if the other entity has no collision, skip it
                 EntitySolid::Not => continue,
@@ -1098,10 +1114,6 @@ impl World {
                 continue;
             }
 
-            if trace.all_solid() {
-                return Ok((trace, collide_entity));
-            }
-
             if let Some(e) = collide.e_id {
                 // don't collide against owner or owned entities
                 if self.get(*touch)?.owner()? == e || self.get(e)?.owner()? == *touch {
@@ -1128,45 +1140,29 @@ impl World {
                 )?
             };
 
-            let old_dist = trace.ratio();
-            let new_dist = tmp_trace.ratio();
-
-            let start_solid = trace.start_solid() || tmp_trace.start_solid();
+            let (trace, collide_entity) = best;
 
             // check to see if this candidate is the closest yet and update trace if so
-            if tmp_trace.all_solid() || tmp_trace.start_solid() || new_dist < old_dist {
-                collide_entity = Some(*touch);
-                trace = tmp_trace;
-            }
-
-            trace.set_start_solid(start_solid);
-        }
-
-        match area.kind {
-            AreaNodeKind::Leaf => (),
-
-            AreaNodeKind::Branch(ref b) => {
-                let mut start_solid = trace.start_solid();
-
-                if collide.move_max[b.axis as usize] > b.dist {
-                    let (tmp_trace, ent) = self.collide_area(b.front, collide, filter)?;
-                    start_solid |= tmp_trace.start_solid();
-                    trace = tmp_trace;
-                    collide_entity = ent.or(collide_entity);
-                }
-
-                if collide.move_min[b.axis as usize] < b.dist {
-                    let (tmp_trace, ent) = self.collide_area(b.back, collide, filter)?;
-                    start_solid |= tmp_trace.start_solid();
-                    trace = tmp_trace;
-                    collide_entity = ent.or(collide_entity);
-                }
-
+            if tmp_trace.all_solid() || tmp_trace.start_solid() || tmp_trace.ratio() < trace.ratio()
+            {
+                let start_solid = trace.start_solid() || tmp_trace.start_solid();
+                *trace = tmp_trace;
                 trace.set_start_solid(start_solid);
+                *collide_entity = Some(*touch);
             }
         }
 
-        Ok((trace, collide_entity))
+        if let AreaNodeKind::Branch(ref b) = area.kind {
+            if collide.move_max[b.axis as usize] > b.dist {
+                self.collide_area(b.front, collide, filter, best)?;
+            }
+
+            if collide.move_min[b.axis as usize] < b.dist {
+                self.collide_area(b.back, collide, filter, best)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn collide_move_with_entity(
@@ -1179,9 +1175,9 @@ impl World {
     ) -> Result<Trace, ProgsError> {
         let (hull, offset) = self.hull_for_entity(e_id, min, max)?;
         debug!("hull offset for {e_id}: {offset}");
-        debug!("hull contents at start: {:?}", hull.contents_at_point(start).unwrap());
+        debug!("hull contents at start: {:?}", hull.contents_at_point(start).ok());
 
-        Ok(hull.trace(start - offset, end - offset).unwrap().adjust(offset))
+        Ok(hull.trace(start - offset, end - offset)?.adjust(offset))
     }
 
     pub fn trace(&self, start: Vec3, min: Vec3, max: Vec3, end: Vec3) -> Result<Trace, ProgsError> {

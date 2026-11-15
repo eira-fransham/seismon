@@ -53,6 +53,35 @@ const TEMP_ENTITY_BUILTIN_SOUNDS: &[&str] = &[
     "wizard/hit.wav",
 ];
 
+/// Applies the origin and angles present in `update` to `transform`, keeping the existing values
+/// for any fields the update doesn't include.
+///
+/// Use `Transform::IDENTITY` for a newly-spawned entity, so that missing fields default to zero.
+fn apply_entity_update(transform: Transform, update: &EntityUpdate) -> Transform {
+    let mut translation = transform.translation;
+    for (axis, value) in [update.origin_x, update.origin_y, update.origin_z].into_iter().enumerate()
+    {
+        if let Some(value) = value {
+            translation[axis] = value;
+        }
+    }
+
+    // Entity angles are in degrees; the `QAngles` -> `Quat` conversion handles the conversion to
+    // radians and Quake's axis conventions.
+    let mut angles: QAngles = transform.rotation.into();
+    if let Some(pitch) = update.pitch {
+        angles.pitch_deg = pitch;
+    }
+    if let Some(yaw) = update.yaw {
+        angles.yaw_deg = yaw;
+    }
+    if let Some(roll) = update.roll {
+        angles.roll_deg = roll;
+    }
+
+    Transform { translation, rotation: angles.into(), ..transform }
+}
+
 #[derive(Clone)]
 pub struct PlayerInfo {
     pub name: QString,
@@ -595,45 +624,9 @@ impl ClientState {
                     });
                 }
 
-                let mut new_translation = transform.component.translation;
-
-                if let Some(o_x) = update.origin_x {
-                    new_translation = new_translation.with_x(o_x);
-                }
-                if let Some(o_y) = update.origin_y {
-                    new_translation = new_translation.with_y(o_y);
-                }
-                if let Some(o_z) = update.origin_z {
-                    new_translation = new_translation.with_z(o_z);
-                }
-
-                let new_transform = transform.component.with_translation(new_translation);
-
-                let mut angles: QAngles = transform.component.rotation.into();
-                if let Some(new_pitch) = update.pitch {
-                    angles.pitch_deg = new_pitch;
-                }
-                if let Some(new_yaw) = update.yaw {
-                    angles.yaw_deg = new_yaw;
-                }
-                if let Some(new_roll) = update.roll {
-                    angles.roll_deg = new_roll;
-                }
-
-                let new_transform = new_transform.with_rotation(angles.into());
-
-                transform.component = new_transform;
+                transform.component = apply_entity_update(transform.component, &update);
                 transform.elapsed_secs = msg_time;
             } else {
-                let origin = Vec3::new(
-                    update.origin_x.unwrap_or_default(),
-                    update.origin_y.unwrap_or_default(),
-                    update.origin_z.unwrap_or_default(),
-                );
-
-                let [pitch, yaw, roll] =
-                    [update.pitch, update.yaw, update.roll].map(|a| a.unwrap_or(0.).to_radians());
-
                 if let Some(model_id) = update.model_id
                     && let Some(PrecacheModel::Loaded(model)) =
                         state.models.get(model_id as usize).cloned()
@@ -642,9 +635,10 @@ impl ClientState {
                 }
 
                 ent.insert((
-                    Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                        QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
-                    ),
+                    Next {
+                        component: apply_entity_update(Transform::IDENTITY, &update),
+                        elapsed_secs: msg_time,
+                    },
                     MdlSettings {
                         frame: update.frame_id.unwrap_or_default(),
                         skin: update.skin_id.unwrap_or_default(),
@@ -657,20 +651,9 @@ impl ClientState {
                 return;
             };
 
-            let origin = Vec3::new(
-                update.origin_x.unwrap_or_default(),
-                update.origin_y.unwrap_or_default(),
-                update.origin_z.unwrap_or_default(),
-            );
-
-            let [yaw, pitch, roll] =
-                [update.yaw, update.pitch, update.roll].map(|a| a.unwrap_or(0.).to_radians());
-
             let mut ent = commands.spawn((
                 Next {
-                    component: Transform::from_xyz(origin.x, origin.y, origin.z).with_rotation(
-                        QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into(),
-                    ),
+                    component: apply_entity_update(Transform::IDENTITY, &update),
                     elapsed_secs: msg_time,
                 },
                 Visibility::Inherited,

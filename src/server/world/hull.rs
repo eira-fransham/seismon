@@ -123,6 +123,15 @@ impl BspCollisionHull {
     /// This generates six planes which intersect to form a rectangular prism. The interior of the
     /// prism is `BspLeafContents::Solid`; the exterior is `BspLeafContents::Empty`.
     pub fn for_bounds(mins: Vec3, maxs: Vec3) -> Result<BspCollisionHull, HullError> {
+        Self::for_bounds_with_contents(mins, maxs, BspLeafContents::Solid)
+    }
+
+    /// Like [`BspCollisionHull::for_bounds`], but with the given `contents` inside the prism.
+    fn for_bounds_with_contents(
+        mins: Vec3,
+        maxs: Vec3,
+        contents: BspLeafContents,
+    ) -> Result<BspCollisionHull, HullError> {
         debug!("Generating collision hull for min = {:?} max = {:?}", mins, maxs);
 
         if mins.x > maxs.x || mins.y > maxs.y || mins.z > maxs.z {
@@ -187,7 +196,7 @@ impl BspCollisionHull {
         nodes.push(BspCollisionNode {
             plane_id: 5,
             children: [
-                BspCollisionNodeChild::Contents(BspLeafContents::Solid),
+                BspCollisionNodeChild::Contents(contents),
                 BspCollisionNodeChild::Contents(BspLeafContents::Empty),
             ],
         });
@@ -233,6 +242,9 @@ impl BspCollisionHull {
 
     pub fn trace(&self, start: Vec3, end: Vec3) -> Result<Trace, HullError> {
         let mut trace = Trace::uninitialized(start, end);
+        // As in Quake's `SV_ClipMoveToEntity`, the trace is all-solid until it enters a non-solid
+        // leaf (see `recursive_trace`).
+        trace.all_solid = true;
 
         let _ = self.recursive_trace(
             &BspCollisionNodeChild::Node(self.node_id),
@@ -275,7 +287,7 @@ impl BspCollisionHull {
                     if *c == BspLeafContents::Empty {
                         trace.in_open = true;
                     } else {
-                        trace.in_water = false;
+                        trace.in_water = true;
                     }
                 }
 
@@ -325,11 +337,14 @@ impl BspCollisionHull {
                 };
 
                 if far_contents != BspLeafContents::Solid {
+                    // Continue from the crossing point: the part of the segment before `mid` is
+                    // on the near side of this plane, so must not be tested against the far
+                    // subtree.
                     return self.recursive_trace(
                         &node.children[far_side as usize],
-                        start,
+                        mid,
                         end,
-                        start_ratio,
+                        mid_ratio,
                         end_ratio,
                         trace,
                     );
@@ -664,5 +679,63 @@ mod test {
         for point in solid_points {
             assert_eq!(hull.contents_at_point(point).unwrap(), BspLeafContents::Solid);
         }
+    }
+
+    fn unit_box(contents: BspLeafContents) -> BspCollisionHull {
+        BspCollisionHull::for_bounds_with_contents(Vec3::splat(-1.), Vec3::splat(1.), contents)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_trace_through_water_is_in_water() {
+        let hull = unit_box(BspLeafContents::Water);
+        let trace = hull.trace(Vec3::new(-10., 0., 0.), Vec3::new(10., 0., 0.)).unwrap();
+        assert!(trace.in_water);
+        assert!(trace.in_open);
+        assert!(!trace.all_solid());
+        assert!(trace.is_terminal());
+    }
+
+    #[test]
+    fn test_trace_inside_solid_is_all_solid() {
+        let hull = unit_box(BspLeafContents::Solid);
+        let trace = hull.trace(Vec3::new(-0.5, 0., 0.), Vec3::new(0.5, 0., 0.)).unwrap();
+        assert!(trace.all_solid());
+        assert!(trace.start_solid());
+    }
+
+    #[test]
+    fn test_trace_in_open_is_not_all_solid() {
+        let hull = unit_box(BspLeafContents::Solid);
+        let trace = hull.trace(Vec3::new(5., 5., 5.), Vec3::new(6., 6., 6.)).unwrap();
+        assert!(!trace.all_solid());
+        assert!(!trace.start_solid());
+        assert!(trace.in_open);
+        assert!(trace.is_terminal());
+    }
+
+    #[test]
+    fn test_trace_hits_box_at_analytic_ratio() {
+        let hull = unit_box(BspLeafContents::Solid);
+        let trace = hull.trace(Vec3::new(-10., 0., 0.), Vec3::new(10., 0., 0.)).unwrap();
+        assert!(!trace.all_solid());
+        assert!(!trace.start_solid());
+        // The box's near face is at x = -1, 9 units along a 20-unit trace.
+        assert!((trace.ratio() - 9. / 20.).abs() < 0.01, "ratio = {}", trace.ratio());
+        assert!((trace.end_point().x + 1.).abs() < 0.1, "end = {}", trace.end_point());
+        // Hit planes face into the solid (cf. `Hyperplane::is_floor`).
+        assert_eq!(trace.plane().unwrap().normal(), Vec3::X);
+    }
+
+    #[test]
+    fn test_trace_past_corner_does_not_hit() {
+        // This trace crosses the planes y = -1 and y = 1 while x < -1 (i.e. outside the box),
+        // then crosses x = -1 at y = 2, missing the box entirely. The far side of the x = -1
+        // plane must only be tested from the crossing point onwards.
+        let hull = unit_box(BspLeafContents::Solid);
+        let trace = hull.trace(Vec3::new(-3., -2., 0.), Vec3::new(0., 4., 0.)).unwrap();
+        assert!(!trace.start_solid());
+        assert!(!trace.all_solid());
+        assert!(trace.is_terminal(), "unexpected hit: {trace:?}");
     }
 }

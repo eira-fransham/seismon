@@ -304,49 +304,28 @@ impl Globals {
         }
     }
 
+    /// Converts a virtual address to an index into `addrs`, checking that it is in bounds.
+    fn inbounds(&self, addr: i16) -> Result<usize, GlobalsError> {
+        usize::try_from(addr)
+            .ok()
+            .filter(|&a| a < self.addrs.len())
+            .ok_or(GlobalsError::Address(addr as isize))
+    }
+
     /// Returns a reference to the memory at the given address.
     pub fn get_addr(&self, addr: i16) -> Result<&[u8], GlobalsError> {
-        if addr < 0 {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        let addr = addr as usize;
-
-        if addr > self.addrs.len() {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        Ok(&self.addrs[addr])
+        Ok(&self.addrs[self.inbounds(addr)?])
     }
 
     /// Returns a mutable reference to the memory at the given address.
     pub fn get_addr_mut(&mut self, addr: i16) -> Result<&mut [u8], GlobalsError> {
-        if addr < 0 {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        let addr = addr as usize;
-
-        if addr > self.addrs.len() {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        Ok(&mut self.addrs[addr])
+        let index = self.inbounds(addr)?;
+        Ok(&mut self.addrs[index])
     }
 
     /// Returns a copy of the memory at the given address.
     pub fn get_bytes(&self, addr: i16) -> Result<[u8; 4], GlobalsError> {
-        if addr < 0 {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        let addr = addr as usize;
-
-        if addr > self.addrs.len() {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        Ok(self.addrs[addr])
+        Ok(self.addrs[self.inbounds(addr)?])
     }
 
     /// Writes the provided data to the memory at the given address.
@@ -354,17 +333,8 @@ impl Globals {
     /// This can be used to circumvent the type checker in cases where an operation is not dependent
     /// of the type of the data.
     pub fn put_bytes(&mut self, val: [u8; 4], addr: i16) -> Result<(), GlobalsError> {
-        if addr < 0 {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        let addr = addr as usize;
-
-        if addr > self.addrs.len() {
-            return Err(GlobalsError::Address(addr as isize));
-        }
-
-        self.addrs[addr] = val;
+        let index = self.inbounds(addr)?;
+        self.addrs[index] = val;
         Ok(())
     }
 
@@ -1356,6 +1326,22 @@ pub fn make_vectors<V: Into<Vec3>>(angles: V) -> Mat3 {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_addr_bounds() {
+        let mut globals = Globals::new(Vec::new(), vec![[0; 4]; 4].into_boxed_slice());
+
+        assert!(globals.get_bytes(3).is_ok());
+        assert!(globals.put_bytes([1; 4], 3).is_ok());
+        assert_eq!(globals.get_bytes(3).unwrap(), [1; 4]);
+
+        // `addr == len` is one past the end.
+        assert!(matches!(globals.get_addr(4), Err(GlobalsError::Address(4))));
+        assert!(matches!(globals.get_addr_mut(4), Err(GlobalsError::Address(4))));
+        assert!(matches!(globals.get_bytes(4), Err(GlobalsError::Address(4))));
+        assert!(matches!(globals.put_bytes([0; 4], 4), Err(GlobalsError::Address(4))));
+        assert!(matches!(globals.get_bytes(-1), Err(GlobalsError::Address(-1))));
+    }
 
     #[test]
     fn test_make_vectors_no_rotation() {

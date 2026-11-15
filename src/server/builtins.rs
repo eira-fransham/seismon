@@ -447,17 +447,19 @@ pub fn register_builtins_quake1<'b, 'ns, N: 'static>(
 ) -> &'b mut NamespaceBuilder<'ns, N> {
     fn precache_sound(name: String) -> Result<(), InteropError> {
         worldspawn_mut::<Mut<LevelPrecache>, (), _>(|mut precache| {
-            precache.sound.precache(name);
-
-            Ok(())
+            precache
+                .sound
+                .precache(name)
+                .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))
         })
     }
 
     fn precache_model(name: String) -> Result<(), InteropError> {
         worldspawn_mut::<Mut<LevelPrecache>, (), _>(|mut precache| {
-            precache.model.precache(name);
-
-            Ok(())
+            precache
+                .model
+                .precache(name)
+                .map_err(|e| InteropError::External(ExternalError(Arc::new(e))))
         })
     }
 

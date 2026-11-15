@@ -69,11 +69,24 @@ pub enum PakError {
         /// The offset that was found.
         offset: i32,
     },
-    /// The size of a file was not positive.
+    /// The size of a file was negative.
     #[snafu(display("Invalid file size: {size}"))]
     InvalidFileSize {
         /// The size that was found.
         size: i32,
+    },
+    /// A file's data extends past the end of the archive.
+    #[snafu(display(
+        "File {} (offset {offset}, size {size}) extends past the end of the archive",
+        path.display()
+    ))]
+    FileOutOfBounds {
+        /// The path of the file.
+        path: PathBuf,
+        /// The offset of the file's data.
+        offset: u32,
+        /// The size of the file's data.
+        size: u32,
     },
     /// A file name was longer than 56 bytes.
     #[snafu(display("File name too long: {name}"))]
@@ -279,20 +292,27 @@ impl Pak {
                 o => o as u32,
             };
 
+            // Zero-length files are valid.
             let file_size = match reader.read_i32::<LittleEndian>()? {
-                s if s <= 0 => InvalidFileSizeSnafu { size: s }.fail()?,
+                s if s < 0 => InvalidFileSizeSnafu { size: s }.fail()?,
                 s => s as u32,
             };
 
             let last = path_bytes.iter().position(|b| *b == 0).context(FileNameTooLongSnafu {
                 name: String::from_utf8_lossy(&path_bytes).into_owned(),
             })?;
-            let path = String::from_utf8(path_bytes[0..last].to_vec())?;
+            let path = PathBuf::from(String::from_utf8(path_bytes[0..last].to_vec())?);
 
-            map.insert(
-                PathBuf::from(path),
-                PakEntry::File(file_offset as usize..(file_offset + file_size) as usize),
-            );
+            let start = file_offset as usize;
+            let end = match start.checked_add(file_size as usize) {
+                Some(end) if end <= bytes.as_ref().len() => end,
+                _ => {
+                    return FileOutOfBoundsSnafu { path, offset: file_offset, size: file_size }
+                        .fail();
+                }
+            };
+
+            map.insert(path, PakEntry::File(start..end));
         }
 
         let keys = map.keys().cloned().collect::<Box<[_]>>();
@@ -322,5 +342,58 @@ impl Pak {
         let name = name.to_string();
 
         Ok(Pak { name, memory: bytes, entries: map })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a pak with the given `(name, offset, size)` entries, followed by `data_len` bytes of
+    /// file data.
+    fn build_pak(entries: &[(&str, i32, i32)], data_len: usize) -> Box<[u8]> {
+        let table_offset = 12 + data_len;
+        let mut out = Vec::new();
+        out.extend(PAK_MAGIC);
+        out.extend((table_offset as i32).to_le_bytes());
+        out.extend((entries.len() as u32 * PAK_ENTRY_SIZE).to_le_bytes());
+        out.extend((0..data_len).map(|i| i as u8));
+        for (name, offset, size) in entries {
+            let mut name_bytes = [0u8; 56];
+            name_bytes[..name.len()].copy_from_slice(name.as_bytes());
+            out.extend(name_bytes);
+            out.extend(offset.to_le_bytes());
+            out.extend(size.to_le_bytes());
+        }
+        out.into_boxed_slice()
+    }
+
+    #[test]
+    fn reads_files() {
+        let pak = Pak::from_backing("test", build_pak(&[("a/b.txt", 12, 4), ("empty", 16, 0)], 4))
+            .unwrap();
+        let files = pak.iter().collect::<HashMap<_, _>>();
+        assert_eq!(files[Path::new("a/b.txt")], [0, 1, 2, 3]);
+        assert_eq!(files[Path::new("empty")], [] as [u8; 0]);
+    }
+
+    #[test]
+    fn out_of_bounds_file_is_error() {
+        // The file runs past the end of the archive.
+        let bytes = build_pak(&[("big", 12, 1000)], 4);
+        assert!(matches!(Pak::from_backing("test", bytes), Err(PakError::FileOutOfBounds { .. })));
+
+        // `offset + size` overflows `u32`.
+        let bytes = build_pak(&[("overflow", i32::MAX, i32::MAX)], 4);
+        assert!(matches!(Pak::from_backing("test", bytes), Err(PakError::FileOutOfBounds { .. })));
+    }
+
+    #[test]
+    fn negative_file_size_is_error() {
+        let bytes = build_pak(&[("neg", 12, -1)], 4);
+        assert!(matches!(
+            Pak::from_backing("test", bytes),
+            Err(PakError::InvalidFileSize { size: -1 })
+        ));
     }
 }

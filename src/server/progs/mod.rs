@@ -104,7 +104,10 @@ use bevy_mod_commands::ConsoleError;
 
 use crate::{
     common::net::NetError,
-    server::world::{EntityError, EntityTypeDef, hull::HullError},
+    server::{
+        precache::PrecacheError,
+        world::{EntityError, EntityTypeDef, hull::HullError},
+    },
 };
 
 use bevy::{
@@ -132,8 +135,15 @@ pub use self::{
 };
 
 const VERSION: i32 = 6;
-const CRC: i32 = 5927;
+/// Used to ensure that the entity field layout matches the ones we expect for the builtins.
+///
+/// In the future, this could potentially be used to switch between different sets of builtins
+/// that expect different entity fields.
+const CRC: i32 = 0x1727;
 const MAX_CALL_STACK_DEPTH: usize = 32;
+/// Maximum number of statements executed by a single call to `execute_program` before it is
+/// considered an infinite loop (see `PR_ExecuteProgram` in Quake).
+pub const MAX_OPS_SINGLE_CALL: u32 = 100_000;
 const MAX_LOCAL_STACK_DEPTH: usize = 2048;
 const LUMP_COUNT: usize = 6;
 const SAVE_GLOBAL: u16 = 1 << 15;
@@ -180,10 +190,32 @@ pub enum ProgsError {
         source: HullError,
         backtrace: Backtrace,
     },
+    #[snafu(context(false))]
+    Precache {
+        source: PrecacheError,
+        backtrace: Backtrace,
+    },
     CallStackOverflow {
         backtrace: Backtrace,
     },
     LocalStackOverflow {
+        backtrace: Backtrace,
+    },
+    #[snafu(display("runaway loop error: more than {MAX_OPS_SINGLE_CALL} statements executed"))]
+    RunawayLoop {
+        backtrace: Backtrace,
+    },
+    #[snafu(display("progs version {found} not supported (expected {VERSION})"))]
+    BadVersion {
+        found: i32,
+        backtrace: Backtrace,
+    },
+    #[snafu(display(
+        "progs CRC {found} does not match the expected CRC {CRC}: this progs.dat uses an \
+         incompatible entity field layout"
+    ))]
+    BadCrc {
+        found: i32,
         backtrace: Backtrace,
     },
     #[snafu(display("{message}"))]
@@ -409,8 +441,18 @@ impl ProgsAsset {
     {
         let mut src = AsyncReadBytes::new(src);
 
-        assert!(src.read_i32::<LittleEndian>().await? == VERSION);
-        assert!(src.read_i32::<LittleEndian>().await? == CRC);
+        let version = src.read_i32::<LittleEndian>().await?;
+        if version != VERSION {
+            return Err(ProgsError::BadVersion { found: version, backtrace: Backtrace::capture() });
+        }
+
+        // Quake only uses the CRC to check compatibility with `progdefs.h`. We hard-code the
+        // field offsets from `progdefs.h` (see the `FieldAddr*` enums), so a mismatch really does
+        // mean that this `progs.dat` is incompatible.
+        let crc = src.read_i32::<LittleEndian>().await?;
+        if crc != CRC {
+            return Err(ProgsError::BadCrc { found: crc, backtrace: Backtrace::capture() });
+        }
 
         let mut lumps = [Lump { offset: 0, count: 0 }; LUMP_COUNT];
 
@@ -531,7 +573,9 @@ impl ProgsAsset {
             let debug_name = format!("{}", string_table.get(name_id).unwrap_or_default());
             globaldefs.push(GlobalDef {
                 _save: type_ & SAVE_GLOBAL != 0,
-                type_: Type::from_u16(type_ & !SAVE_GLOBAL).unwrap(),
+                type_: Type::from_u16(type_ & !SAVE_GLOBAL).ok_or_else(|| {
+                    ProgsError::with_msg(format!("invalid global definition type {type_}"))
+                })?,
                 offset,
                 name_id,
                 debug_name,
@@ -559,7 +603,10 @@ impl ProgsAsset {
             if type_ & SAVE_GLOBAL != 0 {
                 return Err(ProgsError::with_msg("Save flag not allowed in field definitions"));
             }
-            field_defs.push(FieldDef { type_: Type::from_u16(type_).unwrap(), offset, name_id });
+            let type_ = Type::from_u16(type_).ok_or_else(|| {
+                ProgsError::with_msg(format!("invalid field definition type {type_}"))
+            })?;
+            field_defs.push(FieldDef { type_, offset, name_id });
         }
 
         assert_eq!(
@@ -671,19 +718,29 @@ impl ExecutionContext {
             .chain(iter::once(self.current_function))
     }
 
+    /// Logs the QuakeC call stack, if `force` is set or backtraces are enabled with
+    /// `RUST_LIB_BACKTRACE`/`RUST_BACKTRACE`.
     pub fn print_backtrace(&self, string_table: &StringTable, force: bool) {
         let backtrace_var =
             std::env::var("RUST_LIB_BACKTRACE").or_else(|_| std::env::var("RUST_BACKTRACE"));
-        let backtrace_enabled = matches!(backtrace_var.as_deref(), Err(_) | Ok("0"));
+        let backtrace_enabled = matches!(backtrace_var.as_deref(), Ok(v) if v != "0");
         if force || backtrace_enabled {
-            for (depth, id) in self.backtrace().enumerate() {
-                let def = self.function_def(id).unwrap();
-
-                let name_id = def.name_id;
-                let name = string_table.get(name_id).unwrap();
-
-                println!("{}: {} - {:?}", depth, name, def.kind);
-            }
+            // This runs on error paths, so it must not fail itself.
+            let frames = self
+                .backtrace()
+                .enumerate()
+                .map(|(depth, id)| match self.function_def(id) {
+                    Ok(def) => {
+                        let name = string_table.get(def.name_id);
+                        let name = name.as_ref().map(|n| n.to_str());
+                        let name = name.as_deref().unwrap_or("<unknown>");
+                        format!("{depth}: {name} - {:?}", def.kind)
+                    }
+                    Err(_) => format!("{depth}: <unknown> - {id:?}"),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            warn!("QuakeC backtrace:\n{frames}");
         }
     }
 
@@ -719,6 +776,9 @@ impl ExecutionContext {
         self.current_function = FunctionId(0);
     }
 
+    /// Enters a QuakeC function, saving its locals and copying its arguments into place.
+    ///
+    /// On error, the VM state (call stack, local stack and globals) is left unchanged.
     pub fn enter_function(
         &mut self,
         string_table: &StringTable,
@@ -726,13 +786,16 @@ impl ExecutionContext {
         f: FunctionId,
     ) -> Result<()> {
         let def = self.functions.get_def(f)?;
-        debug!("Calling QuakeC function {}", string_table.get(def.name_id).unwrap());
+        debug!("Calling QuakeC function {}", string_table.get(def.name_id).unwrap_or_default());
 
-        // save stack frame
-        self.call_stack.push(StackFrame { instr_id: self.pc, func_id: self.current_function });
+        let FunctionKind::QuakeC(entry_pc) = def.kind else {
+            return Err(ProgsError::with_msg(
+                "built-in functions should not be called with enter_function()",
+            ));
+        };
 
         // check call stack overflow
-        if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
+        if self.call_stack.len() + 1 >= MAX_CALL_STACK_DEPTH {
             return Err(ProgsError::CallStackOverflow { backtrace: Backtrace::capture() });
         }
 
@@ -742,27 +805,40 @@ impl ExecutionContext {
         }
 
         // save locals to stack
-        for i in 0..def.locals {
+        let local_stack_len = self.local_stack.len();
+        let saved = (0..def.locals).try_for_each(|i| {
             self.local_stack.push(globals.get_bytes((def.arg_start + i) as i16)?);
+            Ok::<_, GlobalsError>(())
+        });
+        if let Err(e) = saved {
+            self.local_stack.truncate(local_stack_len);
+            return Err(e.into());
         }
 
+        // copy arguments into locals
         let mut dest = def.arg_start;
-        for (arg, &argsz) in def.argsz[..def.argc].iter().enumerate() {
-            for component in 0..argsz as usize {
-                let val = globals.get_bytes((GLOBAL_ADDR_ARG_0 + arg * 3 + component) as i16)?;
-                globals.put_bytes(val, dest as i16)?;
-                dest += 1;
+        let copied =
+            def.argsz[..def.argc.min(MAX_ARGS)].iter().enumerate().try_for_each(|(arg, &argsz)| {
+                for component in 0..argsz as usize {
+                    let val =
+                        globals.get_bytes((GLOBAL_ADDR_ARG_0 + arg * 3 + component) as i16)?;
+                    globals.put_bytes(val, dest as i16)?;
+                    dest += 1;
+                }
+                Ok::<_, GlobalsError>(())
+            });
+        if let Err(e) = copied {
+            // Restore the locals we may have partially overwritten.
+            for (i, val) in self.local_stack.drain(local_stack_len..).enumerate() {
+                let _ = globals.put_bytes(val, (def.arg_start + i) as i16);
             }
+            return Err(e.into());
         }
 
+        // save stack frame
+        self.call_stack.push(StackFrame { instr_id: self.pc, func_id: self.current_function });
         self.current_function = f;
-
-        match def.kind {
-            FunctionKind::BuiltIn(_) => {
-                panic!("built-in functions should not be called with enter_function()")
-            }
-            FunctionKind::QuakeC(pc) => self.pc = pc,
-        }
+        self.pc = entry_pc;
 
         Ok(())
     }
@@ -773,7 +849,10 @@ impl ExecutionContext {
         globals: &mut Globals,
     ) -> Result<()> {
         let def = self.functions.get_def(self.current_function)?;
-        debug!("Returning from QuakeC function {}", string_table.get(def.name_id).unwrap());
+        debug!(
+            "Returning from QuakeC function {}",
+            string_table.get(def.name_id).unwrap_or_default()
+        );
 
         for i in (0..def.locals).rev() {
             globals.put_bytes(
@@ -793,12 +872,105 @@ impl ExecutionContext {
         Ok(())
     }
 
-    pub fn load_statement(&self) -> Statement {
-        self.functions.statements[self.pc].clone()
+    /// Pops call frames until the call stack is `depth` frames deep, restoring each frame's
+    /// locals exactly as [`ExecutionContext::leave_function`] does.
+    ///
+    /// This is used to clean up after a QuakeC error, so that the globals don't keep the locals
+    /// of the function that failed.
+    pub fn unwind_to(
+        &mut self,
+        string_table: &StringTable,
+        globals: &mut Globals,
+        depth: usize,
+    ) -> Result<()> {
+        while self.call_stack.len() > depth {
+            self.leave_function(string_table, globals)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn load_statement(&self) -> Result<Statement> {
+        self.functions.statements.get(self.pc).cloned().ok_or_else(|| {
+            ProgsError::with_msg(format!("program counter out of range ({})", self.pc))
+        })
     }
 
     /// Performs an unconditional relative jump.
     pub fn jump_relative(&mut self, rel: i16) {
         self.pc = (self.pc as isize + rel as isize) as usize;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn def(arg_start: usize, locals: usize, argc: usize) -> FunctionDef {
+        let mut argsz = [0; MAX_ARGS];
+        argsz[..argc].fill(1);
+        FunctionDef {
+            kind: FunctionKind::QuakeC(0),
+            arg_start,
+            locals,
+            name_id: StringId(0),
+            srcfile_id: StringId(0),
+            argc,
+            argsz,
+        }
+    }
+
+    fn setup() -> (ExecutionContext, Globals, StringTable) {
+        let functions = Functions {
+            defs: vec![def(0, 0, 0), def(70, 2, 1), def(72, 1, 0), def(99, 2, 0)]
+                .into_boxed_slice(),
+            statements: Box::new([]),
+        };
+        let mut globals = Globals::new(Vec::new(), vec![[0; 4]; 100].into_boxed_slice());
+        globals.put_bytes([1; 4], 70).unwrap();
+        globals.put_bytes([2; 4], 71).unwrap();
+        globals.put_bytes([3; 4], 72).unwrap();
+        globals.put_bytes([9; 4], GLOBAL_ADDR_ARG_0 as i16).unwrap();
+        (ExecutionContext::create(functions), globals, StringTable::new(vec![0]))
+    }
+
+    #[test]
+    fn unwind_restores_locals() {
+        let (mut cx, mut globals, strs) = setup();
+
+        cx.enter_function(&strs, &mut globals, FunctionId(1)).unwrap();
+        // The argument was copied into the first local.
+        assert_eq!(globals.get_bytes(70).unwrap(), [9; 4]);
+        cx.enter_function(&strs, &mut globals, FunctionId(2)).unwrap();
+        assert_eq!(cx.call_stack_depth(), 2);
+
+        // Simulate the callees clobbering their locals before an error.
+        for addr in 70..73 {
+            globals.put_bytes([0xff; 4], addr).unwrap();
+        }
+
+        cx.unwind_to(&strs, &mut globals, 0).unwrap();
+
+        assert_eq!(cx.call_stack_depth(), 0);
+        assert_eq!(cx.current_function(), FunctionId(0));
+        assert_eq!(globals.get_bytes(70).unwrap(), [1; 4]);
+        assert_eq!(globals.get_bytes(71).unwrap(), [2; 4]);
+        assert_eq!(globals.get_bytes(72).unwrap(), [3; 4]);
+    }
+
+    #[test]
+    fn failed_enter_leaves_state_unchanged() {
+        let (mut cx, mut globals, strs) = setup();
+
+        cx.enter_function(&strs, &mut globals, FunctionId(1)).unwrap();
+        // Function 3's locals run off the end of the globals.
+        assert!(cx.enter_function(&strs, &mut globals, FunctionId(3)).is_err());
+        assert_eq!(cx.call_stack_depth(), 1);
+        assert_eq!(cx.current_function(), FunctionId(1));
+
+        // Unwinding still restores function 1's locals correctly.
+        cx.unwind_to(&strs, &mut globals, 0).unwrap();
+        assert_eq!(globals.get_bytes(70).unwrap(), [1; 4]);
+        assert_eq!(globals.get_bytes(71).unwrap(), [2; 4]);
     }
 }

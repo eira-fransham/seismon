@@ -21,7 +21,13 @@ use self::{
     sound::{MixerMessage, SeismonSoundPlugin},
 };
 
-use std::{iter, net::ToSocketAddrs, ops::Range, path::PathBuf, time::Duration};
+use std::{
+    iter,
+    net::ToSocketAddrs,
+    ops::Range,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use crate::{
     client::{
@@ -191,24 +197,10 @@ where
 
         let base_dir = self.base_dir.clone().unwrap_or_else(common::default_base_dir);
 
-        if !base_dir.join("id1").is_dir() {
-            error!(concat!(
-                "`id1/` directory does not exist! Use the `--base-dir` option with the name of the",
-                " directory which contains `id1/`."
-            ));
-
-            std::process::exit(1);
-        }
-
-        if let Some(game) = &self.game
-            && !base_dir.join(game).is_dir()
-        {
-            error!(
-                "`{game}/` directory does not exist! Use the `--base-dir` option with the name of \
-                 the directory which contains `{game}/`."
-            );
-
-            std::process::exit(1);
+        // The binary is expected to have checked this already (see `check_game_dirs`), but don't
+        // kill the process from inside a plugin if it hasn't.
+        if let Err(e) = check_game_dirs(&base_dir, self.game.as_deref()) {
+            warn!("{e}");
         }
 
         let default_world_camera_template = app.world_mut().spawn(default_world_camera()).id();
@@ -349,6 +341,32 @@ where
         cvars::register_cvars(app);
         commands::register_commands(app);
     }
+}
+
+/// A game directory needed by [`SeismonClientPlugin`] is missing.
+#[derive(Snafu, Debug)]
+#[snafu(display(
+    "`{game}/` directory does not exist in `{}`! Use the `--base-dir` option with the name of the \
+     directory which contains `{game}/`.",
+    base_dir.display()
+))]
+pub struct MissingGameDirError {
+    base_dir: PathBuf,
+    game: String,
+}
+
+/// Checks that `base_dir` contains `id1/` and, if given, `game/`.
+pub fn check_game_dirs(base_dir: &Path, game: Option<&str>) -> Result<(), MissingGameDirError> {
+    for game in iter::once("id1").chain(game) {
+        if !base_dir.join(game).is_dir() {
+            return Err(MissingGameDirError {
+                base_dir: base_dir.to_owned(),
+                game: game.to_owned(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Snafu, Debug)]
@@ -1537,9 +1555,10 @@ mod systems {
                     ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
                         if let Some(state) = conn.client_state.as_mut() {
                             let mut ent = commands.spawn((
-                                Transform::from_translation(origin).with_rotation(
-                                    Quat::from_euler(EulerRot::XYZ, angles.x, angles.y, angles.z),
-                                ),
+                                // Same conversion as dynamic entities: `angles` is a Quake
+                                // pitch/yaw/roll vector in degrees.
+                                Transform::from_translation(origin)
+                                    .with_rotation(QAngles::from(angles.to_array()).into()),
                                 // TODO: Handle the other fields
                                 Visibility::Inherited,
                                 ChildOf(state.worldspawn),

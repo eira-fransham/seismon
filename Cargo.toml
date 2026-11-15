@@ -115,7 +115,6 @@ bevy-inspector-egui = { version = "0.38", optional = true }
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
-dashmap = "6.2"
 im = "15.1.0"
 image = "0.25"
 imstr = "0.2"

@@ -36,7 +36,7 @@ use crate::{
     common::{
         console::SeismonConsoleCorePlugin,
         math::{CollisionResult, Hyperplane},
-        net::{ClientMessage, EntityState, ServerCmd, ServerMessage},
+        net::{ClientCmd, ClientMessage, EntityState, ServerCmd, ServerMessage},
         parse,
     },
     server::{
@@ -55,9 +55,9 @@ use crate::{
 use self::{
     precache::Precache,
     progs::{
-        EntityFieldAddr, EntityId, ExecutionContext, FunctionId, GlobalAddrEntity, GlobalAddrFloat,
-        GlobalAddrVector, Globals, Opcode, ProgsAsset, ProgsError, ProgsLoader, StringId,
-        StringTable,
+        EntityFieldAddr, EntityId, ExecutionContext, FieldAddr, FunctionId, GlobalAddrEntity,
+        GlobalAddrFloat, GlobalAddrVector, Globals, Opcode, ProgsAsset, ProgsError, ProgsLoader,
+        StringId, StringTable,
         globals::{
             GLOBAL_ADDR_ARG_0, GLOBAL_ADDR_ARG_1, GLOBAL_ADDR_ARG_2, GLOBAL_ADDR_ARG_3,
             GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN,
@@ -563,19 +563,133 @@ impl Session {
         Ok(())
     }
 
-    pub fn precache_sound(&mut self, name_id: StringId) {
+    /// Handles one string command (e.g. `prespawn`, `begin`) sent by client `client_id`,
+    /// writing any replies to `out_packet`.
+    ///
+    /// Malformed commands are logged and ignored, rather than treated as errors.
+    pub fn handle_string_cmd(
+        &mut self,
+        client_id: usize,
+        name: &str,
+        args: &[String],
+        out_packet: &mut Vec<u8>,
+        mut registry: Mut<Registry>,
+    ) -> anyhow::Result<()> {
+        // Like Quake, ignore any extra arguments.
+        let warn_extra_args = |expected: usize| {
+            if args.len() > expected {
+                warn!("client {client_id}: ignoring extra arguments to `{name}`: {args:?}");
+            }
+        };
+
+        match name {
+            "prespawn" => {
+                warn_extra_args(0);
+
+                self.clientcmd_prespawn(client_id, registry.reborrow())?;
+
+                ServerCmd::SignOnStage { stage: SignOnStage::ClientInfo }.serialize(out_packet)?;
+            }
+            "name" => {
+                warn_extra_args(1);
+
+                let Some(new_name) = args.first() else {
+                    warn!("client {client_id}: `name` requires an argument");
+                    return Ok(());
+                };
+
+                self.clientcmd_name(client_id, new_name.to_owned().into())?;
+            }
+            "color" => {
+                if args.len() != 2 {
+                    warn!("client {client_id}: `color` requires 2 arguments, got {args:?}");
+                    return Ok(());
+                }
+
+                warn!("TODO: Set color");
+            }
+            "spawn" => {
+                self.clientcmd_spawn(client_id)?;
+
+                ServerCmd::SignOnStage { stage: SignOnStage::Begin }.serialize(out_packet)?;
+            }
+            "begin" => {
+                warn_extra_args(0);
+
+                self.clientcmd_begin(client_id, registry.reborrow())?;
+
+                let Some(client_ent) = self.client(client_id).and_then(|c| c.entity()) else {
+                    bail!("client {client_id} has no entity after `begin`");
+                };
+
+                ServerCmd::SetView { ent_id: client_ent.0 as _ }.serialize(out_packet)?;
+                ServerCmd::SignOnStage { stage: SignOnStage::Done }.serialize(out_packet)?;
+            }
+            _ => {
+                // Don't forward to the console: the console and the server are shared in a
+                // listen server, so commands that the console doesn't handle would be sent
+                // straight back here.
+                warn!("Unhandled client command: {name}");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Applies a `ClientCmd::Move` from client `client_id` to its player entity.
+    ///
+    /// Moves from clients which aren't active yet are ignored.
+    pub fn handle_move(
+        &mut self,
+        client_id: usize,
+        cmd: &ClientCmd,
+        registry: &Registry,
+    ) -> progs::Result<()> {
+        let &ClientCmd::Move {
+            delta_time,
+            angles,
+            fwd_move,
+            side_move,
+            up_move,
+            button_flags,
+            impulse,
+        } = cmd
+        else {
+            return Err(ProgsError::with_msg(format!("not a move command: {cmd:?}")));
+        };
+
+        let Some(ent_id) = self
+            .persist
+            .client(client_id)
+            .filter(|c| matches!(c.state, ClientState::Active(_)))
+            .and_then(|c| c.entity())
+        else {
+            return Ok(());
+        };
+
+        let mut entity = self.level.world.get_mut(ent_id)?;
+
+        entity.set_move_dir(Vec3::new(fwd_move as f32, side_move as f32, up_move as f32))?;
+        entity.set_view_angle(angles.to_array().into())?;
+        entity.set_buttons(button_flags)?;
+        entity.set_impulse(impulse as _)?;
+
+        self.level.handle_input_player(ent_id, delta_time, registry)
+    }
+
+    pub fn precache_sound(&mut self, name_id: StringId) -> progs::Result<()> {
         if let SessionState::Loading = self.state {
-            self.level.precache_sound(name_id);
+            self.level.precache_sound(name_id)
         } else {
-            panic!("Sounds cannot be precached after loading");
+            Err(ProgsError::with_msg("Sounds cannot be precached after loading"))
         }
     }
 
-    pub fn precache_model(&mut self, name_id: StringId) {
+    pub fn precache_model(&mut self, name_id: StringId) -> progs::Result<()> {
         if let SessionState::Loading = self.state {
-            self.level.precache_model(name_id);
+            self.level.precache_model(name_id)
         } else {
-            panic!("Models cannot be precached after loading");
+            Err(ProgsError::with_msg("Models cannot be precached after loading"))
         }
     }
 
@@ -670,8 +784,27 @@ pub struct PlayerVars {
     water_accel: f32,
     #[serde(rename(deserialize = "sv_friction"))]
     ground_friction: f32,
+    /// Multiplier for `ground_friction` when the player is about to walk off an edge.
+    #[serde(rename(deserialize = "edgefriction"))]
+    edge_friction: f32,
+    // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
+    #[allow(dead_code)]
     #[serde(rename(deserialize = "sv_waterfriction"))]
     water_friction: f32,
+}
+
+/// Returns the factor to scale a player's velocity by after applying `friction` for `dt` seconds
+/// at horizontal speed `speed`, as in Quake's `SV_UserFriction`.
+///
+/// Below `stop_speed`, friction acts as if the player were moving at `stop_speed`, so that slow
+/// players come to a stop quickly.
+fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
+    if speed <= 0. {
+        return 1.;
+    }
+
+    let control = speed.max(stop_speed);
+    (speed - dt * control * friction).max(0.) / speed
 }
 
 /// Server-side level state.
@@ -750,14 +883,18 @@ impl LevelState {
         let sound_precache = Precache::new();
         let mut model_precache = Precache::new();
 
-        model_precache.precache(&map_path);
+        if let Err(e) = model_precache.precache(&map_path) {
+            error!("{e}");
+        }
 
         for model in models.iter() {
             let model_name = string_table.find_or_insert(model.name());
             let name = string_table.get(model_name).unwrap();
             // "*0" is the null model
-            if &*name.raw != b"*0" {
-                model_precache.precache(name.to_str());
+            if &*name.raw != b"*0"
+                && let Err(e) = model_precache.precache(name.to_str())
+            {
+                error!("{e}");
             }
         }
 
@@ -797,12 +934,20 @@ impl LevelState {
         self.string_table.get(string_id)
     }
 
-    pub fn precache_sound(&mut self, name_id: StringId) {
-        self.sound_precache.precache(self.string_table.get(name_id).unwrap().to_str());
+    pub fn precache_sound(&mut self, name_id: StringId) -> progs::Result<()> {
+        let name = self.string_table.get(name_id).ok_or_else(|| {
+            ProgsError::with_msg(format!("precache_sound: no string with ID {name_id}"))
+        })?;
+        self.sound_precache.precache(name.to_str())?;
+        Ok(())
     }
 
-    pub fn precache_model(&mut self, name_id: StringId) {
-        self.model_precache.precache(self.string_table.get(name_id).unwrap().to_str())
+    pub fn precache_model(&mut self, name_id: StringId) -> progs::Result<()> {
+        let name = self.string_table.get(name_id).ok_or_else(|| {
+            ProgsError::with_msg(format!("precache_model: no string with ID {name_id}"))
+        })?;
+        self.model_precache.precache(name.to_str())?;
+        Ok(())
     }
 
     pub fn sound_id(&self, name_id: StringId) -> Option<usize> {
@@ -815,6 +960,66 @@ impl LevelState {
 
     pub fn set_lightstyle(&mut self, index: usize, val: StringId) {
         self.lightstyles[index] = val;
+    }
+
+    /// Writes the messages describing the client's own entity: `SetAngle` (if QuakeC requested
+    /// it with `fixangle`) and `PlayerData`.
+    fn write_client_data(&mut self, ent_id: EntityId, packet: &mut Vec<u8>) -> progs::Result<()> {
+        let mut entity = self.world.get_mut(ent_id)?;
+
+        if entity.get_bool(FieldAddrFloat::FixAngle as i16)? {
+            ServerCmd::SetAngle { angles: entity.angles()?.to_array().into() }.serialize(packet)?;
+            entity.put_float(0., FieldAddrFloat::FixAngle as i16)?;
+        }
+
+        let view_ofs = entity.view_ofs()?;
+        let velocity = entity.velocity()?;
+        let ideal_pitch = entity.ideal_pitch()?;
+        let punch_angle = entity.punch_angle()?;
+        let items = entity.items()?;
+        let weapon_frame = entity.weapon_frame()?;
+        let ground = entity.ground()?;
+        let water_level = entity.water_level()?;
+        let armor = entity.armor()?;
+        let health = entity.health()?;
+        let ammo = entity.ammo()?;
+        let ammo_shells = entity.ammo_shells()?;
+        let ammo_nails = entity.ammo_nails()?;
+        let ammo_rockets = entity.ammo_rockets()?;
+        let ammo_cells = entity.ammo_cells()?;
+        let active_weapon = entity.active_weapon()?;
+        let weapon_name = entity.weapon_model_name()?;
+        let weapon_model_id =
+            if weapon_name.is_none() { None } else { self.model_id(weapon_name).map(|m| m as _) };
+
+        use crate::common::net::{ItemFlags, PlayerData};
+
+        ServerCmd::PlayerData(PlayerData {
+            on_ground: !ground.is_none(),
+            in_water: water_level != 0.,
+            view_height: Some(view_ofs.z),
+            ideal_pitch: Some(ideal_pitch),
+            punch_pitch: Some(punch_angle.x),
+            velocity_x: Some(velocity.x),
+            punch_yaw: Some(punch_angle.y),
+            velocity_y: Some(velocity.y),
+            punch_roll: Some(punch_angle.z),
+            velocity_z: Some(velocity.z),
+            items: ItemFlags::from_bits_truncate(items as _),
+            weapon_frame: Some(weapon_frame as _),
+            armor: Some(armor as _),
+            weapon_model_id,
+            health: health as _,
+            ammo: ammo as _,
+            ammo_shells: ammo_shells as _,
+            ammo_nails: ammo_nails as _,
+            ammo_rockets: ammo_rockets as _,
+            ammo_cells: ammo_cells as _,
+            active_weapon: active_weapon as _,
+        })
+        .serialize(packet)?;
+
+        Ok(())
     }
 
     pub fn entity_state(&self, id: EntityId) -> Option<EntityState> {
@@ -944,28 +1149,44 @@ impl LevelState {
     }
 
     /// Execute a QuakeC function in the VM.
-    pub fn execute_program(
+    ///
+    /// If execution fails, the call stack is unwound back to where it was when this was called,
+    /// restoring the locals of every function that was entered.
+    pub fn execute_program(&mut self, f: FunctionId, registry: Mut<Registry>) -> progs::Result<()> {
+        let exit_depth = self.cx.call_stack_depth();
+
+        self.cx.enter_function(&self.string_table, &mut self.globals, f)?;
+
+        let result = self.run_until_depth(exit_depth, registry);
+
+        if result.is_err()
+            && let Err(e) = self.cx.unwind_to(&self.string_table, &mut self.globals, exit_depth)
+        {
+            error!("Failed to unwind QuakeC call stack: {e}");
+        }
+
+        result
+    }
+
+    /// Runs the VM until the call stack returns to `exit_depth`.
+    fn run_until_depth(
         &mut self,
-        f: FunctionId,
+        exit_depth: usize,
         mut registry: Mut<Registry>,
     ) -> progs::Result<()> {
         use Opcode::*;
 
-        let mut runaway = 10000;
-
-        let exit_depth = self.cx.call_stack_depth();
-
-        self.cx.enter_function(&self.string_table, &mut self.globals, f)?;
+        let mut runaway = progs::MAX_OPS_SINGLE_CALL;
 
         while self.cx.call_stack_depth() != exit_depth {
             runaway -= 1;
 
             if runaway == 0 {
-                self.cx.print_backtrace(&self.string_table, false);
-                return Err(ProgsError::LocalStackOverflow { backtrace: Backtrace::capture() });
+                self.cx.print_backtrace(&self.string_table, true);
+                return Err(ProgsError::RunawayLoop { backtrace: Backtrace::capture() });
             }
 
-            let statement = self.cx.load_statement();
+            let statement = self.cx.load_statement()?;
             let op = statement.opcode;
             let a = statement.arg1;
             let b = statement.arg2;
@@ -1079,7 +1300,7 @@ impl LevelState {
                 LoadV => self.op_load_v(a, b, c)?,
                 LoadS => self.op_load_s(a, b, c)?,
                 LoadEnt => self.op_load_ent(a, b, c)?,
-                LoadFld => panic!("load_fld not implemented"),
+                LoadFld => self.op_load_fld(a, b, c)?,
                 LoadFnc => self.op_load_fnc(a, b, c)?,
                 Address => self.op_address(a, b, c)?,
                 StoreF => self.globals.op_store_f(a, b, c)?,
@@ -1092,7 +1313,7 @@ impl LevelState {
                 StorePV => self.op_storep_v(a, b, c)?,
                 StorePS => self.op_storep_s(a, b, c)?,
                 StorePEnt => self.op_storep_ent(a, b, c)?,
-                StorePFld => panic!("storep_fld not implemented"),
+                StorePFld => self.op_storep_fld(a, b, c)?,
                 StorePFnc => self.op_storep_fnc(a, b, c)?,
                 NotF => self.globals.op_not_f(a, b, c)?,
                 NotV => self.globals.op_not_v(a, b, c)?,
@@ -1611,76 +1832,56 @@ impl LevelState {
         Ok(ent_error_map)
     }
 
+    /// Applies ground friction to a player, as in Quake's `SV_UserFriction`.
+    ///
+    /// This should only be called when the player is on the ground and not swimming.
     fn player_apply_friction(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
         player_vars: &PlayerVars,
     ) -> progs::Result<()> {
-        /// If the player speed is below this, zero the X and Y of the player velocity.
-        const MINIMUM_SPEED: f32 = 1.;
-        /// Use this * normalized velocity as the starting point for dropoff detection.
+        /// How far ahead of the player (in the direction of movement) to look for a dropoff.
         const DROPOFF_DETECT_DIST: f32 = 16.;
-        /// TODO: _Extremely_ magic number.
+        /// How far below the player's feet the ground must be for it to count as a dropoff.
         const DROPOFF_TRACE_Z: f32 = 34.;
-        /// If the player is about to fall off an edge, increase friction.
-        const DROPOFF_FRICTION_MUL: f32 = 2.;
 
         let mut ent = self.world.get(ent_id)?;
 
         let velocity = ent.velocity()?;
+        let speed = velocity.xy().length();
 
-        let speed = velocity.length_squared();
-
-        if speed < MINIMUM_SPEED {
-            self.world.get_mut(ent_id)?.set_velocity(Vec3::ZERO + Vec3::Z * velocity.z)?;
+        if speed == 0. {
             return Ok(());
         }
 
-        let on_ground = ent.has_flag(EntityFlags::ON_GROUND)?;
-        let water_level = ent.water_level()?;
+        // If the leading edge is over a dropoff, increase friction.
+        let origin = ent.origin()?;
+        let min = ent.min()?;
+        let start =
+            (origin.xy() + velocity.xy() / speed * DROPOFF_DETECT_DIST).extend(origin.z + min.z);
+        let end = start.with_z(start.z - DROPOFF_TRACE_Z);
 
-        let base_friction = player_vars.ground_friction;
-        let friction = if on_ground {
-            let origin = ent.origin()?;
-            let min = ent.min()?;
-            let max = ent.max()?;
+        let (trace, _) = self.world.trace_entity_move(
+            ent_id,
+            start,
+            Vec3::ZERO,
+            Vec3::ZERO,
+            end,
+            CollideKind::NoMonsters,
+            |_| true,
+        )?;
 
-            // We know that velocity must be non-zero because of guard above but we use `_or_zero`
-            // just in case. Technically this should probably be
-            // `velocity.with_z(0.).clamp_length_min(DROPOFF_DETECT_DIST)` but for now
-            // just match Quake.
-            let dropoff_dist = (velocity.normalize_or_zero() * DROPOFF_DETECT_DIST).with_z(min.z);
-            let start = origin + dropoff_dist;
-            let end = start - DROPOFF_TRACE_Z;
-
-            let (trace, _) = self.world.trace_entity_move(
-                ent_id,
-                start,
-                min,
-                max,
-                end,
-                CollideKind::Normal,
-                |_| true,
-            )?;
-
-            if trace.is_terminal() { base_friction * DROPOFF_FRICTION_MUL } else { base_friction }
+        let friction = if trace.is_terminal() {
+            player_vars.ground_friction * player_vars.edge_friction
         } else {
-            base_friction
+            player_vars.ground_friction
         };
 
-        let (friction, friction_speed) = if water_level >= 2. {
-            (player_vars.water_friction * water_level, speed)
-        } else if on_ground {
-            (friction, speed.max(player_vars.stop_speed))
-        } else {
-            (0., speed)
-        };
+        let scale =
+            friction_scale(speed, friction, player_vars.stop_speed, duration_to_f32(frame_time));
 
-        let new_speed =
-            (speed - friction_speed * friction * duration_to_f32(frame_time)).max(0.) / speed;
-
-        self.world.get_mut(ent_id)?.set_velocity(velocity * new_speed)?;
+        self.world.get_mut(ent_id)?.set_velocity(velocity * scale)?;
 
         Ok(())
     }
@@ -1763,11 +1964,12 @@ impl LevelState {
 
         self.player_categorize_position(ent_id)?;
 
-        self.player_apply_friction(ent_id, frame_time, &player_vars)?;
-
         if water_level >= 2. {
             error!("TODO: SV_WaterMove");
         } else {
+            if self.world.get(ent_id)?.has_flag(EntityFlags::ON_GROUND)? {
+                self.player_apply_friction(ent_id, frame_time, &player_vars)?;
+            }
             self.handle_input_player_air(ent_id, target_vel.truncate(), frame_time, &player_vars)?;
         }
 
@@ -1797,7 +1999,8 @@ impl LevelState {
         let new_local_time = old_local_time + frame_time;
 
         let move_time = if next_think < new_local_time {
-            (next_think - old_local_time).max(Duration::ZERO)
+            // As in Quake's `SV_Physics_Pusher`, clamp to zero if the think is overdue.
+            next_think.saturating_sub(old_local_time)
         } else {
             frame_time
         };
@@ -1825,46 +2028,31 @@ impl LevelState {
         Ok(())
     }
 
+    /// Moves an entity with `MOVETYPE_NOCLIP`, as in Quake's `SV_Physics_Noclip`.
     pub fn physics_noclip(
         &mut self,
         ent_id: EntityId,
         frame_time: Duration,
-        registry: Mut<Registry>,
+        mut registry: Mut<Registry>,
     ) -> progs::Result<()> {
+        if !self.think(ent_id, frame_time, registry.reborrow())? {
+            // Entity was removed by its think function.
+            return Ok(());
+        }
+
         let mut ent = self.world.get_mut(ent_id)?;
 
         let frame_time_f = duration_to_f32(frame_time);
 
         let angles: Vec3 = ent.load(FieldAddrVector::Angles)?;
         let angle_vel: Vec3 = ent.load(FieldAddrVector::AngularVelocity)?;
-        let new_angles = angles + frame_time_f * angle_vel;
-        ent.store(FieldAddrVector::Angles, new_angles)?;
+        ent.store(FieldAddrVector::Angles, angles + frame_time_f * angle_vel)?;
 
         let orig: Vec3 = ent.load(FieldAddrVector::Origin)?;
         let vel: Vec3 = ent.load(FieldAddrVector::Velocity)?;
-        let new_orig = orig + frame_time_f * vel;
-        ent.store(FieldAddrVector::Origin, new_orig)?;
+        ent.store(FieldAddrVector::Origin, orig + frame_time_f * vel)?;
 
-        let local_time = duration_from_f32(ent.load(FieldAddrFloat::LocalTime)?);
-        let next_think = duration_from_f32(ent.load(FieldAddrFloat::NextThink)?);
-
-        let old_local_time = local_time;
-        let new_local_time = duration_from_f32(ent.load(FieldAddrFloat::LocalTime)?);
-
-        // Let the entity think if it needs to.
-        if old_local_time < next_think && next_think <= new_local_time {
-            // Deschedule thinking.
-            ent.store(FieldAddrFloat::NextThink, 0.0)?;
-
-            self.globals.put_float(duration_to_f32(self.time), GlobalAddrFloat::Time as i16)?;
-            self.globals.put_entity_id(ent_id, GlobalAddrEntity::Self_ as i16)?;
-            self.globals.put_entity_id(EntityId(0), GlobalAddrEntity::Other as i16)?;
-            self.globals.store(GlobalAddrEntity::World, EntityId(0))?;
-
-            self.think(ent_id, frame_time, registry)?;
-        }
-
-        Ok(())
+        self.link_entity(ent_id, false, registry)
     }
 
     pub fn physics_step(
@@ -2201,9 +2389,10 @@ impl LevelState {
             };
 
             // Sanity check to make sure the trace actually hit something.
-            let hit_entity = match hit_entity {
-                Some(h) => h,
-                None => panic!("trace collided with nothing"),
+            let Some(hit_entity) = hit_entity else {
+                return Err(ProgsError::with_msg(format!(
+                    "move_ballistic: trace for {ent_id} hit a boundary but no entity"
+                )));
             };
 
             // TODO: magic constant
@@ -2550,6 +2739,24 @@ impl LevelState {
         Ok(())
     }
 
+    // LOAD_FLD: load field-offset field from entity
+    pub fn op_load_fld(
+        &mut self,
+        ent_id_addr: i16,
+        ent_fld_addr_addr: i16,
+        dest_addr: i16,
+    ) -> progs::Result<()> {
+        let ent_id = self.globals.get_entity_id(ent_id_addr)?;
+        let ent_fld_addr = self.globals.get_field_addr(ent_fld_addr_addr)?;
+        let fld = self.world.get(ent_id)?.get_int(ent_fld_addr.0 as i16)?;
+        let fld = usize::try_from(fld).map_err(|_| {
+            ProgsError::with_msg(format!("load_fld: negative field address ({fld})"))
+        })?;
+        self.globals.put_field_addr(FieldAddr(fld), dest_addr)?;
+
+        Ok(())
+    }
+
     pub fn op_address(
         &mut self,
         ent_id_addr: i16,
@@ -2579,7 +2786,7 @@ impl LevelState {
 
         let f = self.globals.get_float(src_float_addr)?;
         let ent_fld_addr =
-            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
 
         self.world
             .get_mut(ent_fld_addr.entity_id)?
@@ -2600,7 +2807,7 @@ impl LevelState {
 
         let v = self.globals.get_vector(src_vector_addr)?;
         let ent_fld_addr =
-            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
         self.world
             .get_mut(ent_fld_addr.entity_id)?
             .put_vector(v, ent_fld_addr.field_addr.0 as i16)?;
@@ -2620,7 +2827,7 @@ impl LevelState {
 
         let s = self.globals.string_id(src_string_id_addr)?;
         let ent_fld_addr =
-            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
         self.world
             .get_mut(ent_fld_addr.entity_id)?
             .put_string_id(s, ent_fld_addr.field_addr.0 as i16)?;
@@ -2640,7 +2847,7 @@ impl LevelState {
 
         let e = self.globals.get_entity_id(src_entity_id_addr)?;
         let ent_fld_addr =
-            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
         self.world
             .get_mut(ent_fld_addr.entity_id)?
             .put_entity_id(e, ent_fld_addr.field_addr.0 as i16)?;
@@ -2660,10 +2867,32 @@ impl LevelState {
 
         let f = self.globals.get_function_id(src_function_id_addr)?;
         let ent_fld_addr =
-            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?);
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
         self.world
             .get_mut(ent_fld_addr.entity_id)?
             .put_function_id(f, ent_fld_addr.field_addr.0 as i16)?;
+
+        Ok(())
+    }
+
+    pub fn op_storep_fld(
+        &mut self,
+        src_field_addr_addr: i16,
+        dst_ent_fld_addr: i16,
+        unused: i16,
+    ) -> progs::Result<()> {
+        if unused != 0 {
+            return Err(ProgsError::with_msg(format!("storep_fld: nonzero arg3 ({unused})")));
+        }
+
+        let fld = self.globals.get_field_addr(src_field_addr_addr)?;
+        let fld = i32::try_from(fld.0)
+            .map_err(|_| ProgsError::with_msg("storep_fld: field address out of range"))?;
+        let ent_fld_addr =
+            self.world.ent_fld_addr_from_i32(self.globals.get_entity_field(dst_ent_fld_addr)?)?;
+        self.world
+            .get_mut(ent_fld_addr.entity_id)?
+            .put_int(fld, ent_fld_addr.field_addr.0 as i16)?;
 
         Ok(())
     }
@@ -2758,7 +2987,7 @@ impl LevelState {
 
     pub fn builtin_precache_sound(&mut self) -> progs::Result<()> {
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
-        self.precache_sound(s_id);
+        self.precache_sound(s_id)?;
         self.globals.put_string_id(s_id, GLOBAL_ADDR_RETURN as i16)?;
 
         Ok(())
@@ -2768,7 +2997,7 @@ impl LevelState {
         // TODO: disable precaching after server is active
         let s_id = self.globals.string_id(GLOBAL_ADDR_ARG_0 as i16)?;
         if self.model_id(s_id).is_none() {
-            self.precache_model(s_id);
+            self.precache_model(s_id)?;
             // self.world.add_model(&self.string_table, s_id)?;
         }
 
@@ -3694,7 +3923,7 @@ pub mod systems {
     use bevy_mod_commands::CmdName;
 
     use crate::common::net::{
-        self, ClientCmd, ClientMessage, GameType, ItemFlags, PlayerData, ServerMessage, SignOnStage,
+        self, ClientCmd, ClientMessage, GameType, ServerMessage, SignOnStage,
     };
 
     use super::*;
@@ -3725,120 +3954,35 @@ pub mod systems {
                                     continue;
                                 }
 
-                                match &*name {
-                                    "prespawn" => {
-                                        // TODO: Error handling
-                                        assert!(args.is_empty());
-
-                                        let Some(server) = &mut server else {
-                                            continue;
-                                        };
-
-                                        server
-                                            .clientcmd_prespawn(client_id, registry.reborrow())
-                                            .unwrap();
-
-                                        ServerCmd::SignOnStage { stage: SignOnStage::ClientInfo }
-                                            .serialize(&mut out_packet)
-                                            .unwrap();
-                                    }
-                                    "name" => {
-                                        // TODO: Error handling
-                                        assert!(args.len() == 1);
-
-                                        let Some(server) = &mut server else {
-                                            continue;
-                                        };
-
-                                        server
-                                            .clientcmd_name(
-                                                client_id,
-                                                args.iter().next().unwrap().to_owned().into(),
-                                            )
-                                            .unwrap();
-                                    }
-                                    "color" => {
-                                        assert!(args.len() == 2);
-
-                                        warn!("TODO: Set color");
-                                    }
-                                    "spawn" => {
-                                        let Some(server) = &mut server else {
-                                            continue;
-                                        };
-
-                                        server.clientcmd_spawn(client_id).unwrap();
-
-                                        ServerCmd::SignOnStage { stage: SignOnStage::Begin }
-                                            .serialize(&mut out_packet)
-                                            .unwrap();
-                                    }
-                                    "begin" => {
-                                        // TODO: Error handling
-                                        assert!(args.is_empty());
-
-                                        let Some(server) = &mut server else {
-                                            continue;
-                                        };
-
-                                        server
-                                            .clientcmd_begin(client_id, registry.reborrow())
-                                            .unwrap();
-
-                                        let client_ent =
-                                            server.client(client_id).unwrap().entity().unwrap();
-
-                                        // TODO: Error handling
-                                        ServerCmd::SetView { ent_id: client_ent.0 as _ }
-                                            .serialize(&mut out_packet)
-                                            .unwrap();
-
-                                        ServerCmd::SignOnStage { stage: SignOnStage::Done }
-                                            .serialize(&mut out_packet)
-                                            .unwrap();
-                                    }
-                                    _ => {
-                                        // Don't forward to the console: the console and the
-                                        // server are shared in a listen server, so commands
-                                        // that the console doesn't handle would be sent
-                                        // straight back here.
+                                let Some(server) = &mut server else {
+                                    if !matches!(
+                                        &*name,
+                                        "prespawn" | "name" | "color" | "spawn" | "begin"
+                                    ) {
                                         warn!("Unhandled client command: {name}");
                                     }
+                                    continue;
+                                };
+
+                                // Client input must never crash the server: log and carry on.
+                                if let Err(e) = server.handle_string_cmd(
+                                    client_id,
+                                    &name,
+                                    &args,
+                                    &mut out_packet,
+                                    registry.reborrow(),
+                                ) {
+                                    warn!("client {client_id}: `{name}` failed: {e:#}");
                                 }
                             }
                         }
-                        ClientCmd::Move {
-                            delta_time,
-                            angles,
-                            fwd_move,
-                            side_move,
-                            up_move,
-                            button_flags,
-                            impulse,
-                        } => {
-                            let Some(Session { persist, level, .. }) = server.as_deref_mut() else {
+                        cmd @ ClientCmd::Move { .. } => {
+                            let Some(server) = server.as_deref_mut() else {
                                 continue;
                             };
 
-                            if let Some(ent_id) = persist
-                                .client(client_id)
-                                .filter(|c| matches!(c.state, ClientState::Active(_)))
-                                .and_then(|c| c.entity())
-                            {
-                                let mut entity = level.world.get_mut(ent_id).ok().unwrap();
-
-                                entity
-                                    .set_move_dir(Vec3::new(
-                                        fwd_move as f32,
-                                        side_move as f32,
-                                        up_move as f32,
-                                    ))
-                                    .unwrap();
-                                entity.set_view_angle(angles.to_array().into()).unwrap();
-                                entity.set_buttons(button_flags).unwrap();
-                                entity.set_impulse(impulse as _).unwrap();
-
-                                level.handle_input_player(ent_id, delta_time, &registry).unwrap();
+                            if let Err(e) = server.handle_move(client_id, &cmd, &registry) {
+                                warn!("client {client_id}: move failed: {e}");
                             }
                         }
                         other => {
@@ -3855,7 +3999,8 @@ pub mod systems {
         }
 
         if !out_packet.is_empty() {
-            // TODO: Should not hard-code client id 0
+            // TODO: Should not hard-code client id 0: replies should go to the client that sent
+            //       the command (needs multi-client support).
             server_messages.write(ServerMessage { client_id: 0, packet: out_packet.into() });
         }
     }
@@ -4076,62 +4221,10 @@ pub mod systems {
                     ServerCmd::FastUpdate(update).serialize(&mut packet).unwrap();
                 }
 
-                if let Some(mut entity) = level.world.get_mut(client.entity_id).ok() {
-                    if entity.get_bool(FieldAddrFloat::FixAngle as i16).unwrap() {
-                        ServerCmd::SetAngle { angles: entity.angles().unwrap().to_array().into() }
-                            .serialize(&mut packet)
-                            .unwrap();
-                        entity.put_float(0., FieldAddrFloat::FixAngle as i16).unwrap();
-                    }
-
-                    let view_ofs = entity.view_ofs().unwrap();
-                    let velocity = entity.velocity().unwrap();
-                    let ideal_pitch = entity.ideal_pitch().unwrap();
-                    let punch_angle = entity.punch_angle().unwrap();
-                    let items = entity.items().unwrap();
-                    let weapon_frame = entity.weapon_frame().unwrap();
-                    let ground = entity.ground().unwrap();
-                    let water_level = entity.water_level().unwrap();
-                    let armor = entity.armor().unwrap();
-                    let health = entity.health().unwrap();
-                    let ammo = entity.ammo().unwrap();
-                    let ammo_shells = entity.ammo_shells().unwrap();
-                    let ammo_nails = entity.ammo_nails().unwrap();
-                    let ammo_rockets = entity.ammo_rockets().unwrap();
-                    let ammo_cells = entity.ammo_cells().unwrap();
-                    let active_weapon = entity.active_weapon().unwrap();
-                    let weapon_name = entity.weapon_model_name().unwrap();
-                    let weapon_model_id = if weapon_name.is_none() {
-                        None
-                    } else {
-                        level.model_id(weapon_name).map(|m| m as _)
-                    };
-
-                    ServerCmd::PlayerData(PlayerData {
-                        on_ground: !ground.is_none(),
-                        in_water: water_level != 0.,
-                        view_height: Some(view_ofs.z),
-                        ideal_pitch: Some(ideal_pitch),
-                        punch_pitch: Some(punch_angle.x),
-                        velocity_x: Some(velocity.x),
-                        punch_yaw: Some(punch_angle.y),
-                        velocity_y: Some(velocity.x),
-                        punch_roll: Some(punch_angle.z),
-                        velocity_z: Some(velocity.z),
-                        items: ItemFlags::from_bits_truncate(items as _),
-                        weapon_frame: Some(weapon_frame as _),
-                        armor: Some(armor as _),
-                        weapon_model_id,
-                        health: health as _,
-                        ammo: ammo as _,
-                        ammo_shells: ammo_shells as _,
-                        ammo_nails: ammo_nails as _,
-                        ammo_rockets: ammo_rockets as _,
-                        ammo_cells: ammo_cells as _,
-                        active_weapon: active_weapon as _,
-                    })
-                    .serialize(&mut packet)
-                    .unwrap()
+                if level.world.exists(client.entity_id)
+                    && let Err(e) = level.write_client_data(client.entity_id, &mut packet)
+                {
+                    warn!("Failed to write client data for {}: {e}", client.entity_id);
                 }
 
                 // We add broadcast packets at the end to ensure that entities can spawn before
@@ -4141,5 +4234,34 @@ pub mod systems {
                 server_messages.write(ServerMessage { client_id, packet: packet.into() });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::server::TICK_RATE;
+
+    fn assert_approx_eq(a: f32, b: f32) {
+        const SLOP_FACTOR: f32 = 1e-5;
+
+        assert!((a - b).abs() < SLOP_FACTOR, "{a} != {b}");
+    }
+
+    #[test]
+    fn friction_scale_matches_quake() {
+        // Above stop speed, `control == speed`: 320 - 0.05 * 320 * 4 = 256.
+        assert_approx_eq(super::friction_scale(320., 4., 100., TICK_RATE), 256. / 320.);
+
+        // With edgefriction 2: 320 - 0.05 * 320 * 8 = 192.
+        assert_approx_eq(super::friction_scale(320., 8., 100., TICK_RATE), 192. / 320.);
+
+        // Below stop speed, `control == stop_speed`: 50 - 0.05 * 100 * 4 = 30.
+        assert_approx_eq(super::friction_scale(50., 4., 100., TICK_RATE), 30. / 50.);
+
+        // Friction never reverses the direction of movement.
+        assert_approx_eq(super::friction_scale(10., 4., 100., TICK_RATE), 0.);
+
+        // Stationary (should have friction scale of 1).
+        assert_approx_eq(super::friction_scale(0., 4., 100., TICK_RATE), 1.);
     }
 }

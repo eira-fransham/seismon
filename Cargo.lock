@@ -1917,6 +1917,7 @@ dependencies = [
  "bevy_tasks",
  "bevy_transform",
  "bevy_world_serialization",
+ "futures",
  "futures-byteorder",
  "num",
  "num-derive",
@@ -1924,6 +1925,7 @@ dependencies = [
  "qbsp",
  "seismon-utils",
  "serde",
+ "snafu",
 ]
 
 [[package]]
@@ -3351,20 +3353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dashmap"
-version = "6.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
-dependencies = [
- "cfg-if",
- "crossbeam-utils",
- "hashbrown 0.14.5",
- "lock_api",
- "once_cell",
- "parking_lot_core",
-]
-
-[[package]]
 name = "dasp_sample"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4454,12 +4442,6 @@ name = "hash32"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e4e11d13d42fc8d55326b323c63978c75721fbbb695a6e6686765bcb8b33917"
-
-[[package]]
-name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -7115,7 +7097,6 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "clap",
- "dashmap",
  "futures",
  "futures-byteorder",
  "hashbrown 0.15.5",

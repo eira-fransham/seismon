@@ -330,7 +330,7 @@ impl ConsoleInput {
             }
         };
 
-        Ok(ConsoleInput { editor, keymap: Emacs::new() })
+        Ok(ConsoleInput { editor, keymap })
     }
 
     /// Send characters to the inner editor
