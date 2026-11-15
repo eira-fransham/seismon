@@ -307,6 +307,12 @@ where
             .add_systems(PostUpdate, text::systems::update_atlas_text)
             .add_systems(
                 PostUpdate,
+                systems::apply_local_view_angles
+                    .run_if(resource_exists::<Connection>)
+                    .before(TransformSystems::Propagate),
+            )
+            .add_systems(
+                PostUpdate,
                 systems::handle_signon
                     .pipe(|In(res)| {
                         if let Err(e) = res {
@@ -944,7 +950,6 @@ mod systems {
         frame_time: Res<Time<Virtual>>,
         mut client_events: MessageWriter<ClientMessage>,
         mut impulses: MessageReader<Impulse>,
-        mut commands: Commands,
     ) -> Result<(), ClientError> {
         fn handle_input(
             registry: &Registry,
@@ -1057,19 +1062,6 @@ mod systems {
             return Ok(());
         };
 
-        // TODO: We want to honor the server's view angles but we also want to keep
-        // our own higher-resolution angles where possible, is there a better way?
-        let look_angles = *look_angles;
-
-        if let Some(state) = client_state.as_mut()
-            && let Some(view) = state.view
-        {
-            commands.run_system_cached_with(
-                ClientState::update_entity,
-                (EntityUpdate::new_angles(view, look_angles), conn.last_msg_time.as_secs_f64()),
-            );
-        }
-
         let mut msg = Vec::new();
         move_cmd.serialize(&mut msg)?;
         client_events.write(ClientMessage {
@@ -1081,6 +1073,29 @@ mod systems {
         // TODO: Refresh input (e.g. mouse movement)
 
         Ok(())
+    }
+
+    /// Writes the client's own look angles to the view entity's `Transform`, bypassing
+    /// interpolation. This only applies when connected to a server (including listen
+    /// servers), as view angles should be interpolated for demos.
+    pub fn apply_local_view_angles(conn: Res<Connection>, mut transforms: Query<&mut Transform>) {
+        let Connection {
+            client_state: Some(state),
+            target: ConnectionTarget::Server { stage: ConnectionStage::Connected, .. },
+            ..
+        } = &*conn
+        else {
+            return;
+        };
+
+        let Some(&view) = state.view.and_then(|id| state.server_entity_to_client_entity.get(&id))
+        else {
+            return;
+        };
+
+        if let Ok(mut transform) = transforms.get_mut(view) {
+            transform.rotation = state.look_angles.into();
+        }
     }
 
     pub fn process_network_messages(
@@ -1395,18 +1410,22 @@ mod systems {
                     ServerCmd::Print { text } => console_output.print_alert(text.raw, &wall_time),
 
                     ServerCmd::SetAngle { angles } => {
-                        if let Some(state) = conn.client_state.as_mut()
-                            && let Some(view) = state.view
-                        {
-                            state.look_angles = angles;
+                        let is_demo = matches!(conn.target, ConnectionTarget::Demo(_));
 
-                            commands.run_system_cached_with(
-                                ClientState::update_entity,
-                                (
-                                    EntityUpdate::new_angles(view, angles),
-                                    conn.last_msg_time.as_secs_f64(),
-                                ),
-                            );
+                        // Applied to the view entity's `Transform` by `apply_local_view_angles`.
+                        if let Some(state) = conn.client_state.as_mut() {
+                            // TODO: This feels a bit hacky, but ensures that view angles are interpolated in demos
+                            if is_demo && let Some(view) = state.view {
+                                commands.run_system_cached_with(
+                                    ClientState::update_entity,
+                                    (
+                                        EntityUpdate::new_angles(view, angles),
+                                        conn.last_msg_time.as_secs_f64(),
+                                    ),
+                                );
+                            } else {
+                                state.look_angles = angles;
+                            }
                         }
                     }
 
