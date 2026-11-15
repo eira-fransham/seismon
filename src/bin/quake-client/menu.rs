@@ -26,10 +26,8 @@ use bevy::{
     },
     log::warn,
 };
-use seismon::{
-    client::menu::{Menu, MenuBodyView, MenuBuilder, MenuView},
-    common::console::{Registry, RunCmd},
-};
+use bevy_mod_commands::{Registry, RunCmd};
+use seismon::client::menu::{Menu, MenuBodyView, MenuBuilder, MenuView};
 
 pub fn build_main_menu(builder: MenuBuilder) -> anyhow::Result<Menu> {
     Ok(builder

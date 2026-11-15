@@ -38,9 +38,7 @@ use crate::{
     },
     common::{
         self, Template,
-        console::{
-            ConsoleError, ConsoleOutput, RunCmd, SeismonConsoleRenderPlugin, TextAsset, TextLoader,
-        },
+        console::{ConsoleOutput, SeismonConsoleRenderPlugin, TextAsset, TextLoader},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
             QSocket, ServerCmd, ServerMessage, SignOnStage,
@@ -63,6 +61,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_mod_billboard::plugin::BillboardPlugin;
+use bevy_mod_commands::{ConsoleError, RunCmd};
 use bevy_trenchbroom::{TrenchBroomPlugins, config::WriteTrenchBroomConfigOnStartPlugin};
 use input::InputFocus;
 use menu::Menu;
@@ -310,7 +309,7 @@ where
                 Update,
                 systems::lock_cursor.run_if(
                     state_changed::<InputFocus>
-                        .or_else(resource_changed::<common::console::Registry>),
+                        .or_else(resource_changed::<bevy_mod_commands::Registry>),
                 ),
             )
             .add_systems(PostUpdate, text::systems::update_atlas_text)
@@ -844,7 +843,7 @@ mod systems {
 
     use crate::{client::state::Worldspawn, common::net::ButtonFlags};
 
-    use self::common::console::Registry;
+    use bevy_mod_commands::Registry;
 
     use super::*;
 

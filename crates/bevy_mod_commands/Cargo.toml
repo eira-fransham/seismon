@@ -1,0 +1,21 @@
+[package]
+name = "bevy_mod_commands"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/bevy_mod_commands"
+description = "Console-style commands, cvars, aliases and +/- actions for Bevy, with clap-based argument parsing"
+
+[dependencies]
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_log.workspace = true
+beef.workspace = true
+clap.workspace = true
+hashbrown.workspace = true
+itertools.workspace = true
+nom.workspace = true
+serde.workspace = true
+serde-lexpr.workspace = true
+snafu.workspace = true

@@ -20,7 +20,7 @@
 
 use bevy::app::App;
 
-use crate::common::console::{Cvar, RegisterCmdExt};
+use bevy_mod_commands::{Cvar, RegisterCmdExt};
 
 pub fn register_cvars(app: &mut App) {
     app.cvar(

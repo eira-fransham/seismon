@@ -62,9 +62,11 @@ pub mod systems {
         window::PrimaryWindow,
     };
 
+    use bevy_mod_commands::{Registry, RunCmd};
+
     use crate::{
         client::menu::Menu,
-        common::console::{ConsoleInput, ConsoleOutput, Registry, RunCmd, to_terminal_key},
+        common::console::{ConsoleInput, ConsoleOutput, to_terminal_key},
     };
 
     use super::game::{AnyInput, Binding, BindingValidState, GameInput, Trigger};

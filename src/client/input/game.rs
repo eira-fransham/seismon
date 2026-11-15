@@ -15,9 +15,10 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::{fmt::Display, hash::Hash, ops::Not, str::FromStr, sync::LazyLock};
+use std::{fmt::Display, hash::Hash, str::FromStr, sync::LazyLock};
 
-use crate::common::{console::RunCmd, parse};
+use bevy_mod_commands::RunCmd;
+pub use bevy_mod_commands::Trigger;
 
 use anyhow::{bail, format_err};
 use bevy::{
@@ -335,27 +336,6 @@ impl Display for AnyInput {
     }
 }
 
-/// Whether to trigger an action on pressing or releasing a key
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Trigger {
-    /// "Positive edge" - trigger on press
-    #[default]
-    Positive,
-    /// "Negative edge" - trigger on release
-    Negative,
-}
-
-impl Not for Trigger {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        match self {
-            Self::Positive => Self::Negative,
-            Self::Negative => Self::Positive,
-        }
-    }
-}
-
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BindingValidState {
     #[default]
@@ -373,13 +353,28 @@ impl Display for BindingValidState {
     }
 }
 
-impl Display for Trigger {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Trigger::Positive => write!(f, "+"),
-            Trigger::Negative => write!(f, "-"),
-        }
-    }
+/// Match a binding - command set possibly preceded by `*` in order to make the binding valid for
+/// any focus state.
+///
+/// A command is considered to be composed of:
+/// - Zero or more leading non-newline whitespace characters
+/// - One or more arguments, separated by non-newline whitespace characters
+pub fn binding(input: &str) -> nom::IResult<&str, Binding<'_>> {
+    use nom::{
+        bytes::complete::tag,
+        combinator::{map, opt},
+        sequence::tuple,
+    };
+
+    map(
+        tuple((
+            map(opt(tag("*")), |val| {
+                if val.is_some() { BindingValidState::Any } else { BindingValidState::Game }
+            }),
+            bevy_mod_commands::parse::commands,
+        )),
+        |(valid, commands)| Binding { commands, valid },
+    )(input)
 }
 
 #[derive(Clone, Debug)]
@@ -401,7 +396,7 @@ impl FromStr for Binding<'static> {
     type Err = nom::Err<nom::error::Error<String>>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parse::console::binding(s) {
+        match binding(s) {
             Ok(("", val)) => Ok(val.into_owned()),
             Ok((rest, _)) => Err(nom::Err::Failure(nom::error::Error::new(
                 rest.to_owned(),

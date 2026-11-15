@@ -13,6 +13,7 @@ use bevy::{
     render::view::ColorGrading,
     window::{PresentMode, PrimaryWindow},
 };
+use bevy_mod_commands::{RegisterCmdExt as _, RunCmd};
 use bevy_mod_mdl::MdlPlugin;
 use bevy_mod_pakfile::PakfilePlugin;
 use bevy_mod_spr::SprPlugin;
@@ -22,10 +23,7 @@ use seismon::{
     client::{
         SeismonClientPlugin, SeismonGameSettings, default_overlay_camera, default_world_camera,
     },
-    common::{
-        Template,
-        console::{ConsoleInput, RegisterCmdExt as _, RunCmd},
-    },
+    common::{Template, console::StuffCmds},
     server::SeismonListenServerPlugin,
 };
 use serde_lexpr::Value;
@@ -144,14 +142,10 @@ fn cmd_gametitle(In(new_name): In<Value>, mut window: Query<&mut Window, With<Pr
 
 fn startup(
     opt: Opt,
-) -> impl FnMut(
-    Commands,
-    ResMut<ConsoleInput>,
-    ResMut<SeismonGameSettings>,
-    MessageWriter<RunCmd<'static>>,
-) {
+) -> impl FnMut(Commands, ResMut<StuffCmds>, ResMut<SeismonGameSettings>, MessageWriter<RunCmd<'static>>)
+{
     move |mut commands,
-          mut input: ResMut<ConsoleInput>,
+          mut stuffcmds: ResMut<StuffCmds>,
           mut game_settings: ResMut<SeismonGameSettings>,
           mut console_cmds| {
         let quake_camera_bundle =
@@ -199,7 +193,7 @@ fn startup(
                     }
                 };
 
-                input.stuffcmds.push(runcmd);
+                stuffcmds.0.push(runcmd);
             } else {
                 warn!("Arg without command: {}", cur);
                 next = commands.next();

@@ -100,8 +100,10 @@ mod string_table;
 
 use std::{fmt, io::SeekFrom, iter, result::Result as StdResult};
 
+use bevy_mod_commands::ConsoleError;
+
 use crate::{
-    common::{console::ConsoleError, net::NetError},
+    common::net::NetError,
     server::world::{EntityError, EntityTypeDef, hull::HullError},
 };
 

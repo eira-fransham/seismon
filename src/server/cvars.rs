@@ -3,7 +3,7 @@ use bevy::{
     time::{Fixed, Time},
 };
 
-use crate::common::console::RegisterCmdExt;
+use bevy_mod_commands::RegisterCmdExt;
 
 pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
     // TODO: X-Men: Ravages of Apocalypse uses `temp1` as a cvar, we should have some way to

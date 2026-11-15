@@ -1625,6 +1625,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_mod_commands"
+version = "0.1.0"
+dependencies = [
+ "beef",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_log",
+ "clap",
+ "hashbrown 0.15.5",
+ "itertools 0.14.0",
+ "nom 7.1.3",
+ "serde",
+ "serde-lexpr",
+ "snafu",
+]
+
+[[package]]
 name = "bevy_mod_mdl"
 version = "0.1.0"
 dependencies = [
@@ -7084,6 +7101,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_mod_billboard",
+ "bevy_mod_commands",
  "bevy_mod_mdl",
  "bevy_mod_pakfile",
  "bevy_mod_scripting",

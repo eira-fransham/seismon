@@ -27,7 +27,7 @@ use bevy::ecs::{
     world::World,
 };
 
-use crate::common::console::CName;
+use bevy_mod_commands::CName;
 
 pub use self::item::{Enum, EnumItem, Item, Slider, TextField, Toggle};
 
