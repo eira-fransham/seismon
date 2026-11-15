@@ -2309,21 +2309,22 @@ impl LevelState {
 
         let actual_dist = (trace.end_point() - origin).length();
 
-        if collide_entity.is_none()
-            || (actual_dist - Self::DROP_TO_FLOOR_DIST).abs() < f32::EPSILON
-            || trace.all_solid()
-        {
-            // Entity didn't hit the floor or is stuck.
-            Ok(false)
-        } else {
-            // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
-            self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
-            self.link_entity(ent_id, false, registry, vfs)?;
-            let mut ent = self.world.get_mut(ent_id)?;
-            ent.add_flags(EntityFlags::ON_GROUND)?;
-            ent.set_ground(collide_entity.unwrap())?;
+        match collide_entity {
+            Some(collide_entity)
+                if (actual_dist - Self::DROP_TO_FLOOR_DIST).abs() >= f32::EPSILON
+                    && !trace.all_solid() =>
+            {
+                // Entity hit the floor. Update origin, relink and set ON_GROUND flag.
+                self.world.get_mut(ent_id)?.set_origin(trace.end_point())?;
+                self.link_entity(ent_id, false, registry, vfs)?;
+                let mut ent = self.world.get_mut(ent_id)?;
+                ent.add_flags(EntityFlags::ON_GROUND)?;
+                ent.set_ground(collide_entity)?;
 
-            Ok(true)
+                Ok(true)
+            }
+            // Entity didn't hit the floor or is stuck.
+            _ => Ok(false),
         }
     }
 

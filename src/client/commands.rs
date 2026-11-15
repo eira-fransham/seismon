@@ -123,7 +123,7 @@ pub fn register_commands(app: &mut App) {
     // set up connection console commands
     app.command(|In(Connect { remote }), mut commands: Commands| match connect(&remote) {
         Ok((new_conn, new_state)) => {
-            commands.write_message(NewConnection::Server(Some(new_conn), new_state));
+            commands.write_message(NewConnection::Server(Some(Box::new(new_conn)), new_state));
             ExecResult::default()
         }
         Err(e) => e.to_string().into(),
@@ -334,6 +334,10 @@ pub fn register_commands(app: &mut App) {
     }
 
     app.command(move |In(Exec { cfgs }), world: &mut World| {
+        #[expect(
+            clippy::box_collection,
+            reason = "`CommandIncomplete` passes its context as `In<Box<T>>`, so the `Vec` must be boxed"
+        )]
         fn continuation(
             // Have to double-box because we can't downcast `Box<dyn Any>` to `Box<[..]>`
             // Handles are in reverse order to allow `pop`

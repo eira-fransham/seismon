@@ -3,7 +3,6 @@ name = "bevy_mod_spr"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 
 [dependencies]

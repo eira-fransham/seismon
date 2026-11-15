@@ -78,8 +78,11 @@ fn no_interpolate<C>(
     });
 }
 
+type InterpolateData<C> = (&'static Prev<C>, &'static Next<C>, &'static mut C);
+type InterpolateFilter<C> = (With<Prev<C>>, Without<NoInterpolation>);
+
 fn interpolate<C, T>(
-    mut components: Query<(&Prev<C>, &Next<C>, &mut C), (With<Prev<C>>, Without<NoInterpolation>)>,
+    mut components: Query<InterpolateData<C>, InterpolateFilter<C>>,
     time: Res<Time<T>>,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,
@@ -94,11 +97,11 @@ fn interpolate<C, T>(
     });
 }
 
+type NextToPrevData<C> = (Entity, Option<&'static mut OldNext<C>>, &'static mut Next<C>);
+type NextToPrevFilter<C> = (Changed<Next<C>>, Without<NoInterpolation>);
+
 fn next_to_prev<C>(
-    mut components: Query<
-        (Entity, Option<&mut OldNext<C>>, &mut Next<C>),
-        (Changed<Next<C>>, Without<NoInterpolation>),
-    >,
+    mut components: Query<NextToPrevData<C>, NextToPrevFilter<C>>,
     commands: ParallelCommands,
 ) where
     C: Default + Clone + Component<Mutability = Mutable> + Animatable,

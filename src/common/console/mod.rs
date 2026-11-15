@@ -494,7 +494,7 @@ impl<'a> RunCmd<'a> {
 
 impl std::fmt::Display for RunCmd<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)?;
+        write!(f, "{}", self.0)?;
 
         for arg in self.1.iter() {
             // TODO: This doesn't work if the value is a string that requires quotes - use
@@ -1999,7 +1999,7 @@ mod systems {
                     image: conchars.image.clone().into(),
                     layout: conchars.layout.clone(),
                     line_padding: UiRect { top: Val::Px(4.), ..default() },
-                    glyph_size: conchars.glyph_size.clone().into(),
+                    glyph_size: conchars.glyph_size.into(),
                     justify: JustifyContent::Center,
                 },
                 AlertOutput::default(),
@@ -2050,7 +2050,7 @@ mod systems {
                                     text: "".into(),
                                     image: conchars.image.clone().into(),
                                     layout: conchars.layout.clone(),
-                                    glyph_size: conchars.glyph_size.clone().into(),
+                                    glyph_size: conchars.glyph_size.into(),
                                     line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },
@@ -2062,7 +2062,7 @@ mod systems {
                                     text: "] ".into(),
                                     image: conchars.image.clone().into(),
                                     layout: conchars.layout.clone(),
-                                    glyph_size: conchars.glyph_size.clone().into(),
+                                    glyph_size: conchars.glyph_size.into(),
                                     line_padding: UiRect { top: Val::Px(4.), ..default() },
                                     justify: JustifyContent::FlexStart,
                                 },
@@ -2144,7 +2144,7 @@ mod systems {
                 text.text.clear();
             }
 
-            for (_, line) in console_out.text_chunks.iter() {
+            for line in console_out.text_chunks.values() {
                 text.text.push_bytes(&*line.text);
             }
         }
@@ -2249,8 +2249,9 @@ mod systems {
     ) {
         let mut changed_cvars = Vec::new();
 
-        let mut unhandled_messages = Some(Vec::<UnhandledCmd>::new())
-            .filter(|_| world.get_resource::<Messages<UnhandledCmd>>().is_some());
+        let mut unhandled_messages = world
+            .contains_resource::<Messages<UnhandledCmd>>()
+            .then_some(Vec::<UnhandledCmd>::new());
 
         'execute: loop {
             let ExecResult { output, output_ty } = if let Some(cmd) =
@@ -2298,7 +2299,7 @@ mod systems {
                                         Some((new_value, [])) => {
                                             let new_value = Value::from_str(new_value)
                                                 .unwrap_or_else(|_| {
-                                                    Value::String(new_value.clone().into())
+                                                    Value::String(new_value.clone())
                                                 });
 
                                             if cvar.value() != &new_value {

@@ -878,9 +878,9 @@ impl EntityUpdate {
                 self.yaw.unwrap_or(baseline.angles[1]),
                 self.roll.unwrap_or(baseline.angles[2]),
             ),
-            model_id: self.model_id.map_or(baseline.model_id, |m| m),
-            frame_id: self.frame_id.map_or(baseline.frame_id, |f| f),
-            skin_id: self.skin_id.map_or(baseline.skin_id, |s| s),
+            model_id: self.model_id.unwrap_or(baseline.model_id),
+            frame_id: self.frame_id.unwrap_or(baseline.frame_id),
+            skin_id: self.skin_id.unwrap_or(baseline.skin_id),
             effects: self.effects.unwrap_or(baseline.effects),
             colormap: self.colormap.unwrap_or(baseline.colormap),
         }
@@ -2604,8 +2604,8 @@ mod test {
             max_clients: 16,
             game_type: GameType::Deathmatch,
             message: QString::from("Test message"),
-            model_precache: vec![format!("test1.bsp"), format!("test2.bsp")],
-            sound_precache: vec![format!("test1.wav"), format!("test2.wav")],
+            model_precache: vec!["test1.bsp".to_string(), "test2.bsp".to_string()],
+            sound_precache: vec!["test1.wav".to_string(), "test2.wav".to_string()],
         };
 
         let mut packet = Vec::new();

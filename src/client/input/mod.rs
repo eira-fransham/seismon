@@ -73,11 +73,7 @@ pub mod systems {
         let Ok(window) = windows.single() else {
             return false;
         };
-        if !window.focused {
-            return false;
-        }
-
-        true
+        window.focused
     }
 
     #[derive(Resource)]
@@ -196,8 +192,8 @@ pub mod systems {
         ) {
             match exec {
                 Ok(cmd) => {
-                    console_out.print(ConsoleInput::PROMPT, &*wall_time);
-                    console_out.println(&cmd, &*wall_time);
+                    console_out.print(ConsoleInput::PROMPT, &wall_time);
+                    console_out.println(&cmd, &wall_time);
 
                     let cmd = RunCmd::parse(&cmd);
 

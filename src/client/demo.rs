@@ -75,7 +75,7 @@ impl DemoServer {
         Some(DemoMessageView {
             view_angles: msg.view_angles,
             track_override: demo.track_override,
-            message: &demo.message_data.get(msg.msg_range.clone())?,
+            message: demo.message_data.get(msg.msg_range.clone())?,
         })
     }
 }

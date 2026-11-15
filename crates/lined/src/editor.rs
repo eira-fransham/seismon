@@ -1052,7 +1052,7 @@ where
             (
                 format!(
                     "{}(search)'{}{}{}` ({}/{}): ",
-                    &prefix,
+                    prefix,
                     color,
                     self.current_buffer(),
                     color::Reset.fg_str(),

@@ -90,31 +90,29 @@ impl Completer for FilenameCompleter {
             None => PathBuf::from(start_owned.as_str()),
         };
 
-        let p;
-        let start_name;
-        let completing_dir;
-        match full_path.parent() {
+        let (p, start_name, completing_dir) = match full_path.parent() {
             // XXX non-unix separaor
             Some(parent)
                 if !start.is_empty()
                     && !start_owned.ends_with('/')
                     && !full_path.ends_with("..") =>
             {
-                p = parent;
-                start_name = if self.case_sensitive {
-                    full_path.file_name().unwrap().to_string_lossy().into_owned()
-                } else {
-                    full_path.file_name().unwrap().to_string_lossy().to_lowercase()
-                };
-                completing_dir = false;
+                (
+                    parent,
+                    if self.case_sensitive {
+                        full_path.file_name().unwrap().to_string_lossy().into_owned()
+                    } else {
+                        full_path.file_name().unwrap().to_string_lossy().to_lowercase()
+                    },
+                    false,
+                )
             }
-            _ => {
-                p = full_path.as_path();
-                start_name = "".into();
-                completing_dir =
-                    start.is_empty() || start.ends_with('/') || full_path.ends_with("..");
-            }
-        }
+            _ => (
+                full_path.as_path(),
+                "".into(),
+                start.is_empty() || start.ends_with('/') || full_path.ends_with(".."),
+            ),
+        };
 
         let read_dir = match p.read_dir() {
             Ok(x) => x,

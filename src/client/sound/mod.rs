@@ -227,7 +227,7 @@ mod systems {
                         ChildOf(sound.entity),
                         Channel { channel: sound.ent_channel },
                         SamplePlayer::new(sound.src.clone()),
-                        Transform::from_translation(sound.origin.into()),
+                        Transform::from_translation(sound.origin),
                         sample_effects![
                             (
                                 SpatialBasicNode {

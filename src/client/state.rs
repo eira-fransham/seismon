@@ -341,7 +341,7 @@ impl ClientState {
         } else {
             let bundle = (transform, Visibility::Inherited, ChildOf(self.worldspawn));
 
-            let entity = if id != 0 {
+            if id != 0 {
                 match self.server_entity_to_client_entity.entry(id) {
                     Entry::Occupied(existing) => {
                         let existing = existing.get();
@@ -361,9 +361,7 @@ impl ClientState {
                 // Special-case: bsp model is spawned with `SpawnBaseline` (not `SpawnStatic`) but
                 // not handled via the regular update loop.
                 commands.spawn(bundle)
-            };
-
-            entity
+            }
         };
 
         if let Some(PrecacheModel::Loaded(model)) = model {
@@ -577,10 +575,9 @@ impl ClientState {
                 if let Some(model_id) = update.model_id
                     && let Some(PrecacheModel::Loaded(model)) =
                         state.models.get(model_id as usize).cloned()
+                    && scene.as_deref().map(|s| &s.0) != Some(&model)
                 {
-                    if scene.as_deref().map(|s| &s.0) != Some(&model) {
-                        commands.entity(*entity).insert(WorldAssetRoot(model));
-                    }
+                    commands.entity(*entity).insert(WorldAssetRoot(model));
                 }
 
                 if let Some(mut mdl) = mdl {

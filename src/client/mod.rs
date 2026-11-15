@@ -461,7 +461,7 @@ struct ServerUpdate<T = ServerCmd> {
 
 impl ServerUpdate {
     /// Override angles for view entity and CD track, for demos.
-    fn to_cmd(self, view_id: Option<u16>) -> ServerCmd {
+    fn into_cmd(self, view_id: Option<u16>) -> ServerCmd {
         match self.message {
             ServerCmd::CdTrack { track, loop_ } => {
                 ServerCmd::CdTrack { track: self.track_override.unwrap_or(track), loop_ }
@@ -505,14 +505,16 @@ impl Default for ServerUpdate<Cow<'_, [u8]>> {
     }
 }
 
+// TODO: `Result<Result<..>>` is ugly here.
+type RecvResult<'a> = Result<Result<ServerUpdate<Cow<'a, [u8]>>, ConnectionStatus>, ClientError>;
+
 impl ConnectionTarget {
-    // TODO: `Result<Result<..>>` is ugly here.
     fn recv<'a>(
         &mut self,
         assets: &AssetServer,
         demos: &'a Assets<Demo>,
         events: &Messages<ServerMessage>,
-    ) -> Result<Result<ServerUpdate<Cow<'a, [u8]>>, ConnectionStatus>, ClientError> {
+    ) -> RecvResult<'a> {
         match self {
             Self::Server { reader, .. } => {
                 let mut out = Vec::new();
@@ -574,7 +576,7 @@ pub struct Connection {
 #[derive(Message)]
 pub enum NewConnection {
     Demo(Handle<Demo>),
-    Server(Option<QSocket>, ConnectionStage),
+    Server(Option<Box<QSocket>>, ConnectionStage),
 }
 
 impl NewConnection {
@@ -641,7 +643,7 @@ impl Connection {
             }
             S::ClientInfo => {
                 // TODO: fill in client info here
-                ClientCmd::StringCmd { cmd: format!("name \"{}\"\n", &client_vars.name).into() }
+                ClientCmd::StringCmd { cmd: format!("name \"{}\"\n", client_vars.name).into() }
                     .serialize(compose)?;
                 ClientCmd::StringCmd {
                     cmd: format!(
@@ -1055,7 +1057,7 @@ mod systems {
         };
 
         if let Some(bsp) = bsp_assets.get(&worldspawn.bsp) {
-            commands.entity(client_state.worldspawn).insert(bsp.transform.clone());
+            commands.entity(client_state.worldspawn).insert(bsp.transform);
             client_state.populate_precache(bsp);
 
             commands.set_state_if_different(ClientGameState::WaitForServer);
@@ -1083,7 +1085,7 @@ mod systems {
             return;
         };
 
-        if let Some(_) = new_connection.socket() {
+        if new_connection.socket().is_some() {
             todo!("Need to remove connection from the command and put it here");
         }
 
@@ -1129,7 +1131,7 @@ mod systems {
             }
 
             // TODO: Shuld "wait for demo load" logic be in its own system?
-            let server_update = match conn.target.recv(&*asset_server, &*demos, &server_events)? {
+            let server_update = match conn.target.recv(&asset_server, &demos, &server_events)? {
                 Ok(update) => update,
                 Err(status) => return Ok(status),
             };
@@ -1150,7 +1152,7 @@ mod systems {
                 }
                 Ok(Some(cmd)) => Some(
                     ServerUpdate { message: cmd, angles, track_override }
-                        .to_cmd(conn.client_state.as_ref().and_then(|s| s.view)),
+                        .into_cmd(conn.client_state.as_ref().and_then(|s| s.view)),
                 ),
                 Ok(None) => None,
             });
@@ -1503,10 +1505,10 @@ mod systems {
                                 EntityState {
                                     origin,
                                     angles,
-                                    model_id: model_id.into(),
-                                    frame_id: frame_id.into(),
+                                    model_id,
+                                    frame_id,
                                     colormap,
-                                    skin_id: skin_id.into(),
+                                    skin_id,
                                     // TODO
                                     effects: Default::default(),
                                 },
@@ -1551,11 +1553,10 @@ mod systems {
                         let last_msg_time = conn.last_msg_time;
                         if conn.is_connected()
                             && let Some(state) = &mut conn.client_state
+                            && !last_msg_time.is_zero()
                         {
-                            if !last_msg_time.is_zero() {
-                                for entity in state.drain_dead_entities() {
-                                    commands.entity(entity).insert_recursive::<Children>(Disabled);
-                                }
+                            for entity in state.drain_dead_entities() {
+                                commands.entity(entity).insert_recursive::<Children>(Disabled);
                             }
                         }
 

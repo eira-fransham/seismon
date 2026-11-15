@@ -60,7 +60,7 @@ fn main() {
     let pak = match Pak::open(&opt.input_pak) {
         Ok(p) => p,
         Err(why) => {
-            println!("Couldn't open {:#?}: {}", &opt.input_pak, why);
+            println!("Couldn't open {:#?}: {}", opt.input_pak, why);
             exit(1);
         }
     };

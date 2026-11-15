@@ -147,7 +147,7 @@ where
 {
     type Out = ();
 
-    fn apply(self, world: &mut bevy::ecs::world::World) -> () {
+    fn apply(self, world: &mut bevy::ecs::world::World) {
         let asset_server = world.resource::<AssetServer>();
         let conchars = world.resource::<Conchars>().clone();
         let ibar = asset_server.load("gfx.wad#IBAR");
@@ -283,13 +283,13 @@ mod systems {
         }
     }
 
+    type PickingUpWeapon =
+        (Entity, &'static Weapon, &'static Item, &'static HudRepresented, Has<ActiveWeaponFor>);
+
     pub fn update_pickup_animation(
         mut commands: Commands,
         mut weapon_images: Query<&mut ImageNode>,
-        weapons: Query<
-            (Entity, &Weapon, &Item, &HudRepresented, Has<ActiveWeaponFor>),
-            With<PickingUp>,
-        >,
+        weapons: Query<PickingUpWeapon, With<PickingUp>>,
         time: Res<Time<Virtual>>,
     ) {
         for (entity, weapon, item, hud_element, is_active) in weapons {

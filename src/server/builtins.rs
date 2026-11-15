@@ -519,7 +519,7 @@ pub fn register_builtins_quake1<'b, 'ns, N: 'static>(
         .register("floor", |value: f32| -> f32 { value.floor() })
         .register("ceil", |value: f32| -> f32 { value.ceil() })
         .register("fabs", |value: f32| -> f32 { value.abs() })
-        .register("random", || rand::random::<f32>())
+        .register("random", rand::random::<f32>)
         .register("normalize", |vector: [f32; 3]| -> [f32; 3] {
             Vec3::from(vector).normalize_or_zero().into()
         })

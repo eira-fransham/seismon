@@ -486,7 +486,7 @@ impl Hyperplane {
             if planes
                 .clone()
                 .enumerate()
-                .filter_map(|(b, plane_b)| Some(plane_b).filter(|_| a != b))
+                .filter_map(|(b, plane_b)| (a != b).then_some(plane_b))
                 .all(|plane_b| new_velocity.dot(plane_b.normal()) > 0.)
             {
                 Some(new_velocity)

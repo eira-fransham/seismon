@@ -699,8 +699,8 @@ impl ExecutionContext {
         }
 
         let mut dest = def.arg_start;
-        for arg in 0..def.argc {
-            for component in 0..def.argsz[arg] as usize {
+        for (arg, &argsz) in def.argsz[..def.argc].iter().enumerate() {
+            for component in 0..argsz as usize {
                 let val = globals.get_bytes((GLOBAL_ADDR_ARG_0 + arg * 3 + component) as i16)?;
                 globals.put_bytes(val, dest as i16)?;
                 dest += 1;

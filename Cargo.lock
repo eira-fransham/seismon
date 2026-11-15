@@ -399,27 +399,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asset-importer"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b8cbfc637bb470a2f620a5deb8e391cfd52486aedac4ad5d66fa2111206550f"
-dependencies = [
- "asset-importer-sys",
- "bitflags 2.13.2",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "asset-importer-sys"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "421a17dbb9a24613ba557086e42bd28197e313de8692758ee6337082c61a5c9b"
-dependencies = [
- "cc",
- "cmake",
-]
-
-[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1634,33 +1613,6 @@ name = "bevy_mikktspace"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
-
-[[package]]
-name = "bevy_mod_assimp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "asset-importer",
- "bevy_animation",
- "bevy_asset",
- "bevy_camera",
- "bevy_color",
- "bevy_curve",
- "bevy_ecs",
- "bevy_image",
- "bevy_log",
- "bevy_math",
- "bevy_mesh",
- "bevy_pbr",
- "bevy_reflect",
- "bevy_render",
- "bevy_tasks",
- "bevy_transform",
- "bevy_world_serialization",
- "enumflags2",
- "hashbrown 0.15.5",
- "serde",
-]
 
 [[package]]
 name = "bevy_mod_billboard"
@@ -3643,7 +3595,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
 dependencies = [
  "enumflags2_derive",
- "serde",
 ]
 
 [[package]]

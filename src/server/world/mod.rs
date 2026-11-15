@@ -156,17 +156,14 @@ impl AreaNode {
         let mut back_maxs = maxs;
         back_maxs[axis as usize] = dist;
 
-        let front;
-        let back;
-        match nodes[index].kind {
+        let (front, back) = match nodes[index].kind {
             AreaNodeKind::Branch(ref mut b) => {
                 b.axis = axis;
                 b.dist = dist;
-                front = b.front;
-                back = b.back;
+                (b.front, b.back)
             }
             AreaNodeKind::Leaf => return,
-        }
+        };
 
         AreaNode::setup(nodes, front, front_mins, maxs);
         AreaNode::setup(nodes, back, mins, back_maxs);

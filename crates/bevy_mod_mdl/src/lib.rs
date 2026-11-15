@@ -450,7 +450,7 @@ async fn load_mdl(
         // TODO: This should be shared between models, but it's such a small texture that it's
         // unlikely to be a problem.
         lightmap: load_context.add_labeled_asset(
-            format!("lightmap"),
+            "lightmap".to_string(),
             Image::new(
                 Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
                 TextureDimension::D2,
@@ -503,9 +503,9 @@ async fn load_mdl_as_scene(
     let transform = mdl.transform;
 
     let anim_player =
-        MeshAnimPlayer::new(mdl.animations.get(0).ok_or(MdlFileError::NoMeshes)?.clone());
+        MeshAnimPlayer::new(mdl.animations.first().ok_or(MdlFileError::NoMeshes)?.clone());
 
-    let texture = GenericMaterial3d(mdl.textures.get(0).ok_or(MdlFileError::NoSkins)?.clone());
+    let texture = GenericMaterial3d(mdl.textures.first().ok_or(MdlFileError::NoSkins)?.clone());
 
     let mesh = Mesh3d(Handle::default());
 

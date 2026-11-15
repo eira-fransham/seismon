@@ -37,7 +37,7 @@ use hashbrown::HashMap;
 use memmap2::{Mmap, MmapOptions};
 use thiserror::Error;
 
-const PAK_MAGIC: [u8; 4] = [b'P', b'A', b'C', b'K'];
+const PAK_MAGIC: [u8; 4] = *b"PACK";
 const PAK_ENTRY_SIZE: usize = 64;
 
 #[derive(Error, Debug)]
