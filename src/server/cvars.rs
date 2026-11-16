@@ -38,6 +38,7 @@ pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
         .cvar("sv_wateraccelerate", "10", "Set the player's water acceleration")
         .cvar("sv_friction", "4", "Set the player's air friction")
         .cvar("sv_waterfriction", "4", "Set the player's water friction")
+        .cvar("sv_seed", "0", "Seed for the server's random number generator, applied when a level starts")
         .cvar("edgefriction", "2", "Friction multiplier when the player is about to walk off an edge")
         .cvar_on_set(
             "sys_tickrate",

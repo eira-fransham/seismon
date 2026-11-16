@@ -1186,11 +1186,11 @@ impl Globals {
     // QuakeC built-in functions ===============================================
 
     #[inline]
-    pub fn builtin_random(&mut self) -> Result<(), GlobalsError> {
-        // TODO: Make the RNG a field so that we can save/load state better.
-        // TODO: Quake does some weird stepping here, we can probably do something
-        // a bit better.
-        let r = (rand::random::<u16>() & 0x7fff) as f32 / 0x7fff as f32;
+    pub fn builtin_random(
+        &mut self,
+        rng: &mut crate::server::rng::ServerRng,
+    ) -> Result<(), GlobalsError> {
+        let r = rng.random_qc();
         self.put_float(r, GLOBAL_ADDR_RETURN as i16)
     }
 

@@ -36,7 +36,7 @@ use self::{
     entity::{EntityMut, EntityRef},
     phys::{Collide, CollideKind},
 };
-use hashbrown::HashSet;
+use std::collections::BTreeSet;
 
 use crate::{
     common::parse,
@@ -69,8 +69,11 @@ enum AreaNodeKind {
 #[derive(Debug)]
 struct AreaNode {
     kind: AreaNodeKind,
-    triggers: HashSet<EntityId>,
-    solids: HashSet<EntityId>,
+    /// Edict numbers of the triggers linked into this node, kept ordered so that collision and
+    /// trigger order is deterministic.
+    triggers: BTreeSet<u16>,
+    /// Edict numbers of the solid entities linked into this node, ordered as `triggers` is.
+    solids: BTreeSet<u16>,
 }
 
 // The areas form a quadtree-like BSP tree which alternates splitting on the X
@@ -122,8 +125,8 @@ impl AreaNode {
                         front: 2 * len + 1,
                         back: 2 * len + 2,
                     }),
-                    triggers: HashSet::new(),
-                    solids: HashSet::new(),
+                    triggers: BTreeSet::new(),
+                    solids: BTreeSet::new(),
                 });
             }
         }
@@ -132,8 +135,8 @@ impl AreaNode {
         for _ in 0..2usize.pow(AREA_DEPTH as u32) {
             nodes.push(AreaNode {
                 kind: AreaNodeKind::Leaf,
-                triggers: HashSet::new(),
-                solids: HashSet::new(),
+                triggers: BTreeSet::new(),
+                solids: BTreeSet::new(),
             });
         }
 
@@ -702,7 +705,9 @@ impl World {
             return Ok(());
         };
 
-        'next_trigger: for trigger_id in self.area_nodes[area_id].triggers.iter().copied() {
+        'next_trigger: for trigger_id in
+            self.area_nodes[area_id].triggers.iter().map(|&e| EntityId(e.into()))
+        {
             if trigger_id == ent_id {
                 // Don't trigger self.
                 continue;
@@ -756,9 +761,9 @@ impl World {
             None => return Ok(()),
         };
 
-        if self.area_nodes[area_id].triggers.remove(&e_id) {
+        if self.area_nodes[area_id].triggers.remove(&(e_id.0 as u16)) {
             debug!("Unlinking entity {e_id} from area triggers");
-        } else if self.area_nodes[area_id].solids.remove(&e_id) {
+        } else if self.area_nodes[area_id].solids.remove(&(e_id.0 as u16)) {
             debug!("Unlinking entity {e_id} from area solids");
         }
 
@@ -840,11 +845,11 @@ impl World {
 
         if solid == EntitySolid::Trigger {
             debug!("Linking entity {e_id} into area {node_id} triggers");
-            self.area_nodes[node_id].triggers.insert(e_id);
+            self.area_nodes[node_id].triggers.insert(e_id.0 as u16);
             self.entities.area_entity_mut(e_id)?.area_id = Some(node_id);
         } else {
             debug!("Linking entity {e_id} into area {node_id} solids");
-            self.area_nodes[node_id].solids.insert(e_id);
+            self.area_nodes[node_id].solids.insert(e_id.0 as u16);
             self.entities.area_entity_mut(e_id)?.area_id = Some(node_id);
         }
 
@@ -1055,9 +1060,13 @@ impl World {
     {
         let area = &self.area_nodes[area_id];
 
-        'collide_entity: for touch in
-            area.solids.iter().filter(|e| filter(**e) && Some(**e) != collide.e_id)
+        'collide_entity: for touch in area
+            .solids
+            .iter()
+            .map(|&e| EntityId(e.into()))
+            .filter(|e| filter(*e) && Some(*e) != collide.e_id)
         {
+            let touch = &touch;
             if best.0.all_solid() {
                 return Ok(());
             }

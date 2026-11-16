@@ -18,8 +18,11 @@
 mod builtins;
 mod commands;
 mod cvars;
+#[doc(hidden)]
+pub mod parity;
 pub mod precache;
 pub mod progs;
+mod rng;
 pub mod world;
 
 use std::{
@@ -63,6 +66,7 @@ use self::{
             GLOBAL_ADDR_ARG_3, GLOBAL_ADDR_ARG_4, GLOBAL_ADDR_RETURN, angle_vectors,
         },
     },
+    rng::ServerRng,
     world::{
         EntityFlags, EntitySolid, FieldAddrFloat, FieldAddrFunctionId, FieldAddrStringId, World,
         phys::{CollideKind, Trace},
@@ -914,6 +918,9 @@ pub struct LevelState {
 
     /// When `last_check_client` was last changed, as in Quake's `sv.lastchecktime`.
     last_check_time: Duration,
+
+    /// Source of all game-affecting randomness, seeded from `sv_seed`.
+    rng: ServerRng,
 }
 
 // TODO: Copied from Quake 1 source, can be done better.
@@ -1003,6 +1010,8 @@ impl LevelState {
     ) -> LevelState {
         let ProgsAsset { cx, mut globals, entity_def, mut string_table } = progs;
 
+        let seed = registry.read_cvar::<u64>("sv_seed").unwrap_or_default();
+
         globals.store(GlobalAddrFloat::FrameTime, TICK_RATE).unwrap();
 
         let sound_precache = Precache::new();
@@ -1047,6 +1056,7 @@ impl LevelState {
             max_clients,
             last_check_client: 0,
             last_check_time: Duration::ZERO,
+            rng: ServerRng::new(seed),
         };
 
         for entity in entity_list {
@@ -1279,7 +1289,7 @@ impl LevelState {
             // PrecacheModel2/PrecacheSound2 only differ for `qcc`, not at runtime
             PrecacheModel | PrecacheModel2 => self.builtin_precache_model()?,
             PrecacheSound | PrecacheSound2 => self.builtin_precache_sound()?,
-            Random => self.globals.builtin_random()?,
+            Random => self.globals.builtin_random(&mut self.rng)?,
             Remove => self.builtin_remove()?,
             RInt => self.globals.builtin_r_int()?,
             SetModel => self.builtin_set_model(registry.reborrow())?,
@@ -4114,7 +4124,7 @@ impl LevelState {
 
         // Try the other directions. Quake compares the deltas as integers rather than floats.
         let (dir_a, dir_b) =
-            if rand::random_bool(0.5) || (delta_y as i32).abs() > (delta_x as i32).abs() {
+            if self.rng.random_bool(0.5) || (delta_y as i32).abs() > (delta_x as i32).abs() {
                 (dir_b, dir_a)
             } else {
                 (dir_a, dir_b)
@@ -4142,7 +4152,7 @@ impl LevelState {
         const SEARCH_DIRS: [f32; 8] = [0., 45., 90., 135., 180., 225., 270., 315.];
         const SEARCH_DIRS_REV: [f32; 8] = [315., 270., 225., 180., 135., 90., 45., 0.];
 
-        let search_dirs = if rand::random_bool(0.5) { SEARCH_DIRS } else { SEARCH_DIRS_REV };
+        let search_dirs = if self.rng.random_bool(0.5) { SEARCH_DIRS } else { SEARCH_DIRS_REV };
 
         for turn_dir in search_dirs {
             if (turn_dir - turn_around).abs() > f32::EPSILON
@@ -4186,7 +4196,7 @@ impl LevelState {
 
         // Try a few random directions to try to get unstuck.
         let ideal_yaw = this.ideal_yaw()?;
-        let did_move = !rand::random_ratio(1, 4)
+        let did_move = !self.rng.random_ratio(1, 4)
             && self.step_direction(this_id, ideal_yaw, dist, registry.reborrow())?;
 
         if !did_move {
@@ -4730,6 +4740,7 @@ mod tests {
             max_clients: 1,
             last_check_client: 0,
             last_check_time: Duration::ZERO,
+            rng: ServerRng::new(0),
         }
     }
 
