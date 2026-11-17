@@ -127,8 +127,7 @@ impl EntPhysics {
 
     /// Returns the engine-defined flags set on this entity.
     ///
-    /// Any other bits (e.g. flags defined by a mod) are ignored. This matches Quake's
-    /// behavior, but this restriction may be relaxed later.
+    /// Any other bits (e.g. flags defined by a mod) are ignored.
     pub fn flags(&self) -> EntityFlags {
         EntityFlags::from_bits_truncate(self.raw_flags() as u16)
     }
