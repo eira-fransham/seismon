@@ -242,8 +242,8 @@ impl BspCollisionHull {
 
     pub fn trace(&self, start: Vec3, end: Vec3) -> Result<Trace, HullError> {
         let mut trace = Trace::uninitialized(start, end);
-        // As in Quake's `SV_ClipMoveToEntity`, the trace is all-solid until it enters a non-solid
-        // leaf (see `recursive_trace`).
+        // Trace is all-solid until it enters a non-solid leaf.
+        // See `recursive_trace` or Quake's `SV_ClipMoveToEntity`.
         trace.all_solid = true;
 
         let _ = self.recursive_trace(

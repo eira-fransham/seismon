@@ -520,7 +520,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EntityState {
     pub origin: Vec3,
     pub angles: Vec3,
@@ -576,6 +576,29 @@ impl EntityState {
             no_lerp: false,
         }
     }
+
+    /// The inverse of [`EntityState::make_update`]: treating `self` as the baseline, returns the
+    /// full entity state described by `update`. Fields missing from the update take the baseline
+    /// value (not the previously-received value), matching Quake's protocol.
+    pub fn apply_update(&self, update: &EntityUpdate) -> EntityState {
+        EntityState {
+            origin: Vec3::new(
+                update.origin_x.unwrap_or(self.origin.x),
+                update.origin_y.unwrap_or(self.origin.y),
+                update.origin_z.unwrap_or(self.origin.z),
+            ),
+            angles: Vec3::new(
+                update.pitch.unwrap_or(self.angles.x),
+                update.yaw.unwrap_or(self.angles.y),
+                update.roll.unwrap_or(self.angles.z),
+            ),
+            model_id: update.model_id.unwrap_or(self.model_id),
+            frame_id: update.frame_id.unwrap_or(self.frame_id),
+            colormap: update.colormap.unwrap_or(self.colormap),
+            skin_id: update.skin_id.unwrap_or(self.skin_id),
+            effects: update.effects.unwrap_or(self.effects),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -611,15 +634,6 @@ impl EntityUpdate {
             origin_z: None,
             roll: None,
             no_lerp: false,
-        }
-    }
-
-    pub const fn new_angles(ent_id: u16, angles: QAngles) -> Self {
-        Self {
-            pitch: Some(angles.pitch_deg),
-            roll: Some(angles.roll_deg),
-            yaw: Some(angles.yaw_deg),
-            ..Self::empty(ent_id)
         }
     }
 
@@ -2449,11 +2463,20 @@ where
     Ok(reader.read_i8()? as f32 * (360.0 / 256.0))
 }
 
+/// Converts an angle in degrees to a byte.
+///
+/// Equivalent to `MSG_WriteAngle`.
+pub fn write_angle_byte(angle: f32) -> u8 {
+    // C float-to-int wraps, but in Rust it truncates. We cast
+    // to a larger int first to ensure that we wrap here.
+    (((angle as i32) * 256 / 360) & 255) as u8
+}
+
 fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
 where
     W: Write,
 {
-    writer.write_i8((angle * (256. / 360.)) as i8)?;
+    writer.write_u8(write_angle_byte(angle))?;
     Ok(())
 }
 
@@ -2756,6 +2779,30 @@ mod test {
         assert_eq!(src, dst);
     }
 
+    #[test]
+    fn write_angle_wraps() {
+        assert_eq!(write_angle_byte(0.), 0);
+        assert_eq!(write_angle_byte(90.), 64);
+        assert_eq!(write_angle_byte(-90.), 192);
+        assert_eq!(write_angle_byte(360.), 0);
+        assert_eq!(write_angle_byte(450.), 64);
+        assert_eq!(write_angle_byte(1.9), 0);
+    }
+
+    #[test]
+    fn write_angle_does_not_saturate() {
+        // `write_angle` used to cast with `as i8`, which saturates
+        for angle in [270., 370., 540., -200., 1000., -1000.] {
+            let mut buf = Vec::new();
+            write_angle(&mut buf, angle).unwrap();
+            assert_eq!(buf, [write_angle_byte(angle)], "angle {angle}");
+        }
+        // 1000 truncates to 711 byte units, which wraps to 199 (~280deg).
+        assert_eq!(write_angle_byte(1000.), 199);
+        // -200 truncates to -142 byte units, which wraps to 114 (~160deg).
+        assert_eq!(write_angle_byte(-200.), 114);
+    }
+
     fn gen_qsocket_pair() -> (QSocket, QSocket) {
         let src_udp = UdpSocket::bind("localhost:0").unwrap();
         let src_addr = src_udp.local_addr().unwrap();
@@ -2804,5 +2851,45 @@ mod test {
 
         let message = [0; MAX_DATAGRAM + 1];
         src.send_msg_unreliable(&message).unwrap();
+    }
+
+    #[test]
+    fn test_entity_state_apply_update_inverts_make_update() {
+        let baseline = EntityState {
+            origin: Vec3::new(544.0, 288.0, 32.0),
+            angles: Vec3::new(0.0, 90.0, 0.0),
+            model_id: 1,
+            frame_id: 0,
+            colormap: 1,
+            skin_id: 0,
+            effects: EntityEffects::empty(),
+        };
+        // Shares x, pitch, roll, model, colormap and skin with the baseline.
+        let state = EntityState {
+            origin: Vec3::new(544.0, 1536.0, 16.0),
+            angles: Vec3::new(0.0, 180.0, 0.0),
+            frame_id: 12,
+            effects: EntityEffects::MUZZLE_FLASH,
+            ..baseline.clone()
+        };
+
+        let update = state.make_update(1, &baseline);
+        assert_eq!(update.origin_x, None);
+        assert_eq!(baseline.apply_update(&update), state);
+    }
+
+    #[test]
+    fn test_entity_state_apply_empty_update_is_baseline() {
+        let baseline = EntityState {
+            origin: Vec3::new(544.0, 288.0, 32.0),
+            angles: Vec3::new(10.0, 90.0, 5.0),
+            model_id: 3,
+            frame_id: 4,
+            colormap: 2,
+            skin_id: 1,
+            effects: EntityEffects::DIM_LIGHT,
+        };
+
+        assert_eq!(baseline.apply_update(&EntityUpdate::empty(7)), baseline);
     }
 }

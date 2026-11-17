@@ -81,3 +81,36 @@ pub fn entities(
             })
         }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(input: &str) -> Vec<Vec<(&str, &str)>> {
+        entities(input).unwrap().map(|entity| entity.collect()).collect()
+    }
+
+    #[test]
+    fn backslashes_and_newlines_in_values() {
+        // From `start.bsp`: backslashes must not end the parse (and drop the rest of the map).
+        let map = "{\n\"classname\" \"trigger_onlyregistered\"\n\"message\" \"For registered users only!\\nPlay episode 1\"\n}\n{\n\"classname\" \"trigger_changelevel\"\n}\n";
+        assert_eq!(
+            parse(map),
+            [
+                vec![
+                    ("classname", "trigger_onlyregistered"),
+                    ("message", r"For registered users only!\nPlay episode 1"),
+                ],
+                vec![("classname", "trigger_changelevel")],
+            ]
+        );
+
+        // Quoted strings can be multiline.
+        assert_eq!(parse("{ \"a\" \"b\nc\" }"), [vec![("a", "b\nc")]]);
+    }
+
+    #[test]
+    fn syntax_error_fails() {
+        assert!(entities("{ \"a\" \"b\" } { \"unterminated").is_err());
+    }
+}

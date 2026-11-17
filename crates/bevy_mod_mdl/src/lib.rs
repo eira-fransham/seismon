@@ -25,8 +25,8 @@ use bevy_transform::components::Transform;
 use bevy_world_serialization::WorldAsset;
 use seismon_utils::model::ModelFlags;
 use serde::{Deserialize, Serialize};
-use std::{cell::OnceCell, collections::HashSet, io};
 use snafu::{OptionExt as _, Snafu};
+use std::{cell::OnceCell, collections::HashSet, io};
 
 pub use qbsp::Palette;
 
@@ -502,8 +502,7 @@ async fn load_mdl_as_scene(
 
     let transform = mdl.transform;
 
-    let anim_player =
-        MeshAnimPlayer::new(mdl.animations.first().context(NoMeshesSnafu)?.clone());
+    let anim_player = MeshAnimPlayer::new(mdl.animations.first().context(NoMeshesSnafu)?.clone());
 
     let texture = GenericMaterial3d(mdl.textures.first().context(NoSkinsSnafu)?.clone());
 

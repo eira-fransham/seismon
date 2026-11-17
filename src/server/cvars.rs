@@ -18,6 +18,8 @@ pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
             "0",
             "0: no teams, 1: friendly fire disabled, 2: friendly fire enabled",
         )
+        .cvar("noexit", "0", "1 to prevent players from leaving the level in deathmatch")
+        .cvar("samelevel", "0", "1 to restart the same level instead of going to the next one")
         .cvar("temp1", "0", "Used internally for QuakeC")
         .cvar("skill", "1", "0: easy, 1: normal, 2: hard, 3: nightmare")
         .cvar("sv_gravity", "800", "Gravity strength")
@@ -38,6 +40,7 @@ pub fn register_cvars<A: RegisterCmdExt>(app: &mut A) {
         .cvar("sv_wateraccelerate", "10", "Set the player's water acceleration")
         .cvar("sv_friction", "4", "Set the player's air friction")
         .cvar("sv_waterfriction", "4", "Set the player's water friction")
+        .cvar("sv_seed", "0", "Seed for the server's random number generator, applied when a level starts")
         .cvar("edgefriction", "2", "Friction multiplier when the player is about to walk off an edge")
         .cvar_on_set(
             "sys_tickrate",
