@@ -3,6 +3,7 @@ use std::{io::Write as _, marker::PhantomData};
 use bevy::{
     app::{Plugin, PostUpdate},
     asset::AssetServer,
+    camera::visibility::Visibility,
     ecs::{
         bundle::Bundle,
         children,
@@ -45,7 +46,12 @@ impl Plugin for HudPlugin {
             .add_observer(observers::make_weapon_inactive)
             .add_systems(
                 PostUpdate,
-                (systems::update_ammo, systems::update_pickup_animation, systems::update_health),
+                (
+                    systems::update_ammo,
+                    systems::update_pickup_animation,
+                    systems::update_health,
+                    systems::hide_hud_when_dead,
+                ),
             );
     }
 }
@@ -334,6 +340,21 @@ mod systems {
             }
 
             text.text = new_text;
+        }
+    }
+
+    pub fn hide_hud_when_dead(
+        hud_owners: Query<(&HasHud, &Health), Changed<Health>>,
+        mut visibilities: Query<&mut Visibility>,
+    ) {
+        for (hud, Health(health)) in hud_owners {
+            let Ok(mut visibility) = visibilities.get_mut(hud.0) else {
+                continue;
+            };
+
+            let new_visibility =
+                if *health <= 0 { Visibility::Hidden } else { Visibility::Inherited };
+            write_if_neq!(*visibility, new_visibility);
         }
     }
 }

@@ -181,7 +181,7 @@ impl<T: ItemType> Command for UpdateAmmoCount<T> {
 }
 
 #[derive(Component)]
-pub struct Health(pub u16);
+pub struct Health(pub i16);
 
 // TODO: This probably makes more sense as an asset or similar.
 #[derive(Component, Reflect, Debug)]

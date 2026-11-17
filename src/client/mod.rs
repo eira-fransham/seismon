@@ -13,7 +13,7 @@ pub mod sound;
 pub mod state;
 pub mod text;
 pub mod trace;
-pub mod view;
+mod view;
 
 use self::{
     input::SeismonInputPlugin,
@@ -40,7 +40,6 @@ use crate::{
         sound::{MusicPlayer, StartSound, StartStaticSound, StopSound},
         state::ClientState,
         text::Conchars,
-        view::KickVars,
     },
     common::{
         self, Template,
@@ -309,6 +308,12 @@ where
                 PostUpdate,
                 systems::apply_local_view_angles
                     .run_if(resource_exists::<Connection>)
+                    .before(TransformSystems::Propagate),
+            )
+            .add_systems(
+                PostUpdate,
+                view::apply_view_effects
+                    .after(systems::apply_local_view_angles)
                     .before(TransformSystems::Propagate),
             )
             .add_systems(
@@ -1267,7 +1272,6 @@ mod systems {
             settings: Res<SeismonGameSettings>,
             wall_time: Res<Time<Real>>,
             asset_server: Res<AssetServer>,
-            registry: Res<Registry>,
             transforms: Query<&Transform>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
@@ -1276,8 +1280,6 @@ mod systems {
                 S::Maintain => {}
                 s => return Ok(s),
             }
-
-            let kick_vars: KickVars = registry.read_cvars()?;
 
             macro_rules! msg_todo {
                 ($cmd_name:expr) => {{ debug!("TODO: {}", $cmd_name) }};
@@ -1371,9 +1373,8 @@ mod systems {
                     }
 
                     ServerCmd::Damage { armor, blood, source } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            state.handle_damage(armor, blood, source, kick_vars)
-                        }
+                        commands
+                            .run_system_cached_with(view::handle_damage, (armor, blood, source));
                     }
 
                     ServerCmd::Disconnect => {
@@ -1459,7 +1460,9 @@ mod systems {
                             };
 
                             // Viewing entity should be invisible (e.g. do not show player model)
-                            view_entity.insert(Visibility::Hidden);
+                            view_entity
+                                .insert(Visibility::Hidden)
+                                .insert_if_new(view::ViewEffects::default());
 
                             let view_entity = view_entity.id();
 
@@ -1485,7 +1488,8 @@ mod systems {
                                 .clone_and_spawn_with_opt_out(|builder| {
                                     builder.deny::<Template>();
                                 })
-                                .insert((ViewFor(view_entity), ChildOf(view_entity)));
+                                .insert((ViewFor(view_entity), ChildOf(view_entity)))
+                                .queue(view::capture_view_base);
 
                             let mut overlay_camera_entity = match settings
                                 .camera_templates
@@ -1726,8 +1730,6 @@ mod systems {
                         .write(ClientMessage { packet: compose.drain(..).collect(), ..default() });
                 }
             }
-
-            // TODO: Reimplement `calc_final_view` and `update_color_shifts`
 
             Ok(ConnectionStatus::Maintain)
         }

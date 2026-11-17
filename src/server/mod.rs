@@ -994,7 +994,8 @@ impl<'w> ServerCtx<'w> {
             weapon_frame: Some(weapon_frame as _),
             armor: Some(armor as _),
             weapon_model_id,
-            health: health as _,
+            // Truncating, like vanilla's `MSG_WriteShort`.
+            health: health as i16,
             ammo: ammo as _,
             ammo_shells: ammo_shells as _,
             ammo_nails: ammo_nails as _,

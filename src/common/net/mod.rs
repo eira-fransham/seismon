@@ -820,7 +820,7 @@ pub struct PlayerData {
     pub weapon_frame: Option<u8>,
     pub armor: Option<u8>,
     pub weapon_model_id: Option<u8>,
-    pub health: u16,
+    pub health: i16,
     pub ammo: u8,
     pub ammo_shells: u8,
     pub ammo_nails: u8,
@@ -1431,7 +1431,7 @@ impl ServerCmd {
                     false => None,
                 };
 
-                let health = reader.read_i16::<LittleEndian>()? as _;
+                let health = reader.read_i16::<LittleEndian>()?;
                 let ammo = reader.read_u8()?;
                 let ammo_shells = reader.read_u8()?;
                 let ammo_nails = reader.read_u8()?;
@@ -1836,7 +1836,7 @@ impl ServerCmd {
                 if let Some(w) = weapon_model_id {
                     writer.write_u8(w)?;
                 }
-                writer.write_i16::<LittleEndian>(health as _)?;
+                writer.write_i16::<LittleEndian>(health)?;
                 writer.write_u8(ammo)?;
                 writer.write_u8(ammo_shells)?;
                 writer.write_u8(ammo_nails)?;

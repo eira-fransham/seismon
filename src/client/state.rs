@@ -1,7 +1,6 @@
 use snafu::OptionExt as _;
 use std::{iter, mem};
 
-use super::view::BobVars;
 use crate::{
     client::{
         ClientError, Connection, InvalidConnectResponseSnafu, OVERLAY_RENDER_LAYER,
@@ -9,9 +8,11 @@ use crate::{
         inventory::Health,
         post_process::{ColorShift, Powerup},
         systems::frame::{ViewEntities, ViewFor},
-        view::{IdleVars, KickVars, RollVars},
+        view::{ViewEffects, capture_view_base},
     },
-    common::net::{EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData},
+    common::net::{
+        DEFAULT_VIEWHEIGHT, EntityState, EntityUpdate, ItemFlags, PlayerColor, PlayerData,
+    },
 };
 use bevy::{
     asset::{AssetPath, AssetServer, Handle},
@@ -252,73 +253,6 @@ impl ClientState {
         });
     }
 
-    pub fn handle_damage(&mut self, _armor: u8, _health: u8, _source: Vec3, _kick_vars: KickVars) {
-        // const DMG_DENSITY: f32 = 0.03;
-
-        // self.face_anim_time = self.time + Duration::try_milliseconds(200).unwrap();
-
-        // let dmg_factor = (armor + health).min(20) as f32 / 2.0;
-        // let mut cshift = self.color_shifts[ColorShiftCode::Damage as usize];
-        // cshift.density += DMG_DENSITY * dmg_factor;
-        // cshift.density = cshift.density.clamp(0., 1.5);
-        // // Takes one second to decay no matter how intense.
-        // cshift.decay = cshift.density;
-
-        // if armor > health {
-        //     cshift.dest_color = [200, 100, 100];
-        // } else if armor > 0 {
-        //     cshift.dest_color = [220, 50, 50];
-        // } else {
-        //     cshift.dest_color = [255, 0, 0];
-        // }
-
-        // let Some(view) = self.view.as_mut() else {
-        //     return;
-        // };
-        // let v_ent = &self.entities[view.entity_id()];
-
-        // let v_angles = Angles {
-        //     pitch: v_ent.angles.x,
-        //     yaw: v_ent.angles.y,
-        //     roll: v_ent.angles.z,
-        // };
-
-        // view.handle_damage(
-        //     self.time,
-        //     armor as f32,
-        //     health as f32,
-        //     v_ent.origin,
-        //     v_angles,
-        //     source,
-        //     kick_vars,
-        // );
-    }
-
-    pub fn calc_final_view(
-        &mut self,
-        _idle_vars: IdleVars,
-        _kick_vars: KickVars,
-        _roll_vars: RollVars,
-        _bob_vars: BobVars,
-    ) {
-        // let Some(view) = self.view.as_mut() else {
-        //     return;
-        // };
-
-        // view.calc_final_angles(
-        //     self.time,
-        //     self.intermission.as_ref(),
-        //     self.velocity,
-        //     idle_vars,
-        //     kick_vars,
-        //     roll_vars,
-        // );
-
-        // if let Some(e) = self.entities.get(view.entity_id()) {
-        //     view.calc_final_origin(self.time, e.origin, self.velocity, bob_vars);
-        // }
-    }
-
     /// Spawn an entity with the given ID, also spawning any uninitialized
     /// entities between the former last entity and the new one.
     pub fn spawn_entities(
@@ -386,7 +320,11 @@ impl ClientState {
         // TODO: We should just add a single `IsPlayer` component (or similar) that adds `PlayerState`,
         // `Health` and `ViewEntities`
         view_entities: Query<&ViewEntities>,
-        mut view_models: Query<(&mut WorldAssetRoot, &mut MdlSettings), With<ViewModel>>,
+        mut view_models: Query<
+            (&mut WorldAssetRoot, &mut MdlSettings, &mut Visibility),
+            With<ViewModel>,
+        >,
+        mut view_effects: Query<&mut ViewEffects>,
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
@@ -408,46 +346,84 @@ impl ClientState {
             return;
         };
 
-        if let Ok(view_entities) = view_entities.get(ent)
-            && let Some(existing_scene) =
-                // TODO: This is pretty jank, it involves fetching the viewmodel 3 times.
-                view_entities.iter().find(|view| view_models.get(*view).is_ok())
-        {
-            let (mut existing_scene, mut existing_settings) = view_models
-                .get_mut(existing_scene)
-                .expect("TODO: We should only need to fetch the viewmodel once");
+        let punch_angles = QAngles {
+            pitch_deg: player_data.punch_pitch.unwrap_or_default(),
+            yaw_deg: player_data.punch_yaw.unwrap_or_default(),
+            roll_deg: player_data.punch_roll.unwrap_or_default(),
+        };
+        let velocity = Vec3::new(
+            player_data.velocity_x.unwrap_or_default(),
+            player_data.velocity_y.unwrap_or_default(),
+            player_data.velocity_z.unwrap_or_default(),
+        );
+        // Missing fields have their defaults, as in `CL_ParseClientdata`.
+        let view_height = player_data.view_height.unwrap_or(DEFAULT_VIEWHEIGHT);
 
-            if let Some(model_id) = player_data.weapon_model_id
-                && let Some(PrecacheModel::Loaded(model)) =
-                    state.models.get(model_id as usize).cloned()
+        if let Ok(mut effects) = view_effects.get_mut(ent) {
+            write_if_neq!(effects.view_height, view_height);
+            write_if_neq!(effects.velocity, velocity);
+            write_if_neq!(effects.punch_angles, punch_angles);
+            write_if_neq!(effects.health, player_data.health);
+        } else {
+            commands.entity(ent).insert(ViewEffects {
+                view_height,
+                velocity,
+                punch_angles,
+                health: player_data.health,
+                ..default()
+            });
+        }
+
+        // A missing weapon model (or index 0) means "no viewmodel", and vanilla also doesn't draw
+        // the viewmodel while dead (`R_DrawViewModel`).
+        let weapon_model = player_data.weapon_model_id.filter(|&id| id != 0).and_then(|id| {
+            match state.models.get(id as usize) {
+                Some(PrecacheModel::Loaded(model)) => Some(model.clone()),
+                _ => None,
+            }
+        });
+        let viewmodel_visibility = if weapon_model.is_some() && player_data.health > 0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+
+        if let Some(existing) = view_entities
+            .get(ent)
+            .ok()
+            .and_then(|view_entities| view_entities.iter().find(|e| view_models.contains(*e)))
+        {
+            let (mut existing_scene, mut existing_settings, mut visibility) =
+                view_models.get_mut(existing).expect("Checked above");
+
+            if let Some(model) = weapon_model
                 && existing_scene.0 != model
             {
                 existing_scene.0 = model;
             }
 
-            let new_frame = player_data.weapon_frame.unwrap_or_default();
-
-            write_if_neq!(existing_settings.frame, new_frame);
-        } else if let Some(model_id) = player_data.weapon_model_id
-            && let Some(PrecacheModel::Loaded(model)) = state.models.get(model_id as usize).cloned()
-        {
-            commands.spawn((
-                Name::new("Viewmodel"),
-                ViewModel,
-                Visibility::Visible,
-                WorldAssetRoot(model),
-                Transform::from_translation(Vec3::new(0., -12., 0.)).with_rotation(
-                    Quat::from_euler(
-                        EulerRot::XYZ,
-                        0.,
-                        -std::f32::consts::FRAC_PI_2,
-                        -std::f32::consts::FRAC_PI_2,
+            write_if_neq!(*visibility, viewmodel_visibility);
+            write_if_neq!(existing_settings.frame, player_data.weapon_frame.unwrap_or_default());
+        } else if let Some(model) = weapon_model {
+            commands
+                .spawn((
+                    Name::new("Viewmodel"),
+                    ViewModel,
+                    viewmodel_visibility,
+                    WorldAssetRoot(model),
+                    Transform::from_translation(Vec3::new(0., -12., 0.)).with_rotation(
+                        Quat::from_euler(
+                            EulerRot::XYZ,
+                            0.,
+                            -std::f32::consts::FRAC_PI_2,
+                            -std::f32::consts::FRAC_PI_2,
+                        ),
                     ),
-                ),
-                MdlSettings { frame: player_data.weapon_frame.unwrap_or_default(), skin: 0 },
-                RenderLayers::layer(OVERLAY_RENDER_LAYER),
-                ViewFor(ent),
-            ));
+                    MdlSettings { frame: player_data.weapon_frame.unwrap_or_default(), skin: 0 },
+                    RenderLayers::layer(OVERLAY_RENDER_LAYER),
+                    ViewFor(ent),
+                ))
+                .queue(capture_view_base);
         }
 
         let existing_flags = if let Ok((mut existing, mut health)) = existing_data.get_mut(ent) {
