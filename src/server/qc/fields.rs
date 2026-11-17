@@ -13,7 +13,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy_mod_scripting_qcvm::{
     QCEntity, QCFunction, QCString,
-    qcvm::{FieldDef, VmScalarType, VmType},
+    qcvm::{FieldDef, Type, VmScalarType, VmType},
 };
 use hashbrown::HashMap;
 use snafu::Snafu;
@@ -23,38 +23,10 @@ use crate::server::{limit_vec3, qc::edict::Edict};
 /// The first field offset after the fields defined by `progdefs.h`.
 pub const PROGDEFS_FIELD_COUNT: u16 = 105;
 
-/// The types of values that can be stored in fields and globals.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum FieldKind {
-    Float,
-    Vector,
-    String,
-    Entity,
-    Function,
-}
-
-impl FieldKind {
-    fn from_vm(ty: VmType) -> Option<Self> {
-        Some(match ty {
-            VmType::Vector => Self::Vector,
-            VmType::Scalar(VmScalarType::Float) => Self::Float,
-            VmType::Scalar(VmScalarType::String) => Self::String,
-            VmType::Scalar(VmScalarType::Entity) => Self::Entity,
-            VmType::Scalar(VmScalarType::Function) => Self::Function,
-            VmType::Scalar(_) => return None,
-        })
-    }
-
-    /// The zero value of this type. Entities are zero when they're `world`.
-    pub fn zero(self, world: Entity) -> QcValue {
-        match self {
-            Self::Float => QcValue::Float(0.),
-            Self::Vector => QcValue::Vector(Vec3::ZERO),
-            Self::String => QcValue::String(QCString::null()),
-            Self::Entity => QcValue::Entity(world),
-            Self::Function => QcValue::Function(QCFunction::NULL),
-        }
-    }
+/// Whether fields and globals can have type `ty`: true for floats, vectors, strings, entities
+/// and functions.
+pub fn is_storable(ty: Type) -> bool {
+    matches!(ty, Type::Float | Type::Vector | Type::String | Type::Entity | Type::Function)
 }
 
 /// The value of a field or global.
@@ -69,13 +41,26 @@ pub enum QcValue {
 }
 
 impl QcValue {
-    pub fn kind(&self) -> FieldKind {
+    /// The zero value of type `ty`, or `None` if fields and globals can't have that type (see
+    /// [`is_storable`]). Entities are zero when they're `world`.
+    pub fn zero(ty: Type, world: Entity) -> Option<Self> {
+        Some(match ty {
+            Type::Float => Self::Float(0.),
+            Type::Vector => Self::Vector(Vec3::ZERO),
+            Type::String => Self::String(QCString::null()),
+            Type::Entity => Self::Entity(world),
+            Type::Function => Self::Function(QCFunction::NULL),
+            Type::AnyScalar | Type::Void | Type::Field => return None,
+        })
+    }
+
+    pub fn kind(&self) -> Type {
         match self {
-            Self::Float(_) => FieldKind::Float,
-            Self::Vector(_) => FieldKind::Vector,
-            Self::String(_) => FieldKind::String,
-            Self::Entity(_) => FieldKind::Entity,
-            Self::Function(_) => FieldKind::Function,
+            Self::Float(_) => Type::Float,
+            Self::Vector(_) => Type::Vector,
+            Self::String(_) => Type::String,
+            Self::Entity(_) => Type::Entity,
+            Self::Function(_) => Type::Function,
         }
     }
 }
@@ -86,8 +71,8 @@ pub enum FieldError {
     NoSuchField { name: String },
     #[snafu(display("{entity} has no QuakeC fields"))]
     NoEntity { entity: Entity },
-    #[snafu(display("type mismatch: expected {expected:?}, found {found:?}"))]
-    TypeMismatch { expected: FieldKind, found: FieldKind },
+    #[snafu(display("type mismatch: expected {expected}, found {found}"))]
+    TypeMismatch { expected: Type, found: Type },
 }
 
 pub type Getter = fn(&World, Entity) -> Option<QcValue>;
@@ -96,12 +81,12 @@ pub type Setter = fn(&mut World, Entity, QcValue) -> Result<(), FieldError>;
 /// Accessors for a field (or global) stored in a component.
 #[derive(Copy, Clone)]
 pub struct Accessor {
-    pub kind: FieldKind,
+    pub kind: Type,
     pub get: Getter,
     pub set: Setter,
 }
 
-pub(crate) fn type_mismatch(expected: FieldKind, value: &QcValue) -> FieldError {
+pub(crate) fn type_mismatch(expected: Type, value: &QcValue) -> FieldError {
     FieldError::TypeMismatch { expected, found: value.kind() }
 }
 
@@ -148,11 +133,11 @@ macro_rules! qc_components {
 
     (@accessor $out:ident, $component:ident, $field:ident, F, $name:literal) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::Float,
+            kind: Type::Float,
             get: |world, entity| Some(QcValue::Float(world.get::<$component>(entity)?.$field)),
             set: |world, entity, value| {
                 let QcValue::Float(value) = value else {
-                    return Err(type_mismatch(FieldKind::Float, &value));
+                    return Err(type_mismatch(Type::Float, &value));
                 };
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field = value;
                 Ok(())
@@ -161,11 +146,11 @@ macro_rules! qc_components {
     };
     (@accessor $out:ident, $component:ident, $field:ident, V, $name:literal) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::Vector,
+            kind: Type::Vector,
             get: |world, entity| Some(QcValue::Vector(world.get::<$component>(entity)?.$field)),
             set: |world, entity, value| {
                 let QcValue::Vector(value) = value else {
-                    return Err(type_mismatch(FieldKind::Vector, &value));
+                    return Err(type_mismatch(Type::Vector, &value));
                 };
                 // As in `put_vector`, invalid values are zeroed.
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field =
@@ -179,11 +164,11 @@ macro_rules! qc_components {
     };
     (@component $out:ident, $component:ident, $field:ident, $axis:ident, $name:expr) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::Float,
+            kind: Type::Float,
             get: |world, entity| Some(QcValue::Float(world.get::<$component>(entity)?.$field.$axis)),
             set: |world, entity, value| {
                 let QcValue::Float(value) = value else {
-                    return Err(type_mismatch(FieldKind::Float, &value));
+                    return Err(type_mismatch(Type::Float, &value));
                 };
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field.$axis =
                     value;
@@ -193,11 +178,11 @@ macro_rules! qc_components {
     };
     (@accessor $out:ident, $component:ident, $field:ident, S, $name:literal) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::String,
+            kind: Type::String,
             get: |world, entity| Some(QcValue::String(world.get::<$component>(entity)?.$field.clone())),
             set: |world, entity, value| {
                 let QcValue::String(value) = value else {
-                    return Err(type_mismatch(FieldKind::String, &value));
+                    return Err(type_mismatch(Type::String, &value));
                 };
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field = value;
                 Ok(())
@@ -206,11 +191,11 @@ macro_rules! qc_components {
     };
     (@accessor $out:ident, $component:ident, $field:ident, E, $name:literal) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::Entity,
+            kind: Type::Entity,
             get: |world, entity| Some(QcValue::Entity(world.get::<$component>(entity)?.$field)),
             set: |world, entity, value| {
                 let QcValue::Entity(value) = value else {
-                    return Err(type_mismatch(FieldKind::Entity, &value));
+                    return Err(type_mismatch(Type::Entity, &value));
                 };
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field = value;
                 Ok(())
@@ -219,11 +204,11 @@ macro_rules! qc_components {
     };
     (@accessor $out:ident, $component:ident, $field:ident, Fn, $name:literal) => {
         $out.push(($name, Accessor {
-            kind: FieldKind::Function,
+            kind: Type::Function,
             get: |world, entity| Some(QcValue::Function(world.get::<$component>(entity)?.$field)),
             set: |world, entity, value| {
                 let QcValue::Function(value) = value else {
-                    return Err(type_mismatch(FieldKind::Function, &value));
+                    return Err(type_mismatch(Type::Function, &value));
                 };
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field = value;
                 Ok(())
@@ -375,12 +360,12 @@ enum FieldAccess {
     /// A field in [`QcExtraFields`], with the slot it (or its first component) is in.
     Extra {
         slot: usize,
-        kind: FieldKind,
+        kind: Type,
     },
 }
 
 impl FieldAccess {
-    fn kind(&self) -> FieldKind {
+    fn kind(&self) -> Type {
         match self {
             Self::Component(accessor) => accessor.kind,
             Self::Extra { kind, .. } => *kind,
@@ -393,7 +378,7 @@ impl FieldAccess {
 pub struct FieldInfo {
     pub name: String,
     pub offset: u16,
-    pub kind: FieldKind,
+    pub kind: Type,
 }
 
 /// Accessors for every entity field, by name.
@@ -438,7 +423,7 @@ impl QcFieldTable {
         };
 
         for def in defs {
-            let Some(kind) = FieldKind::from_vm(def.type_) else {
+            let Some(kind) = Type::try_from(def.type_).ok().filter(|ty| is_storable(*ty)) else {
                 continue;
             };
             let name = def.name.to_string_lossy().into_owned();
@@ -456,21 +441,24 @@ impl QcFieldTable {
             }
 
             let slot = (def.offset - PROGDEFS_FIELD_COUNT) as usize;
-            let len = if kind == FieldKind::Vector { 3 } else { 1 };
+            let len = if kind == Type::Vector { 3 } else { 1 };
             if extra_zero.len() < slot + len {
                 extra_zero.resize(slot + len, QcValue::Float(0.));
             }
 
-            if kind == FieldKind::Vector {
+            if kind == Type::Vector {
                 for (i, axis) in ["x", "y", "z"].iter().enumerate() {
                     extra_zero[slot + i] = QcValue::Float(0.);
                     by_name.insert(
                         format!("{name}_{axis}"),
-                        FieldAccess::Extra { slot: slot + i, kind: FieldKind::Float },
+                        FieldAccess::Extra { slot: slot + i, kind: Type::Float },
                     );
                 }
             } else {
-                extra_zero[slot] = kind.zero(world);
+                let Some(zero) = QcValue::zero(kind, world) else {
+                    continue;
+                };
+                extra_zero[slot] = zero;
             }
 
             by_name.insert(name, FieldAccess::Extra { slot, kind });
@@ -490,7 +478,7 @@ impl QcFieldTable {
     }
 
     /// The type of the field named `name`.
-    pub fn kind(&self, name: &str) -> Option<FieldKind> {
+    pub fn kind(&self, name: &str) -> Option<Type> {
         self.by_name.get(name).map(FieldAccess::kind)
     }
 
@@ -518,13 +506,13 @@ impl QcFieldTable {
                         .ok_or_else(|| FieldError::NoSuchField { name: name.to_owned() })
                 };
 
-                if kind == FieldKind::Vector {
+                if kind == Type::Vector {
                     let [x, y, z] = [slot, slot + 1, slot + 2].map(scalar);
                     match (x?, y?, z?) {
                         (QcValue::Float(x), QcValue::Float(y), QcValue::Float(z)) => {
                             Ok(QcValue::Vector(Vec3::new(x, y, z)))
                         }
-                        (other, ..) => Err(type_mismatch(FieldKind::Float, &other)),
+                        (other, ..) => Err(type_mismatch(Type::Float, &other)),
                     }
                 } else {
                     scalar(slot)
@@ -550,7 +538,7 @@ impl QcFieldTable {
                 let mut extra = world
                     .get_mut::<QcExtraFields>(entity)
                     .ok_or(FieldError::NoEntity { entity })?;
-                let len = if kind == FieldKind::Vector { 3 } else { 1 };
+                let len = if kind == Type::Vector { 3 } else { 1 };
                 if extra.0.len() < slot + len {
                     let start = extra.0.len();
                     extra.0.extend_from_slice(&self.extra_zero[start..slot + len]);

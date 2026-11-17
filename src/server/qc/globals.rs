@@ -6,11 +6,11 @@ use bevy::prelude::*;
 use bevy_mod_scripting_qcvm::qcvm::strum::VariantArray as _;
 use bevy_mod_scripting_qcvm::{
     QCFunction, QCString, QCVmContext,
-    qcvm::{self, Address as _, quake1::globals::GlobalAddr},
+    qcvm::{self, Address as _, Type, quake1::globals::GlobalAddr},
 };
 use hashbrown::HashMap;
 
-use super::fields::{Accessor, FieldError, FieldKind, QcValue, qc_components, type_mismatch};
+use super::fields::{Accessor, FieldError, QcValue, is_storable, qc_components, type_mismatch};
 use crate::server::limit_vec3;
 
 qc_components! {
@@ -139,7 +139,7 @@ impl QcGlobalTable {
             .ok_or_else(|| FieldError::NoSuchField { name: name.to_owned() })
     }
 
-    pub fn kind(&self, name: &str) -> Option<FieldKind> {
+    pub fn kind(&self, name: &str) -> Option<Type> {
         self.by_name.get(name).map(|accessor| accessor.kind)
     }
 
@@ -166,17 +166,13 @@ impl QcGlobalTable {
 
 /// Converts a value from the VM's `progs.dat` initial values to a [`QcValue`].
 fn initial_value(vm: &QCVmContext, addr: GlobalAddr, world: Entity) -> Option<QcValue> {
-    let kind = match addr.type_() {
-        qcvm::Type::Float => FieldKind::Float,
-        qcvm::Type::Vector => FieldKind::Vector,
-        qcvm::Type::String => FieldKind::String,
-        qcvm::Type::Entity => FieldKind::Entity,
-        qcvm::Type::Function => FieldKind::Function,
-        _ => return None,
-    };
+    let kind = addr.type_();
+    if !is_storable(kind) {
+        return None;
+    }
 
     let value = match kind {
-        FieldKind::Vector => vm.vm.initial_global_vector(addr.to_u16()).ok()?.into(),
+        Type::Vector => vm.vm.initial_global_vector(addr.to_u16()).ok()?.into(),
         _ => vm.initial_global(addr.to_u16()).ok()?,
     };
 
@@ -191,7 +187,7 @@ fn initial_value(vm: &QCVmContext, addr: GlobalAddr, world: Entity) -> Option<Qc
         }
         // The progs can only initialise globals to their own functions.
         qcvm::Value::Function(qcvm::Function::Host(_)) => return None,
-        qcvm::Value::Void => kind.zero(world),
+        qcvm::Value::Void => QcValue::zero(kind, world)?,
         // `progdefs.h` has no field-typed globals.
         qcvm::Value::Field(_) => return None,
     })

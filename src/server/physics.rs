@@ -8,7 +8,7 @@ use std::{
 
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
-use bevy_mod_scripting_qcvm::QCString;
+use bevy_mod_scripting_qcvm::{QCString, qcvm::Type};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use seismon_utils::{duration_from_f32, duration_to_f32};
@@ -24,7 +24,7 @@ use crate::{
         no_such_entity,
         qc::{
             self,
-            fields::{FieldKind, QcTables, QcValue},
+            fields::{QcTables, QcValue},
         },
         quake_contents,
         world::{
@@ -130,24 +130,29 @@ impl ServerCtx<'_> {
                     };
 
                     let value = match kind {
-                        FieldKind::String => QcValue::String(if val.is_empty() {
+                        Type::String => QcValue::String(if val.is_empty() {
                             // The string table had the empty string as string 0, i.e. null.
                             QCString::null()
                         } else {
                             QCString::from(val)
                         }),
-                        FieldKind::Float => QcValue::Float(val.parse().unwrap_or_default()),
-                        FieldKind::Vector => QcValue::Vector(parse::vec3(val)),
-                        FieldKind::Entity => {
+                        Type::Float => QcValue::Float(val.parse().unwrap_or_default()),
+                        Type::Vector => QcValue::Vector(parse::vec3(val)),
+                        Type::Entity => {
                             let id: u16 = val.parse().map_err(|_| {
                                 ServerError::with_msg("out-of-bounds entity access")
                             })?;
                             let entity = self.edicts().get(id).unwrap_or(self.worldspawn());
                             QcValue::Entity(entity)
                         }
-                        FieldKind::Function => {
+                        Type::Function => {
                             error!("TODO: Implement set field function ({val})");
                             continue;
+                        }
+                        ty => {
+                            return Err(ServerError::with_msg(format!(
+                                "field {k} has unsupported type {ty}"
+                            )));
                         }
                     };
 

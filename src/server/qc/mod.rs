@@ -24,12 +24,12 @@ use bevy_mod_scripting::{
 use bevy_mod_scripting_qcvm::{
     QCEntity, QCField, QCFunction, QCString, QCVmContext, QCWorldspawn,
     qcvm::{
-        FunctionRef, MissingArguments, VmOptions,
+        FunctionRef, MissingArguments, Type, VmOptions,
         quake1::{fields::FieldAddr, globals::GlobalAddr},
     },
 };
 
-use self::fields::{FieldError, FieldKind, QcTables, QcValue};
+use self::fields::{FieldError, QcTables, QcValue};
 use super::error::ServerError;
 
 pub type QCScriptingPlugin = bevy_mod_scripting_qcvm::QCScriptingPlugin<GlobalAddr, FieldAddr>;
@@ -119,7 +119,7 @@ fn to_script(value: QcValue, tables: &QcTables) -> ScriptValue {
 /// Converts a value from `bevy_mod_scripting_qcvm` to a field of type `kind`.
 fn from_script(
     value: ScriptValue,
-    kind: FieldKind,
+    kind: Type,
     world: &WorldGuard,
     tables: &QcTables,
 ) -> Result<QcValue, InteropError> {
@@ -131,16 +131,16 @@ fn from_script(
     };
 
     let mismatch = |value: &ScriptValue| {
-        InteropError::external_boxed(format!("Expected a QuakeC {kind:?}, found {value:?}").into())
+        InteropError::external_boxed(format!("Expected a QuakeC {kind}, found {value:?}").into())
     };
 
     if let ScriptValue::Unit = value {
-        return Ok(kind.zero(tables.worldspawn));
+        return QcValue::zero(kind, tables.worldspawn).ok_or_else(|| mismatch(&value));
     }
 
     Ok(match kind {
-        FieldKind::Float => QcValue::Float(as_f32(&value).ok_or_else(|| mismatch(&value))?),
-        FieldKind::Vector => {
+        Type::Float => QcValue::Float(as_f32(&value).ok_or_else(|| mismatch(&value))?),
+        Type::Vector => {
             let ScriptValue::List(list) = &value else {
                 return Err(mismatch(&value));
             };
@@ -150,24 +150,25 @@ fn from_script(
             };
             QcValue::Vector(Vec3::new(x, y, z))
         }
-        FieldKind::String => match value {
+        Type::String => match value {
             ScriptValue::String(s) => QcValue::String(QCString::from(&*s)),
             ScriptValue::Reference(r) => QcValue::String(r.downcast::<QCString>(world.clone())?),
             other => return Err(mismatch(&other)),
         },
-        FieldKind::Entity => match &value {
+        Type::Entity => match &value {
             ScriptValue::Reference(r) => match *r.base.base_id() {
                 ReflectBase::Component(e, _) => QcValue::Entity(e),
                 _ => return Err(mismatch(&value)),
             },
             _ => return Err(mismatch(&value)),
         },
-        FieldKind::Function => match value {
+        Type::Function => match value {
             ScriptValue::Reference(r) => {
                 QcValue::Function(r.downcast::<QCFunction>(world.clone())?)
             }
             other => return Err(mismatch(&other)),
         },
+        _ => return Err(mismatch(&value)),
     })
 }
 
