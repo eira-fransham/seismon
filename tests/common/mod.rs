@@ -1,7 +1,5 @@
 //! Helpers shared by the integration tests that run the server headlessly.
 
-#![allow(dead_code)]
-
 use std::{path::PathBuf, time::Duration};
 
 use bevy::{prelude::*, time::TimeUpdateStrategy};

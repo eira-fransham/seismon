@@ -485,7 +485,7 @@ impl LevelCollision {
     /// Traces a box moving from `start` to `end` against the world and the solid entities, ignoring
     /// `e_id` (and the entities it owns or is owned by). Returns the trace and the entity hit, if any.
     // TODO: Make this a struct (which Quake does too)
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn trace_entity_move(
         &self,
         world: &World,

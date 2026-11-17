@@ -27,7 +27,7 @@ use bevy_mod_pakfile::Pak;
 
 use clap::Parser;
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Debug, Parser)]
 struct Opt {
     #[arg(short, long)]

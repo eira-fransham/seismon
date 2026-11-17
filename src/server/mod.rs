@@ -526,7 +526,6 @@ pub struct PlayerVars {
     #[serde(rename(deserialize = "sv_accelerate"))]
     accel: f32,
     // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
-    #[allow(dead_code)]
     #[serde(rename(deserialize = "sv_wateraccelerate"))]
     water_accel: f32,
     #[serde(rename(deserialize = "sv_friction"))]
@@ -535,7 +534,6 @@ pub struct PlayerVars {
     #[serde(rename(deserialize = "edgefriction"))]
     edge_friction: f32,
     // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
-    #[allow(dead_code)]
     #[serde(rename(deserialize = "sv_waterfriction"))]
     water_friction: f32,
 }
@@ -851,7 +849,7 @@ impl<'w> ServerCtx<'w> {
         self.collision().contents_at_point(point)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn trace_entity_move(
         &self,
         entity: Entity,

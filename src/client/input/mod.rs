@@ -139,7 +139,7 @@ pub mod systems {
     }
 
     // TODO: Should use a proper input manager
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn console_input(
         mut reader: ResMut<InputMessageReader<KeyboardInput>>,
         keyboard_events: Res<Messages<KeyboardInput>>,

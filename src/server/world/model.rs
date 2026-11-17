@@ -88,30 +88,8 @@ impl Model {
             flags: ModelFlags::empty(),
         }
     }
-
-    /// Construct a new generic model from an alias model.
-    pub fn from_alias_model<Str>(_name: Str, _alias_model: AliasModel) -> Model
-    where
-        Str: AsRef<str>,
-    {
-        todo!()
-        // let flags = alias_model.flags();
-
-        // Model { name: name.as_ref().into(), kind: ModelKind::Alias(alias_model), flags }
-    }
-
-    /// Construct a new generic model from a sprite model.
-    pub fn from_sprite_model<Str>(name: Str, sprite_model: SpriteModel) -> Model
-    where
-        Str: AsRef<str>,
-    {
-        Model {
-            name: name.as_ref().into(),
-            kind: ModelKind::Sprite(sprite_model),
-            flags: ModelFlags::empty(),
-        }
-    }
 }
+
 impl<A> Model<A> {
     /// Return the minimum extent of this model.
     pub fn min(&self) -> Vec3 {

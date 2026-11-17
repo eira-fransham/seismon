@@ -1732,7 +1732,7 @@ mod systems {
             Ok(ConnectionStatus::Maintain)
         }
 
-        #[allow(clippy::too_many_arguments)]
+        #[expect(clippy::too_many_arguments)]
         pub fn end_frame(
             // TODO: This can almost certainly be simplified.
             In(status): In<Result<ConnectionStatus, ClientError>>,

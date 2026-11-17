@@ -231,7 +231,7 @@ struct VfsCollection {
 impl PakCollection {
     async fn readers<'a>(&'a self) -> impl DoubleEndedIterator<Item = &'a dyn ErasedAssetReader> {
         // We need this for the types of the returned iterators to be the same.
-        #[allow(clippy::borrowed_box)]
+        #[expect(clippy::borrowed_box)]
         let deref_box = |r: &'a Box<dyn ErasedAssetReader>| -> &'a dyn ErasedAssetReader { &**r };
         if let Some(readers) = self.readers.get() {
             readers.iter().map(deref_box)
