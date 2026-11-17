@@ -8,7 +8,7 @@
 use std::{any::TypeId, io::Write as _, ops::Bound};
 
 use bevy::prelude::*;
-use bevy_mod_commands::Registry;
+use bevy_mod_commands::{Registry, RunCmd};
 use bevy_mod_scripting::bindings::{
     InteropError, NamespaceBuilder, ReflectBase, ReflectReference, ThreadWorldContainer, V,
 };
@@ -317,8 +317,13 @@ pub fn register(world: &mut World) {
                 Ok(f)
             })
         })
-        .register("localcmd", |_s: S| todo_builtin!("localcmd"))
-        .register("nextent", |_e: Ent| todo_builtin!("nextent"))
+        .register("localcmd", |s: S| with_ctx(|ctx| builtin_local_cmd(ctx, string(&s))))
+        .register("nextent", |e: Ent| {
+            with_ctx(|ctx| {
+                let e = builtin_next_ent(ctx, entity(&e)?)?;
+                Ok(entity_ref(ctx, e))
+            })
+        })
         .register("particle", |origin: Vec3Arg, direction: Vec3Arg, color: f32, count: f32| {
             with_ctx(|ctx| {
                 ServerCmd::Particle {
@@ -375,15 +380,17 @@ pub fn register(world: &mut World) {
         .register("makestatic", |e: Ent| with_ctx(|ctx| builtin_make_static(ctx, entity(&e)?)))
         .register("changelevel", |level: S| {
             with_ctx(|ctx| {
-                // TODO: Do this properly!
-                error!("TODO: ChangeLevel");
-                let mut text = b"map ".to_vec();
+                // Equivalent to `PF_changelevel`: only the first call in a level counts, as
+                // QuakeC may call this several times before the level actually changes.
+                if ctx.level().changelevel_issued {
+                    return Ok(());
+                }
+                ctx.level_mut().changelevel_issued = true;
+
+                let mut text = b"changelevel ".to_vec();
                 text.extend_from_slice(string(&level));
                 text.push(b'\n');
-                ServerCmd::StuffText { text: text.into() }
-                    .serialize(&mut ctx.level_mut().broadcast)?;
-
-                Ok(())
+                builtin_local_cmd(ctx, &text)
             })
         })
         .register("cvar_set", |var: S, val: S| {
@@ -441,7 +448,15 @@ pub fn register(world: &mut World) {
                 Ok(())
             })
         })
-        .register("setspawnparms", |_e: Ent| todo_builtin!("setspawnparms"));
+        .register("setspawnparms", |e: Ent| {
+            with_ctx(|ctx| {
+                let parms = ctx
+                    .client_spawn_params(entity(&e)?)
+                    .ok_or_else(|| ServerError::with_msg("setspawnparms: entity is not a client"))?;
+                ctx.globals_mut().set_parms(parms);
+                Ok(())
+            })
+        });
 }
 
 fn precache_sound(s: S) -> Result<S, InteropError> {
@@ -567,6 +582,44 @@ fn builtin_find(
     }
 
     Ok(ctx.worldspawn())
+}
+
+/// Appends commands to the end of the local command buffer, so they run after the current tick.
+///
+/// Equivalent to `PF_localcmd`.
+fn builtin_local_cmd(ctx: &mut ServerCtx<'_>, text: &[u8]) -> Result<(), ServerError> {
+    let text = String::from_utf8_lossy(text);
+    let cmds = match RunCmd::parse_many(&text) {
+        Ok(cmds) => cmds,
+        Err(e) => {
+            warn!("localcmd: failed to parse {text:?}: {e}");
+            return Ok(());
+        }
+    };
+
+    for cmd in cmds {
+        ctx.world.write_message(cmd.into_owned());
+    }
+
+    Ok(())
+}
+
+/// The next entity after `start` in edict order, or world if there are no more.
+///
+/// Equivalent to `PF_nextent`, except that the edicts of clients that haven't connected are
+/// skipped. Quake returns those (as they are never marked free), but ours have no components, so
+/// QuakeC could not access any of their fields.
+fn builtin_next_ent(ctx: &mut ServerCtx<'_>, start: Entity) -> Result<Entity, ServerError> {
+    // QuakeC often calls `nextent` on an entity it has just removed, so fall back to the edict
+    // number that the entity had before it was freed.
+    let start = ctx.edict(start).ok().or_else(|| ctx.edicts().freed_edict(start)).unwrap_or(0);
+
+    Ok(ctx
+        .edicts()
+        .range((Bound::Excluded(start as usize), Bound::Unbounded))
+        .next()
+        .map(|(_, ent)| ent)
+        .unwrap_or_else(|| ctx.worldspawn()))
 }
 
 fn builtin_find_radius(

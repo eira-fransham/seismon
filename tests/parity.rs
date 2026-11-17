@@ -84,7 +84,7 @@ fn string_cmd(app: &mut App, cmd: &str) {
 ///
 /// This walks, strafes, jumps, shoots, uses and turns, but in a cycle that roughly returns to the
 /// same spot, so the player doesn't wander off into slime or a skill-select teleporter: those
-/// run builtins (`localcmd`) that the server doesn't implement.
+/// restart or change the level (with `localcmd`), and the harness doesn't sign on again after that.
 fn scripted_move(tick: usize) -> ClientCmd {
     const CYCLE: usize = 80;
 
@@ -241,7 +241,8 @@ fn parity_e1m1() {
 #[test]
 #[ignore = "needs the Quake data, see the module docs"]
 fn parity_e1m2() {
-    // The player is killed by the monsters at around 235 ticks, and dying in single player runs
-    // `localcmd`, which isn't implemented.
+    // The player is killed by the monsters at around 231 ticks, and respawning in single player
+    // runs `localcmd("restart")`. The level restarts, but the harness doesn't sign on again
+    // afterwards, so the server stays paused and the rest of the trace would be meaningless.
     check_map("e1m2", 220);
 }

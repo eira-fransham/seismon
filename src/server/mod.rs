@@ -63,7 +63,6 @@ use anyhow::bail;
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use bevy_trenchbroom::bsp::Bsp;
-use bitflags::bitflags;
 use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::{QString, duration_to_f32};
@@ -268,18 +267,6 @@ pub struct MoveCmd {
     pub up: f32,
 }
 
-bitflags! {
-    pub struct SessionFlags: i32 {
-        const EPISODE_1 =      0x0001;
-        const EPISODE_2 =      0x0002;
-        const EPISODE_3 =      0x0004;
-        const EPISODE_4 =      0x0008;
-        const NEW_UNIT =       0x0010;
-        const NEW_EPISODE =    0x0020;
-        const CROSS_TRIGGERS = 0xFF00;
-    }
-}
-
 /// A fixed-size pool of client connections.
 pub struct ClientSlots {
     /// Occupied slots are `Some`.
@@ -346,21 +333,27 @@ impl ClientSlots {
         self.slots[slot] = Some(Client::default());
         Some(slot)
     }
+
+    /// Occupies `slot` with a new client, returning it. Returns `None` if `slot` is out of range.
+    pub fn occupy(&mut self, slot: usize) -> Option<&mut Client> {
+        let entry = self.slots.get_mut(slot)?;
+        *entry = Some(Client::default());
+        entry.as_mut()
+    }
 }
 
 /// Server state that persists between levels.
 pub struct SessionPersistent {
     client_slots: ClientSlots,
-    // TODO: Implement this
-    _flags: SessionFlags,
+    /// The `serverflags` global, saved between levels (e.g. the episode runes).
+    ///
+    /// This is a float rather than a bitflags type, as QuakeC can store arbitrary values in it.
+    serverflags: f32,
 }
 
 impl SessionPersistent {
     pub fn new(max_clients: usize) -> SessionPersistent {
-        SessionPersistent {
-            client_slots: ClientSlots::new(max_clients),
-            _flags: SessionFlags::empty(),
-        }
+        SessionPersistent { client_slots: ClientSlots::new(max_clients), serverflags: 0. }
     }
 
     pub fn client(&self, slot: usize) -> Option<&Client> {
@@ -395,6 +388,9 @@ pub struct PendingLevel {
     progs: Handle<ScriptAsset>,
     /// The worldspawn entity, once the VM has been attached to it.
     worldspawn: Option<Entity>,
+    /// The state carried over from the previous level (for `changelevel` and `restart`), or `None`
+    /// to start a fresh session (for `map`).
+    persist: Option<SessionPersistent>,
 }
 
 /// A server instance.
@@ -630,6 +626,9 @@ fn vtos(v: Vec3) -> String {
 /// Server-side level state, other than the entities.
 #[derive(Resource, Debug)]
 pub struct LevelState {
+    /// The path of the map, e.g. `maps/e1m1.bsp`.
+    map_path: String,
+
     sound_precache: Precache,
     model_precache: Precache,
     lightstyles: [QCString; MAX_LIGHTSTYLES],
@@ -654,6 +653,10 @@ pub struct LevelState {
 
     /// When `last_check_client` was last changed, as in Quake's `sv.lastchecktime`.
     last_check_time: Duration,
+
+    /// Whether QuakeC has already called `changelevel` this level, as in Quake's
+    /// `svs.changelevel_issued`. Later calls are ignored.
+    pub changelevel_issued: bool,
 }
 
 impl LevelState {
@@ -675,6 +678,7 @@ impl LevelState {
         }
 
         LevelState {
+            map_path: map_path.to_owned(),
             sound_precache,
             model_precache,
             frame_client_messages: default(),
@@ -685,6 +689,7 @@ impl LevelState {
             max_clients,
             last_check_client: 0,
             last_check_time: Duration::ZERO,
+            changelevel_issued: false,
         }
     }
 
@@ -806,6 +811,16 @@ impl<'w> ServerCtx<'w> {
     /// Whether `entity` is an allocated QuakeC entity.
     pub fn exists(&self, entity: Entity) -> bool {
         self.world.get::<Edict>(entity).is_some()
+    }
+
+    /// The saved spawn parameters of the client controlling `entity`, if it is a client.
+    pub fn client_spawn_params(&self, entity: Entity) -> Option<[f32; NUM_SPAWN_PARAMS]> {
+        let slots = &self.world.get_resource::<Session>()?.persist.client_slots;
+        slots
+            .connected_clients()
+            .filter_map(|slot| slots.get(slot))
+            .find(|client| client.entity() == Some(entity))
+            .map(|client| client.spawn_params)
     }
 
     pub fn edict(&self, entity: Entity) -> Result<u16, ServerError> {
@@ -998,15 +1013,17 @@ impl ServerCtx<'_> {
         self.world.resource_mut::<Session>()
     }
 
-    pub fn clientcmd_prespawn(
-        &mut self,
-        // TODO: Handle client slot
-        _slot: usize,
-    ) -> anyhow::Result<()> {
-        let Some(slot) = self.session_mut().persist.client_slots.find_available() else {
-            // TODO: Error handling
+    pub fn clientcmd_prespawn(&mut self, slot: usize) -> anyhow::Result<()> {
+        // A client that is already in its slot is reconnecting after a level change, and keeps
+        // the spawn parms saved by `SetChangeParms`. As in Quake, only brand-new connections
+        // run `SetNewParms`.
+        if self.session_mut().persist.client(slot).is_some() {
             return Ok(());
-        };
+        }
+
+        if self.session_mut().persist.client_slots.occupy(slot).is_none() {
+            bail!("No such client slot {slot}");
+        }
 
         let set_new_parms = self.globals().set_new_parms;
         self.call(set_new_parms)?;
@@ -1014,6 +1031,43 @@ impl ServerCtx<'_> {
         let parms = self.globals().parms();
         if let Some(client) = self.session_mut().persist.client_slots.get_mut(slot) {
             client.spawn_params = parms;
+        }
+
+        Ok(())
+    }
+
+    /// Saves the state that carries over to the next level. Equivalent to `SV_SaveSpawnparms`.
+    ///
+    /// Copies `serverflags` into the session, and runs `SetChangeParms` for each active client to
+    /// save its spawn parms.
+    pub fn save_spawn_parms(&mut self) -> Result<(), ServerError> {
+        let serverflags = self.globals().serverflags;
+        self.session_mut().persist.serverflags = serverflags;
+
+        // Collect these first, so that no borrow of `Session` is held while QuakeC runs.
+        let clients = self
+            .world
+            .resource::<Session>()
+            .persist
+            .client_slots
+            .active_clients()
+            .map(|(slot, active)| (slot, active.entity))
+            .collect::<Vec<_>>();
+
+        let worldspawn = self.worldspawn();
+        let time = duration_to_f32(self.time());
+        for (slot, entity) in clients {
+            let mut globals = self.globals_mut();
+            globals.self_ = entity;
+            globals.world = worldspawn;
+            globals.time = time;
+            let set_change_parms = globals.set_change_parms;
+            self.call(set_change_parms)?;
+
+            let parms = self.globals().parms();
+            if let Some(client) = self.session_mut().persist.client_mut(slot) {
+                client.spawn_params = parms;
+            }
         }
 
         Ok(())
@@ -1403,7 +1457,7 @@ pub mod systems {
         // Belt-and-braces: the context should be new anyway.
         vm.vm.reset_globals();
 
-        let pending = world.remove_resource::<PendingLevel>().expect("Checked above");
+        let mut pending = world.remove_resource::<PendingLevel>().expect("Checked above");
         let bsp = world.resource::<Assets<Bsp>>().get(&pending.bsp).expect("Checked above");
 
         let models = BrushModel::from_bsp_data(&bsp.data)?
@@ -1426,6 +1480,15 @@ pub mod systems {
             .entity_mut(worldspawn)
             .insert((qc_entity_bundle(worldspawn, 0), QcGlobals::new(worldspawn)));
 
+        let mut persist =
+            pending.persist.take().unwrap_or_else(|| SessionPersistent::new(MAX_CLIENTS));
+        // Carried-over clients have to sign on again: their entities belonged to the old level.
+        for slot in persist.client_slots.connected_clients().collect::<Vec<_>>() {
+            if let Some(client) = persist.client_mut(slot) {
+                client.state = ClientState::Connecting;
+            }
+        }
+
         let globals = QcGlobalTable::default();
         init_globals(world, &vm, worldspawn, &globals);
         let qc_entity_component = world.register_component::<QCEntity>();
@@ -1437,7 +1500,27 @@ pub mod systems {
             qc_entity_component,
             qc_worldspawn_component,
         });
-        world.get_mut::<QcGlobals>(worldspawn).expect("Inserted above").frametime = TICK_RATE;
+        {
+            // As in `SV_SpawnServer`, Quake sets either `coop` or `deathmatch`, not both.
+            let registry = world.resource::<Registry>();
+            let coop = registry.read_cvar::<f32>("coop").unwrap_or_default();
+            let deathmatch = if coop != 0. {
+                0.
+            } else {
+                registry.read_cvar::<f32>("deathmatch").unwrap_or_default()
+            };
+            let mapname = std::path::Path::new(&pending.map_name)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let mut globals = world.get_mut::<QcGlobals>(worldspawn).expect("Inserted above");
+            globals.frametime = TICK_RATE;
+            globals.serverflags = persist.serverflags;
+            globals.mapname = QCString::from(mapname.as_str());
+            globals.coop = coop;
+            globals.deathmatch = deathmatch;
+        }
 
         world.insert_resource(LevelState::new(&pending.map_name, MAX_CLIENTS, &models));
 
@@ -1461,10 +1544,7 @@ pub mod systems {
             }
         }
 
-        world.insert_resource(Session {
-            persist: SessionPersistent::new(MAX_CLIENTS),
-            state: SessionState::Loading,
-        });
+        world.insert_resource(Session { persist, state: SessionState::Loading });
 
         Ok(())
     }
