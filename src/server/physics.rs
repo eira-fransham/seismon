@@ -16,8 +16,8 @@ use seismon_utils::{duration_from_f32, duration_to_f32};
 use crate::{
     common::{math::CollisionResult, net::ServerCmd, parse},
     server::{
-        ChaseDirs, PlayerVars, ServerCtx, ServerVars, accelerate, angle_mod, calc_roll, chase_dirs,
-        clip_velocity,
+        ChaseDirs, EntCallbacks, EntPhysics, PlayerVars, ServerCtx, ServerVars, accelerate,
+        angle_mod, calc_roll, chase_dirs, clip_velocity,
         error::ServerError,
         friction_scale, is_liquid,
         math::{AngleVectors, angle_vectors},
@@ -134,7 +134,7 @@ impl ServerCtx<'_> {
                             // The string table had the empty string as string 0, i.e. null.
                             QCString::null()
                         } else {
-                            QCString::from(val)
+                            QCString::from(unescape_map_string(val).as_ref())
                         }),
                         Type::Float => QcValue::Float(val.parse().unwrap_or_default()),
                         Type::Vector => QcValue::Vector(parse::vec3(val)),
@@ -1378,38 +1378,53 @@ impl ServerCtx<'_> {
         let Some(area) = self.world.get::<qc::fields::AreaLink>(ent_id).map(|link| link.0) else {
             return Err(no_such_entity(ent_id));
         };
-        let Some(area) = area else {
+        if area.is_none() {
+            // Unlinked entities touch nothing.
             return Ok(());
-        };
+        }
 
         // The buffer is taken out so that nested calls (from touch functions) can use it too.
         let mut touched = TOUCHED_TRIGGERS_BUF.with_borrow_mut(std::mem::take);
         touched.clear();
 
-        let result = (|| -> Result<(), ServerError> {
-            self.collision().list_touched_triggers(self.world, &mut touched, ent_id, area)?;
+        // Search from the root, as in `SV_TouchLinks(ent, sv_areanodes)`: triggers that straddle a
+        // split plane are linked above the entity's own node.
+        let result = self.collision().list_touched_triggers(self.world, &mut touched, ent_id, 0);
 
+        let result = result.and_then(|()| {
             // Save state.
             let restore_self = self.globals().self_;
             let restore_other = self.globals().other;
 
             // Activate the touched triggers.
-            for trigger_id in &touched {
-                let trigger_touch = self.callbacks(*trigger_id)?.touch;
+            let result = touched.iter().try_for_each(|&trigger_id| {
+                // An earlier touch may have freed or changed this trigger, so check it again.
+                let Some(trigger_touch) =
+                    self.world.get::<EntCallbacks>(trigger_id).map(|cb| cb.touch)
+                else {
+                    return Ok(());
+                };
+                let still_trigger = self
+                    .world
+                    .get::<EntPhysics>(trigger_id)
+                    .is_some_and(|phys| phys.solid().ok() == Some(EntitySolid::Trigger));
+                if trigger_touch.is_null() || !still_trigger {
+                    return Ok(());
+                }
 
                 let mut globals = self.globals_mut();
-                globals.self_ = *trigger_id;
+                globals.self_ = trigger_id;
                 globals.other = ent_id;
-                self.call(trigger_touch)?;
-            }
+                self.call(trigger_touch)
+            });
 
-            // Restore state.
+            // Restore state, even if a touch function failed.
             let mut globals = self.globals_mut();
             globals.self_ = restore_self;
             globals.other = restore_other;
 
-            Ok(())
-        })();
+            result
+        });
 
         TOUCHED_TRIGGERS_BUF.with_borrow_mut(|buf| *buf = touched);
 
@@ -1883,5 +1898,42 @@ impl ServerCtx<'_> {
         }
 
         Ok(())
+    }
+}
+
+/// Unescapes a string value from the map's entity lump, as Quake's `ED_NewString` does: `\n`
+/// becomes a newline, and a backslash followed by anything else becomes a lone backslash.
+fn unescape_map_string(val: &str) -> std::borrow::Cow<'_, str> {
+    if !val.contains('\\') {
+        return val.into();
+    }
+
+    let mut out = String::with_capacity(val.len());
+    let mut chars = val.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some(_) => out.push('\\'),
+            // A trailing backslash is kept.
+            None => out.push('\\'),
+        }
+    }
+    out.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unescape_map_string_matches_ed_new_string() {
+        assert_eq!(unescape_map_string("plain"), "plain");
+        assert_eq!(unescape_map_string(r"a\nb"), "a\nb");
+        assert_eq!(unescape_map_string(r"a\xb"), "a\\b");
+        assert_eq!(unescape_map_string("a\\"), "a\\");
     }
 }

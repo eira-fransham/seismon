@@ -219,7 +219,10 @@ impl LevelCollision {
         }
     }
 
-    /// Lists the triggers touched by an entity.
+    /// Lists the triggers in area node `area_id` and its children that the entity touches.
+    ///
+    /// To find every trigger an entity touches, start at the root (`area_id` 0): a trigger that
+    /// straddles a split plane is linked at that branch node, above the entity's own node.
     ///
     /// The triggers are stored in `touched`.
     pub fn list_touched_triggers(
@@ -263,11 +266,16 @@ impl LevelCollision {
             touched.push(trigger_id);
         }
 
-        // Touch all triggers in sub-areas.
-        if let AreaNodeKind::Branch(AreaBranch { front, back, .. }) = self.area_nodes[area_id].kind
+        // Recurse into the sub-areas the entity's bounding box reaches, as in `SV_TouchLinks`.
+        if let AreaNodeKind::Branch(AreaBranch { axis, dist, front, back }) =
+            self.area_nodes[area_id].kind
         {
-            self.list_touched_triggers(world, touched, ent_id, front)?;
-            self.list_touched_triggers(world, touched, ent_id, back)?;
+            if ent.absmax[axis as usize] > dist {
+                self.list_touched_triggers(world, touched, ent_id, front)?;
+            }
+            if ent.absmin[axis as usize] < dist {
+                self.list_touched_triggers(world, touched, ent_id, back)?;
+            }
         }
 
         Ok(())

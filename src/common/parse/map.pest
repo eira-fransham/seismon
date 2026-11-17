@@ -15,11 +15,9 @@ line_terminator = _{ "\u{000A}" | "\u{000D}" | "\u{2028}" | "\u{2029}" }
 
 line_terminator_sequence = _{ "\u{000D}" ~ "\u{000A}" | line_terminator }
 
-char_literal = @{ !("\\" | line_terminator) ~ ANY }
-
-double_quote_char = _{
-  !"\"" ~ char_literal
-}
+// As in Quake's `COM_Parse`, a quoted string is everything up to the closing quote: there are no
+// escapes here. A `\n` in a value is turned into a newline when the entity is spawned.
+double_quote_char = _{ !"\"" ~ ANY }
 
 // We don't want every char to generate a new `Pair`
 string_inner = @{ double_quote_char* }
@@ -31,6 +29,7 @@ closing_brace = _{ "}" }
 
 object = { opening_brace ~ key_value* ~ closing_brace }
 
-map = { object* }
+// `EOI` makes a syntax error fail the parse, instead of silently dropping the rest of the map.
+map = { SOI ~ object* ~ EOI }
 
 key_value = { string ~ string }

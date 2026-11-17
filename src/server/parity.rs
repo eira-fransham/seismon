@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 use bevy::prelude::*;
 
 use super::{
-    LevelState,
+    LevelState, PendingLevel, ServerCtx,
+    error::ServerError,
     qc::{
         edict::EdictTable,
         fields::{PROGDEFS_FIELD_COUNT, QcTables},
@@ -83,6 +84,35 @@ pub fn snapshot(world: &World) -> Option<Snapshot> {
     }
 
     Some(Snapshot { time: seismon_utils::duration_to_f32(level.time), edicts })
+}
+
+/// The path of the current level's map (e.g. `maps/start.bsp`), if there is one.
+pub fn map_path(world: &World) -> Option<&str> {
+    Some(&world.get_resource::<LevelState>()?.map_path)
+}
+
+/// The path of the map that is being loaded, if any.
+pub fn pending_map_path(world: &World) -> Option<&str> {
+    Some(&world.get_resource::<PendingLevel>()?.map_name)
+}
+
+/// The bounds of the current level's model `name` (e.g. `*14`), if there is one.
+pub fn model_bounds(world: &World, name: &str) -> Option<(Vec3, Vec3)> {
+    let collision = world.get_resource::<super::world::LevelCollision>()?;
+    let model = collision.models().iter().find(|model| model.name() == name)?;
+    Some((model.min(), model.max()))
+}
+
+/// Moves edict `edict` to `origin` and relinks it, running the touch functions of the triggers it
+/// now touches (like `setorigin` followed by a physics move).
+pub fn move_edict(world: &mut World, edict: u16, origin: Vec3) -> Result<(), ServerError> {
+    let entity = world
+        .resource::<EdictTable>()
+        .get(edict)
+        .ok_or_else(|| ServerError::with_msg(format!("No entity for edict {edict}")))?;
+    let mut ctx = ServerCtx::new(world);
+    ctx.phys_mut(entity)?.set_origin(origin);
+    ctx.link_entity(entity, true)
 }
 
 /// Every named global, for debugging (see `SEISMON_PARITY_ALL_FIELDS`).

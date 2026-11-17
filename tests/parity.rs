@@ -14,71 +14,19 @@
 //! Set `SEISMON_PARITY_BLESS=1` to overwrite the goldens. The full traces are always written to
 //! `target/parity/<map>.trace`, so a failing run can be diffed against a run of an older commit.
 
-use std::{fmt::Write as _, path::PathBuf, time::Duration};
+use std::{fmt::Write as _, path::PathBuf};
 
-use bevy::{prelude::*, time::TimeUpdateStrategy};
+use bevy::prelude::*;
 use bevy_mod_commands::RunCmd;
-use bevy_mod_pakfile::PakfilePlugin;
-use bevy_trenchbroom::{
-    TrenchBroomPlugins,
-    config::{TrenchBroomConfig, WriteTrenchBroomConfigOnStartPlugin},
-};
 use seismon::{
-    common::net::{ButtonFlags, ClientCmd, ClientMessage, MessageKind, ServerMessage},
-    server::{SeismonServerPlugin, parity},
+    common::net::{ButtonFlags, ClientCmd, ServerMessage},
+    server::parity,
 };
 use seismon_utils::QAngles;
 
-/// The server's tick length (`TICK_RATE`).
-const TICK: Duration = Duration::from_millis(50);
-/// Give up if a level hasn't loaded after this many frames.
-const MAX_LOAD_FRAMES: usize = 10_000;
+mod common;
 
-fn build_app(quake_dir: PathBuf) -> App {
-    let mut app = App::new();
-    app.add_plugins(PakfilePlugin::from_paths([quake_dir]))
-        .add_plugins((
-            MinimalPlugins,
-            bevy::log::LogPlugin {
-                level: bevy::log::Level::WARN,
-                filter: std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()),
-                ..default()
-            },
-            AssetPlugin::default(),
-            bevy::transform::TransformPlugin,
-            bevy::image::ImagePlugin::default(),
-            bevy::mesh::MeshPlugin,
-            bevy::world_serialization::WorldSerializationPlugin,
-        ))
-        // The BSP loader creates materials, but nothing renders them.
-        .init_asset::<StandardMaterial>()
-        .init_asset::<bevy_trenchbroom::bsp::lighting::AnimatedLighting>()
-        .add_plugins(
-            TrenchBroomPlugins(TrenchBroomConfig { no_bsp_lighting: true, ..default() })
-                .build()
-                .disable::<WriteTrenchBroomConfigOnStartPlugin>(),
-        )
-        .add_plugins(SeismonServerPlugin)
-        // Every `update` advances exactly one server tick.
-        .insert_resource(TimeUpdateStrategy::ManualDuration(TICK));
-    app.finish();
-    app.cleanup();
-    app
-}
-
-fn send(app: &mut App, cmd: ClientCmd) {
-    let mut packet = Vec::new();
-    cmd.serialize(&mut packet).unwrap();
-    app.world_mut().write_message(ClientMessage {
-        client_id: 0,
-        packet: packet.into(),
-        kind: MessageKind::Reliable,
-    });
-}
-
-fn string_cmd(app: &mut App, cmd: &str) {
-    send(app, ClientCmd::StringCmd { cmd: cmd.to_owned().into() });
-}
+use common::{MAX_LOAD_FRAMES, TICK, build_app, send, string_cmd};
 
 /// The scripted input for tick `tick`.
 ///
@@ -197,9 +145,7 @@ fn run_map(quake_dir: PathBuf, map: &str, ticks: usize, trace_path: &std::path::
 
 /// Runs `map` for `ticks` ticks after the client spawns, and checks it against the golden.
 fn check_map(map: &str, ticks: usize) {
-    let Some(quake_dir) = std::env::var_os("SEISMON_QUAKE_DIR").map(PathBuf::from) else {
-        panic!("Set `SEISMON_QUAKE_DIR` to the path of the `id1` directory to run this test");
-    };
+    let quake_dir = common::quake_dir();
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let trace_dir = manifest.join("target/parity");
