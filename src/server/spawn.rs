@@ -2,6 +2,7 @@
 //! `pr_edict.c`.
 
 use bevy::prelude::*;
+use bevy_mod_commands::Registry;
 use bevy_mod_scripting_qcvm::{QCString, qcvm::Type};
 use snafu::Report;
 
@@ -54,15 +55,19 @@ impl ServerCtx<'_> {
     /// its keys set, and is freed if it's filtered out by `skill`/`deathmatch` or has no spawn
     /// function. Otherwise, its spawn function (named by its `classname`) is called.
     pub fn spawn_map_entities(&mut self, entmap: &str) -> Result<(), ServerError> {
-        let skill = (self.registry().read_cvar::<f32>("skill").unwrap_or(1.) + 0.5) as i32;
-        let skill = skill.clamp(0, 3);
+        let skill =
+            self.registry().read_cvar::<f32>("skill").unwrap_or(1.).round().clamp(0., 3.) as i32;
+        // QuakeC expects `cvar("skill")` to be rounded and clamped, so we write it back here.
+        // Since there are only 4 options for `skill` we could skip allocating a string here,
+        // but it happens rarely enough that it doesn't matter.
+        self.world.resource_mut::<Registry>().set_cvar("skill", skill.to_string())?;
         // Already zeroed when `coop` is set.
         let deathmatch = self.globals().deathmatch != 0.;
 
         let entity_list = parse::entities(entmap)
             .map_err(|e| ServerError::with_msg(format!("Failed parsing entity lump: {e}")))?;
 
-        let mut inhibited_count = 0;
+        let mut inhibited_count = 0usize;
         for (i, keys) in entity_list.enumerate() {
             let is_world = i == 0;
             // Worldspawn isn't cleared, so the model, solid and movetype set by the server are
@@ -130,7 +135,9 @@ impl ServerCtx<'_> {
             }
         }
 
-        info!("{inhibited_count} entities inhibited");
+        if inhibited_count > 0 {
+            info!("{inhibited_count} entities inhibited");
+        }
 
         Ok(())
     }
