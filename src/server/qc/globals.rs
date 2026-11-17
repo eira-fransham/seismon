@@ -186,13 +186,11 @@ fn initial_value(vm: &QCVmContext, addr: GlobalAddr, world: Entity) -> Option<Qc
         qcvm::Value::String(s) => QcValue::String(QCString(s)),
         // Entities can only be initialised to world.
         qcvm::Value::Entity(_) => QcValue::Entity(world),
-        qcvm::Value::Function(f) => {
-            let index = (&*f as &dyn std::any::Any)
-                .downcast_ref::<qcvm::FunctionIndex>()
-                .map(|index| index.0)
-                .unwrap_or_default();
-            QcValue::Function(QCFunction(index))
+        qcvm::Value::Function(qcvm::Function::Index(index)) => {
+            QcValue::Function(QCFunction(index.0))
         }
+        // The progs can only initialise globals to their own functions.
+        qcvm::Value::Function(qcvm::Function::Host(_)) => return None,
         qcvm::Value::Void => kind.zero(world),
         // `progdefs.h` has no field-typed globals.
         qcvm::Value::Field(_) => return None,

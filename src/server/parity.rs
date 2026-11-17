@@ -89,7 +89,7 @@ pub fn snapshot(world: &World) -> Option<Snapshot> {
 fn debug_globals(world: &World, tables: &QcTables) -> Vec<(String, String)> {
     use bevy_mod_scripting_qcvm::{
         QCFunction, QCString,
-        qcvm::{FunctionIndex, Value, VmScalarType, VmType},
+        qcvm::{Function, Value, VmScalarType, VmType},
     };
 
     use super::qc::{LevelVm, fields::QcValue};
@@ -124,12 +124,12 @@ fn debug_globals(world: &World, tables: &QcTables) -> Vec<(String, String)> {
                     e.map(|e| Entity::from_bits(e.get())).unwrap_or(tables.worldspawn),
                 ),
                 (Ok(Value::Void), VmScalarType::Entity) => QcValue::Entity(tables.worldspawn),
-                (Ok(Value::Function(f)), VmScalarType::Function) => QcValue::Function(QCFunction(
-                    (&*f as &dyn std::any::Any)
-                        .downcast_ref::<FunctionIndex>()
-                        .map(|f| f.0)
-                        .unwrap_or(-1),
-                )),
+                (Ok(Value::Function(f)), VmScalarType::Function) => {
+                    QcValue::Function(QCFunction(match f {
+                        Function::Index(index) => index.0,
+                        Function::Host(_) => -1,
+                    }))
+                }
                 (Ok(Value::Void), VmScalarType::Function) => QcValue::Function(QCFunction(0)),
                 (
                     other,
