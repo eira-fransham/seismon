@@ -117,11 +117,9 @@ bevy-inspector-egui = { version = "0.38", optional = true }
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
-im = "15.1.0"
 image = "0.25"
 imstr = "0.2"
 indexmap = "2.9"
-parking_lot = "0.12"
 pest = "2.8"
 pest_derive = "2.8"
 rand = { version = "0.9", features = ["thread_rng"] }
@@ -129,7 +127,6 @@ slab = "0.4"
 smol_str = "0.2"
 strum = "0.26"
 strum_macros = "0.26"
-uluru = "3"
 uuid = "1.12"
 bevy_mod_scripting_qcvm = { git = "https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git", branch = "bevy-0.20", features = [
     "quake1",
@@ -174,3 +171,8 @@ opt-level = 3
 # Firewheel 0.15 from BillyDM/Firewheel#146. Remove once both are published.
 [patch.crates-io]
 firewheel = { git = "https://github.com/eswartz/Firewheel-fork.git", branch = "bevy-0.20" }
+
+# TODO: Remove before merging, and point `bevy_mod_scripting_qcvm` at the pushed branch.
+[patch."https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git"]
+bevy_mod_scripting_qcvm = { path = "../bevy_mod_scripting_qcvm" }
+qcvm = { path = "../bevy_mod_scripting_qcvm/crates/qcvm" }

@@ -4,10 +4,11 @@
 //! etc.) goes through [`ServerRng`], so that a level replays identically given the same `sv_seed`
 //! and the same client input.
 
+use bevy::ecs::resource::Resource;
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 
 /// Deterministic RNG for the server, seeded from the `sv_seed` cvar when a level starts.
-#[derive(Debug, Clone)]
+#[derive(Resource, Debug, Clone)]
 pub struct ServerRng(StdRng);
 
 impl ServerRng {

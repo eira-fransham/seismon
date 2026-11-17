@@ -17,7 +17,7 @@
 
 //! Physics and collision detection.
 
-use crate::{common::math::Hyperplane, server::progs::EntityId};
+use crate::common::math::Hyperplane;
 
 use bevy::prelude::*;
 use bitflags::bitflags;
@@ -60,7 +60,7 @@ pub enum CollideKind {
 #[derive(Debug)]
 pub struct Collide {
     /// The ID of the entity being moved.
-    pub e_id: Option<EntityId>,
+    pub e_id: Option<Entity>,
 
     /// The minimum extent of the entire move.
     pub move_min: Vec3,

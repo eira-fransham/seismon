@@ -39,7 +39,11 @@ fn build_app(quake_dir: PathBuf) -> App {
     app.add_plugins(PakfilePlugin::from_paths([quake_dir]))
         .add_plugins((
             MinimalPlugins,
-            bevy::log::LogPlugin { level: bevy::log::Level::WARN, ..default() },
+            bevy::log::LogPlugin {
+                level: bevy::log::Level::WARN,
+                filter: std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()),
+                ..default()
+            },
             AssetPlugin::default(),
             bevy::transform::TransformPlugin,
             bevy::image::ImagePlugin::default(),
@@ -181,6 +185,7 @@ fn run_map(quake_dir: PathBuf, map: &str, ticks: usize, trace_path: &std::path::
     }
 
     for tick in 0..ticks {
+        debug!(target: "parity", "== tick {tick}");
         send(&mut app, scripted_move(tick));
         app.update();
         let messages = take_messages(&mut app);

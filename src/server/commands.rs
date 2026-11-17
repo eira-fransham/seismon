@@ -59,6 +59,7 @@ fn cmd_map(
         bsp: asset_server.load(&map_name),
         progs: asset_server.load("progs.dat"),
         map_name,
+        worldspawn: None,
     });
 
     commands.write_message(LocalLevelStarted);
