@@ -1323,9 +1323,11 @@ mod systems {
                             UnrecognizedProtocolSnafu { version: protocol_version }.fail()?;
                         }
 
-                        console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
-                        console_output.println_alert(message.raw, &wall_time);
-                        console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
+                        if !message.raw.is_empty() {
+                            console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
+                            console_output.println_alert(message.raw, &wall_time);
+                            console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
+                        }
 
                         if let Some(state) = conn.client_state.as_ref() {
                             commands.entity(state.worldspawn).despawn();

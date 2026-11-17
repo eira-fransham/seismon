@@ -1578,15 +1578,22 @@ pub mod systems {
         let coop = world.resource::<Registry>().read_cvar::<f32>("coop").unwrap_or_default();
         let game_type = if coop != 0. { GameType::CoOp } else { GameType::Deathmatch };
 
+        // Set the message sent to the client from QuakeC
+        let level_title = {
+            let ctx = ServerCtx::new(world);
+            ctx.info(ctx.worldspawn())?.message.as_bytes().to_vec().into()
+        };
+
         let session = world.resource::<Session>();
         let level = world.resource::<LevelState>();
 
         let mut packet = Vec::new();
+
         ServerCmd::ServerInfo {
             protocol_version: net::PROTOCOL_VERSION as _,
             max_clients: session.max_clients() as _,
             game_type,
-            message: "Seismon server".into(),
+            message: level_title,
             model_precache: level.model_precache.iter().map(ToOwned::to_owned).collect(),
             sound_precache: level.sound_precache.iter().map(ToOwned::to_owned).collect(),
         }

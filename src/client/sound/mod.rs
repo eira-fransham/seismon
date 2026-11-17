@@ -84,6 +84,14 @@ pub struct ReverbBus;
 #[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct MasterOut;
 
+/// Gate for all spatialized output (the main sample pool and its reverb send).
+///
+/// Silenced whenever there is no active [`SpatialListener3D`], since
+/// `bevy_seedling` leaves spatial offsets at zero (full volume, no panning)
+/// when there is no listener, e.g. between `ServerInfo` and `SetView` on map load.
+#[derive(NodeLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
+pub struct SpatialOut;
+
 #[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct MainPool;
 
@@ -97,9 +105,13 @@ impl Plugin for SeismonSoundPlugin {
         commands
             .spawn((VolumeNode { volume: Volume::Decibels(-40.), ..Default::default() }, ReverbBus))
             .chain_node(FreeverbNode::default())
-            .connect(MasterOut);
+            .connect(SpatialOut);
 
         commands.spawn((VolumeNode::default(), MasterOut));
+        // Starts silent, as there is no listener at startup.
+        commands
+            .spawn((VolumeNode { volume: Volume::SILENT, ..Default::default() }, SpatialOut))
+            .connect(MasterOut);
 
         commands.spawn((SamplerPool(MusicPool), PoolSize(1..=1)));
         commands
@@ -111,12 +123,15 @@ impl Plugin for SeismonSoundPlugin {
                     SendNode::new(Volume::default(), ReverbBus)
                 ],
             ))
-            .connect(MasterOut);
+            .connect(SpatialOut);
 
         app.init_resource::<MusicPlayer>()
             .init_resource::<Listener>()
             .add_message::<MixerMessage>()
-            .add_systems(Update, systems::update_mixer);
+            .add_systems(Update, systems::update_mixer)
+            // Run before `Queue` so the gate change is sent in the same frame as the
+            // first real spatial offsets computed by `bevy_seedling`.
+            .add_systems(Last, systems::gate_spatial_output.before(SeedlingSystems::Queue));
     }
 }
 
@@ -182,6 +197,22 @@ mod systems {
     use crate::client::DEFAULT_SOUND_PACKET_ATTENUATION;
 
     use super::*;
+
+    /// Mute spatialized output while no [`SpatialListener3D`] is active.
+    ///
+    /// Disabled entities (such as the `Template` world camera) are skipped by the query.
+    pub fn gate_spatial_output(
+        listeners: Query<(), With<SpatialListener3D>>,
+        mut gate: Query<&mut VolumeNode, With<SpatialOut>>,
+    ) {
+        let target = if listeners.is_empty() { Volume::SILENT } else { Volume::UNITY_GAIN };
+        for mut node in &mut gate {
+            // Only write on change, to avoid sending a patch every frame.
+            if node.volume != target {
+                node.volume = target;
+            }
+        }
+    }
 
     pub fn update_mixer(
         channels: Query<&Channel, With<Sound>>,
