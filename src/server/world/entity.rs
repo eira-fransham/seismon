@@ -98,15 +98,6 @@ pub enum EntitySolid {
     Bsp = 4,
 }
 
-impl EntitySolid {
-    pub fn is_networked(&self) -> bool {
-        match self {
-            EntitySolid::Not | EntitySolid::Trigger => false,
-            EntitySolid::BBox | EntitySolid::SlideBox | EntitySolid::Bsp => true,
-        }
-    }
-}
-
 impl EntPhysics {
     pub fn solid(&self) -> Result<EntitySolid, EntityError> {
         let solid_i = self.solid as i32;
@@ -258,10 +249,13 @@ pub fn entity_state(render: &EntRender, phys: &EntPhysics) -> Option<EntityState
     })
 }
 
-/// Whether an entity is sent to clients: it must have a model, and be solid.
-pub fn is_networked(render: &EntRender, phys: &EntPhysics) -> bool {
-    let has_model = render.modelindex != 0.;
-    let is_networked_solid = phys.solid().is_ok_and(|solid| solid.is_networked());
-
-    has_model && is_networked_solid
+impl EntRender {
+    /// Whether an entity is sent to clients
+    ///
+    /// Quake only checks that the entity has a non-zero model index and a non-empty
+    /// model name.
+    pub fn is_networked(&self) -> bool {
+        // The null string is also empty.
+        self.modelindex != 0. && !self.model.as_bytes().is_empty()
+    }
 }

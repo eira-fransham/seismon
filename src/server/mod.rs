@@ -850,7 +850,6 @@ impl<'w> ServerCtx<'w> {
         self.collision().contents_at_point(point)
     }
 
-    #[expect(clippy::too_many_arguments)]
     pub fn trace_entity_move(
         &self,
         entity: Entity,
@@ -936,10 +935,7 @@ impl<'w> ServerCtx<'w> {
     }
 
     pub fn is_networked(&self, entity: Entity) -> bool {
-        match (self.render(entity), self.phys(entity)) {
-            (Ok(render), Ok(phys)) => world::entity::is_networked(render, phys),
-            _ => false,
-        }
+        self.render(entity).is_ok_and(|render| render.is_networked())
     }
 
     /// Writes the messages describing the client's own entity: `SetAngle` (if QuakeC requested
@@ -1696,7 +1692,7 @@ pub mod systems {
                 .extend(ctx.edicts().iter().filter(|(edict, _)| !sent_baseline[*edict as usize]));
 
             // Only mark a baseline as sent once it has actually been written, so entities
-            // which aren't networked yet (no model, trigger, etc.) get one when they become
+            // which aren't networked yet (no model) get one when they become
             // networked.
             for (edict, entity) in unsent_entity_cache.drain(..) {
                 if ctx.is_networked(entity)

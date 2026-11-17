@@ -567,6 +567,10 @@ impl ClientState {
         }
     }
 
+    #[expect(
+        clippy::type_complexity,
+        reason = "Lifetimes make it difficult to extract a type alias"
+    )]
     pub fn update_entity(
         In((update, msg_time)): In<(EntityUpdate, f64)>,
         mut commands: Commands<'_, '_>,
