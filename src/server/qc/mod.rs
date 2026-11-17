@@ -54,7 +54,7 @@ pub fn call(world: &mut World, function: impl Into<FunctionRef>) -> Result<(), S
     }
 
     let vm = world.resource::<LevelVm>().0.clone();
-    vm.call_with_world::<GlobalAddr, FieldAddr>(world, function, ())?;
+    vm.call_with_world::<GlobalAddr, FieldAddr, ()>(world, function, ())?;
 
     Ok(())
 }
