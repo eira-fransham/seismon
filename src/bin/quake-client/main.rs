@@ -47,7 +47,7 @@ struct Opt {
     commands: Vec<String>,
 }
 
-const DEFAULT_EXPOSURE: Exposure = Exposure { ev100: 7.8 };
+const DEFAULT_EXPOSURE: Exposure = Exposure { ev100: 9. };
 
 fn cmd_exposure(In(val): In<Value>, mut exposures: Query<(&mut Exposure, Has<Template>)>) {
     let new_exposure = match val.as_name() {
@@ -310,7 +310,7 @@ fn main() -> ExitCode {
         )
         .cvar_on_set(
             "r_tonemapping",
-            "blender",
+            "sbdt",
             cmd_tonemapping,
             "Set the tonemapping type - Tony McMapFace (tmmf), AgX, ACES, Blender Filmic (blender), Somewhat Boring Display Transform (sbdt), or none",
         )// .insert_resource(DefaultOpaqueRendererMethod::deferred())
