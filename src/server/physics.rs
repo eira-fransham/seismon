@@ -701,9 +701,11 @@ impl ServerCtx<'_> {
             .unwrap_or_default()
     }
 
-    /// Applies ground friction to a player, as in Quake's `SV_UserFriction`.
+    /// Applies ground friction to a player.
     ///
     /// This should only be called when the player is on the ground and not swimming.
+    ///
+    /// Equivalent to `SV_UserFriction`.
     fn player_apply_friction(
         &mut self,
         ent_id: Entity,
@@ -754,8 +756,9 @@ impl ServerCtx<'_> {
         Ok(())
     }
 
-    /// Applies a client's latest movement command to its player entity, as in Quake's
-    /// `SV_ClientThink` (and `SV_AirMove`).
+    /// Applies a client's latest movement command to its player entity
+    ///
+    /// Equivalent to `SV_ClientThink`.
     pub fn client_think(
         &mut self,
         ent_id: Entity,
@@ -999,7 +1002,9 @@ impl ServerCtx<'_> {
         Ok(())
     }
 
-    /// Moves an entity with `MOVETYPE_NOCLIP`, as in Quake's `SV_Physics_Noclip`.
+    /// Moves an entity with `MOVETYPE_NOCLIP`.
+    ///
+    /// Equivalent to `SV_Physics_Noclip`.
     pub fn physics_noclip(
         &mut self,
         ent_id: Entity,
@@ -1386,8 +1391,7 @@ impl ServerCtx<'_> {
         let mut touched = TOUCHED_TRIGGERS_BUF.with_borrow_mut(std::mem::take);
         touched.clear();
 
-        // Search from the root, as in `SV_TouchLinks(ent, sv_areanodes)`: triggers that straddle a
-        // split plane are linked above the entity's own node.
+        // Start from area ID 0, like `SV_TouchLinks`
         let result = self.collision().list_touched_triggers(self.world, &mut touched, ent_id, 0);
 
         let result = result.and_then(|()| {

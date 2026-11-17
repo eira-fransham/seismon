@@ -7,7 +7,7 @@ use std::ops::{Bound, RangeBounds};
 
 use bevy::prelude::*;
 
-/// The maximum number of edicts preallocated, as in Quake (more can be allocated if needed).
+/// For now, we just use the same limit as Quake.
 pub const MAX_ENTITIES: usize = 600;
 
 /// The edict number of a QuakeC entity.

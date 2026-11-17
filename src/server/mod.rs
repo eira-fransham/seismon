@@ -648,14 +648,20 @@ pub struct LevelState {
     /// The maximum number of clients. Client entities are `1..=max_clients`.
     max_clients: usize,
 
-    /// The client returned by `checkclient`, as in Quake's `sv.lastcheck`.
+    /// The client returned by `checkclient`
+    ///
+    /// Equivalent to `sv.lastcheck`.
     last_check_client: usize,
 
-    /// When `last_check_client` was last changed, as in Quake's `sv.lastchecktime`.
+    /// When `last_check_client` was last changed
+    ///
+    /// Equivalent to `sv.lastchecktime`.
     last_check_time: Duration,
 
-    /// Whether QuakeC has already called `changelevel` this level, as in Quake's
-    /// `svs.changelevel_issued`. Later calls are ignored.
+    /// Whether QuakeC has already called `changelevel`.
+    ///
+    /// Subsequent calls to `changelevel` are ignored until the level
+    /// actually changes.
     pub changelevel_issued: bool,
 }
 
