@@ -2449,11 +2449,20 @@ where
     Ok(reader.read_i8()? as f32 * (360.0 / 256.0))
 }
 
+/// Converts an angle in degrees to a byte.
+///
+/// Equivalent to `MSG_WriteAngle`.
+pub fn write_angle_byte(angle: f32) -> u8 {
+    // C float-to-int wraps, but in Rust it truncates. We cast
+    // to a larger int first to ensure that we wrap here.
+    (((angle as i32) * 256 / 360) & 255) as u8
+}
+
 fn write_angle<W>(writer: &mut W, angle: f32) -> io::Result<()>
 where
     W: Write,
 {
-    writer.write_i8((angle * (256. / 360.)) as i8)?;
+    writer.write_u8(write_angle_byte(angle))?;
     Ok(())
 }
 
@@ -2754,6 +2763,30 @@ mod test {
         let dst = ClientCmd::deserialize(&mut reader).unwrap().unwrap();
 
         assert_eq!(src, dst);
+    }
+
+    #[test]
+    fn write_angle_wraps() {
+        assert_eq!(write_angle_byte(0.), 0);
+        assert_eq!(write_angle_byte(90.), 64);
+        assert_eq!(write_angle_byte(-90.), 192);
+        assert_eq!(write_angle_byte(360.), 0);
+        assert_eq!(write_angle_byte(450.), 64);
+        assert_eq!(write_angle_byte(1.9), 0);
+    }
+
+    #[test]
+    fn write_angle_does_not_saturate() {
+        // `write_angle` used to cast with `as i8`, which saturates
+        for angle in [270., 370., 540., -200., 1000., -1000.] {
+            let mut buf = Vec::new();
+            write_angle(&mut buf, angle).unwrap();
+            assert_eq!(buf, [write_angle_byte(angle)], "angle {angle}");
+        }
+        // 1000 truncates to 711 byte units, which wraps to 199 (~280deg).
+        assert_eq!(write_angle_byte(1000.), 199);
+        // -200 truncates to -142 byte units, which wraps to 114 (~160deg).
+        assert_eq!(write_angle_byte(-200.), 114);
     }
 
     fn gen_qsocket_pair() -> (QSocket, QSocket) {

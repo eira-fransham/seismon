@@ -18,7 +18,7 @@ use num::FromPrimitive as _;
 use seismon_utils::QString;
 
 use crate::{
-    common::net::ServerCmd,
+    common::net::{ServerCmd, write_angle_byte},
     server::{
         MAX_LIGHTSTYLES, MsgDest, ServerCtx, ServerVars,
         error::ServerError,
@@ -30,7 +30,6 @@ use crate::{
         },
         quake_contents, vtos,
         world::{EntityFlags, EntitySolid, phys::CollideKind},
-        write_angle_byte,
     },
 };
 

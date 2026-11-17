@@ -10,8 +10,13 @@ use bevy_mod_scripting_qcvm::{
 };
 use hashbrown::HashMap;
 
-use super::fields::{Accessor, FieldError, QcValue, is_storable, qc_components, type_mismatch};
-use crate::server::limit_vec3;
+use crate::server::{
+    limit_vec3,
+    qc::{
+        fields::{Accessor, FieldError, QcValue, qc_components, type_mismatch},
+        is_storable,
+    },
+};
 
 qc_components! {
     progdefs_global_accessors;

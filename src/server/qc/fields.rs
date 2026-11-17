@@ -18,16 +18,13 @@ use bevy_mod_scripting_qcvm::{
 use hashbrown::HashMap;
 use snafu::Snafu;
 
-use crate::server::{limit_vec3, qc::edict::Edict};
+use crate::server::{
+    limit_vec3,
+    qc::{edict::Edict, is_storable},
+};
 
 /// The first field offset after the fields defined by `progdefs.h`.
 pub const PROGDEFS_FIELD_COUNT: u16 = 105;
-
-/// Whether fields and globals can have type `ty`: true for floats, vectors, strings, entities
-/// and functions.
-pub fn is_storable(ty: Type) -> bool {
-    matches!(ty, Type::Float | Type::Vector | Type::String | Type::Entity | Type::Function)
-}
 
 /// The value of a field or global.
 #[derive(Debug, Clone, PartialEq)]

@@ -627,13 +627,6 @@ fn vtos(v: Vec3) -> String {
     format!("'{:5.1} {:5.1} {:5.1}'", v.x, v.y, v.z)
 }
 
-/// Converts an angle in degrees to a byte, as in Quake's `MSG_WriteAngle`.
-///
-/// Like Quake, this truncates the angle to an integer first and wraps around.
-fn write_angle_byte(angle: f32) -> u8 {
-    (((angle as i32) * 256 / 360) & 255) as u8
-}
-
 /// Server-side level state, other than the entities.
 #[derive(Resource, Debug)]
 pub struct LevelState {
@@ -1737,17 +1730,6 @@ mod tests {
         assert_eq!(super::ftos(5.5), "  5.5");
         assert_eq!(super::ftos(-0.25), " -0.2");
         assert_eq!(super::vtos(Vec3::new(1., -2.5, 100.)), "'  1.0  -2.5 100.0'");
-    }
-
-    #[test]
-    fn write_angle_wraps_like_quake() {
-        assert_eq!(super::write_angle_byte(0.), 0);
-        assert_eq!(super::write_angle_byte(90.), 64);
-        assert_eq!(super::write_angle_byte(-90.), 192);
-        assert_eq!(super::write_angle_byte(360.), 0);
-        assert_eq!(super::write_angle_byte(450.), 64);
-        // Truncated to an integer before scaling.
-        assert_eq!(super::write_angle_byte(1.9), 0);
     }
 
     #[test]

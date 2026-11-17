@@ -42,6 +42,12 @@ pub struct LevelVm(pub QCVmContext);
 #[derive(Resource, Clone, Debug)]
 pub struct LevelAttachment(pub bevy_mod_scripting::script::ScriptAttachment);
 
+/// Whether fields and globals can have type `ty`: true for floats, vectors, strings, entities
+/// and functions.
+pub fn is_storable(ty: Type) -> bool {
+    matches!(ty, Type::Float | Type::Vector | Type::String | Type::Entity | Type::Function)
+}
+
 /// Calls a QuakeC function.
 ///
 /// This is used for every call from the server into QuakeC, including from inside builtins (e.g.
