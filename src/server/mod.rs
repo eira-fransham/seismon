@@ -25,6 +25,7 @@ mod physics;
 pub mod precache;
 pub mod qc;
 mod rng;
+mod spawn;
 pub mod world;
 
 use std::time::Duration;
@@ -1282,10 +1283,7 @@ pub mod systems {
     use bevy_mod_scripting_qcvm::{QCEntity, QCWorldspawn};
 
     use crate::{
-        common::{
-            net::{self, ClientCmd, ClientMessage, GameType, ServerMessage, SignOnStage},
-            parse,
-        },
+        common::net::{self, ClientCmd, ClientMessage, GameType, ServerMessage, SignOnStage},
         server::{
             qc::{
                 LevelAttachment, LevelVm, QCScriptingPlugin,
@@ -1541,12 +1539,7 @@ pub mod systems {
             phys.movetype = MoveKind::Push as u32 as f32;
         }
 
-        let entity_list = parse::entities(&entmap).map_err(|e| anyhow::format_err!("{e}"))?;
-        for entity in entity_list {
-            if let Err(e) = ServerCtx::new(world).spawn_entity_from_map(entity) {
-                error!("Failed spawning entity: {}", Report::from_error(e));
-            }
-        }
+        ServerCtx::new(world).spawn_map_entities(&entmap)?;
 
         world.insert_resource(Session { persist, state: SessionState::Loading });
 

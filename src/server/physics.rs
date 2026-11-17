@@ -8,13 +8,13 @@ use std::{
 
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
-use bevy_mod_scripting_qcvm::{QCString, qcvm::Type};
+use bevy_mod_scripting_qcvm::QCString;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use seismon_utils::{duration_from_f32, duration_to_f32};
 
 use crate::{
-    common::{math::CollisionResult, net::ServerCmd, parse},
+    common::{math::CollisionResult, net::ServerCmd},
     server::{
         ChaseDirs, EntCallbacks, EntPhysics, PlayerVars, ServerCtx, ServerVars, accelerate,
         angle_mod, calc_roll, chase_dirs, clip_velocity,
@@ -56,110 +56,6 @@ impl ServerCtx<'_> {
         let ent_id = self.alloc_uninitialized()?;
 
         self.link_entity(ent_id, false)?;
-
-        Ok(ent_id)
-    }
-
-    /// Allocate a new entity and initialize it with the data in the given map, then run the spawn
-    /// function for its `classname`.
-    ///
-    /// ## Special cases
-    ///
-    /// There are two cases where the keys do not directly correspond to entity fields:
-    ///
-    /// - `angle`: This allows QuakeEd to write a single value instead of a set of Euler angles. The
-    ///   value should be interpreted as the second component of the `angles` field.
-    /// - `light`: This is simply an alias for `light_lev`.
-    pub fn spawn_entity_from_map<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(
-        &mut self,
-        map: I,
-    ) -> Result<Entity, ServerError> {
-        let ent_id = self.alloc_from_map(map)?;
-
-        let classname = self.info(ent_id)?.classname.0.clone();
-
-        // set `self` before calling spawn function
-        let worldspawn = self.worldspawn();
-        let mut globals = self.globals_mut();
-        globals.self_ = ent_id;
-        globals.world = worldspawn;
-        qc::call(self.world, classname)?;
-
-        Ok(ent_id)
-    }
-
-    fn alloc_from_map<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(
-        &mut self,
-        map: I,
-    ) -> Result<Entity, ServerError> {
-        let ent_id = self.alloc_uninitialized()?;
-        let tables = self.world.resource::<QcTables>().clone();
-
-        let set = |ctx: &mut Self, name: &str, value: QcValue| {
-            tables
-                .fields
-                .set(ctx.world, ent_id, name, value)
-                .map_err(|e| ServerError::with_msg(e.to_string()))
-        };
-
-        for (key, val) in map {
-            debug!(".{} = {}", key, val);
-            match key {
-                // ignore keys starting with an underscore
-                k if k.starts_with('_') => {}
-
-                "angle" => {
-                    // this is referred to in the original source as "anglehack" -- essentially,
-                    // only the yaw (Y) value is given. see
-                    // https://github.com/id-Software/Quake/blob/master/WinQuake/pr_edict.c#L826-L834
-                    set(
-                        self,
-                        "angles",
-                        QcValue::Vector(Vec3::new(0.0, val.trim().parse().unwrap(), 0.0)),
-                    )?;
-                }
-
-                "light" => {
-                    // more fun hacks brought to you by Carmack & Friends
-                    set(self, "light_lev", QcValue::Float(val.trim().parse().unwrap()))?;
-                }
-
-                k => {
-                    let Some(kind) = tables.fields.kind(k) else {
-                        return Err(ServerError::with_msg(format!("no field with name {k}")));
-                    };
-
-                    let value = match kind {
-                        Type::String => QcValue::String(if val.is_empty() {
-                            // The string table had the empty string as string 0, i.e. null.
-                            QCString::null()
-                        } else {
-                            QCString::from(unescape_map_string(val).as_ref())
-                        }),
-                        Type::Float => QcValue::Float(val.parse().unwrap_or_default()),
-                        Type::Vector => QcValue::Vector(parse::vec3(val)),
-                        Type::Entity => {
-                            let id: u16 = val.parse().map_err(|_| {
-                                ServerError::with_msg("out-of-bounds entity access")
-                            })?;
-                            let entity = self.edicts().get(id).unwrap_or(self.worldspawn());
-                            QcValue::Entity(entity)
-                        }
-                        Type::Function => {
-                            error!("TODO: Implement set field function ({val})");
-                            continue;
-                        }
-                        ty => {
-                            return Err(ServerError::with_msg(format!(
-                                "field {k} has unsupported type {ty}"
-                            )));
-                        }
-                    };
-
-                    set(self, k, value)?;
-                }
-            }
-        }
 
         Ok(ent_id)
     }
@@ -1901,42 +1797,5 @@ impl ServerCtx<'_> {
         }
 
         Ok(())
-    }
-}
-
-/// Unescapes a string value from the map's entity lump, as Quake's `ED_NewString` does: `\n`
-/// becomes a newline, and a backslash followed by anything else becomes a lone backslash.
-fn unescape_map_string(val: &str) -> std::borrow::Cow<'_, str> {
-    if !val.contains('\\') {
-        return val.into();
-    }
-
-    let mut out = String::with_capacity(val.len());
-    let mut chars = val.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('n') => out.push('\n'),
-            Some(_) => out.push('\\'),
-            // A trailing backslash is kept.
-            None => out.push('\\'),
-        }
-    }
-    out.into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unescape_map_string_matches_ed_new_string() {
-        assert_eq!(unescape_map_string("plain"), "plain");
-        assert_eq!(unescape_map_string(r"a\nb"), "a\nb");
-        assert_eq!(unescape_map_string(r"a\xb"), "a\\b");
-        assert_eq!(unescape_map_string("a\\"), "a\\");
     }
 }
