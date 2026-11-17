@@ -520,7 +520,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EntityState {
     pub origin: Vec3,
     pub angles: Vec3,
@@ -576,6 +576,29 @@ impl EntityState {
             no_lerp: false,
         }
     }
+
+    /// The inverse of [`EntityState::make_update`]: treating `self` as the baseline, returns the
+    /// full entity state described by `update`. Fields missing from the update take the baseline
+    /// value (not the previously-received value), matching Quake's protocol.
+    pub fn apply_update(&self, update: &EntityUpdate) -> EntityState {
+        EntityState {
+            origin: Vec3::new(
+                update.origin_x.unwrap_or(self.origin.x),
+                update.origin_y.unwrap_or(self.origin.y),
+                update.origin_z.unwrap_or(self.origin.z),
+            ),
+            angles: Vec3::new(
+                update.pitch.unwrap_or(self.angles.x),
+                update.yaw.unwrap_or(self.angles.y),
+                update.roll.unwrap_or(self.angles.z),
+            ),
+            model_id: update.model_id.unwrap_or(self.model_id),
+            frame_id: update.frame_id.unwrap_or(self.frame_id),
+            colormap: update.colormap.unwrap_or(self.colormap),
+            skin_id: update.skin_id.unwrap_or(self.skin_id),
+            effects: update.effects.unwrap_or(self.effects),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -611,15 +634,6 @@ impl EntityUpdate {
             origin_z: None,
             roll: None,
             no_lerp: false,
-        }
-    }
-
-    pub const fn new_angles(ent_id: u16, angles: QAngles) -> Self {
-        Self {
-            pitch: Some(angles.pitch_deg),
-            roll: Some(angles.roll_deg),
-            yaw: Some(angles.yaw_deg),
-            ..Self::empty(ent_id)
         }
     }
 
@@ -2837,5 +2851,45 @@ mod test {
 
         let message = [0; MAX_DATAGRAM + 1];
         src.send_msg_unreliable(&message).unwrap();
+    }
+
+    #[test]
+    fn test_entity_state_apply_update_inverts_make_update() {
+        let baseline = EntityState {
+            origin: Vec3::new(544.0, 288.0, 32.0),
+            angles: Vec3::new(0.0, 90.0, 0.0),
+            model_id: 1,
+            frame_id: 0,
+            colormap: 1,
+            skin_id: 0,
+            effects: EntityEffects::empty(),
+        };
+        // Shares x, pitch, roll, model, colormap and skin with the baseline.
+        let state = EntityState {
+            origin: Vec3::new(544.0, 1536.0, 16.0),
+            angles: Vec3::new(0.0, 180.0, 0.0),
+            frame_id: 12,
+            effects: EntityEffects::MUZZLE_FLASH,
+            ..baseline.clone()
+        };
+
+        let update = state.make_update(1, &baseline);
+        assert_eq!(update.origin_x, None);
+        assert_eq!(baseline.apply_update(&update), state);
+    }
+
+    #[test]
+    fn test_entity_state_apply_empty_update_is_baseline() {
+        let baseline = EntityState {
+            origin: Vec3::new(544.0, 288.0, 32.0),
+            angles: Vec3::new(10.0, 90.0, 5.0),
+            model_id: 3,
+            frame_id: 4,
+            colormap: 2,
+            skin_id: 1,
+            effects: EntityEffects::DIM_LIGHT,
+        };
+
+        assert_eq!(baseline.apply_update(&EntityUpdate::empty(7)), baseline);
     }
 }

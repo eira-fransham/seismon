@@ -53,33 +53,20 @@ const TEMP_ENTITY_BUILTIN_SOUNDS: &[&str] = &[
     "wizard/hit.wav",
 ];
 
-/// Applies the origin and angles present in `update` to `transform`, keeping the existing values
-/// for any fields the update doesn't include.
-///
-/// Use `Transform::IDENTITY` for a newly-spawned entity, so that missing fields default to zero.
-fn apply_entity_update(transform: Transform, update: &EntityUpdate) -> Transform {
-    let mut translation = transform.translation;
-    for (axis, value) in [update.origin_x, update.origin_y, update.origin_z].into_iter().enumerate()
-    {
-        if let Some(value) = value {
-            translation[axis] = value;
-        }
-    }
+/// The baseline state of a server entity, as sent by `SpawnBaseline`. Entity updates are diffs
+/// against this, not against the previously-received state: a field missing from an update means
+/// "same as the baseline".
+#[derive(Component, Clone, Debug)]
+pub struct Baseline(pub EntityState);
+
+/// Converts the origin and angles of `state` to a `Transform`.
+fn entity_state_transform(state: &EntityState) -> Transform {
+    let [pitch, yaw, roll] = state.angles.into();
 
     // Entity angles are in degrees; the `QAngles` -> `Quat` conversion handles the conversion to
     // radians and Quake's axis conventions.
-    let mut angles: QAngles = transform.rotation.into();
-    if let Some(pitch) = update.pitch {
-        angles.pitch_deg = pitch;
-    }
-    if let Some(yaw) = update.yaw {
-        angles.yaw_deg = yaw;
-    }
-    if let Some(roll) = update.roll {
-        angles.roll_deg = roll;
-    }
-
-    Transform { translation, rotation: angles.into(), ..transform }
+    Transform::from_translation(state.origin)
+        .with_rotation(QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into())
 }
 
 #[derive(Clone)]
@@ -341,33 +328,21 @@ impl ClientState {
         baseline: EntityState,
         msg_time: f64,
     ) {
-        let EntityState {
-            origin,
-            angles,
-            model_id,
-            frame_id: frame,
-            skin_id: skin,
-
-            // TODO
-            colormap: _,
-            effects: _,
-        } = baseline;
-
-        let [pitch, yaw, roll] = angles.into();
+        let EntityState { model_id, frame_id: frame, skin_id: skin, .. } = baseline;
 
         if id == 0 {
             trace!("Spawning world: {baseline:?}");
         }
 
         let model = self.models.get(model_id as usize).cloned();
-        let transform = Transform::from_xyz(origin.x, origin.y, origin.z)
-            .with_rotation(QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into());
-        let transform = Next { component: transform, elapsed_secs: msg_time };
+        let transform =
+            Next { component: entity_state_transform(&baseline), elapsed_secs: msg_time };
+        let baseline = Baseline(baseline);
 
         let mut ent = if let Some(ent) = self.server_entity_to_client_entity.get(&id) {
             let mut entity = commands.entity(*ent);
 
-            entity.insert(transform);
+            entity.insert((transform, baseline));
 
             entity
         } else {
@@ -379,11 +354,11 @@ impl ClientState {
                         let existing = existing.get();
                         error!("Tried to spawn duplicate entity (found {existing})");
                         let mut entity = commands.entity(*existing);
-                        entity.insert(bundle);
+                        entity.insert((bundle, baseline));
                         entity
                     }
                     Entry::Vacant(vacant) => {
-                        let entity = commands.spawn(bundle);
+                        let entity = commands.spawn((bundle, baseline));
                         vacant.insert(entity.id());
 
                         entity
@@ -571,31 +546,58 @@ impl ClientState {
         }
     }
 
+    /// Sets the rotation of the view entity's interpolation target, leaving its origin alone. Used
+    /// for `SetAngle` in demos, so that view angles are interpolated.
+    pub fn set_view_angles(
+        In((angles, msg_time)): In<(QAngles, f64)>,
+        conn: Res<Connection>,
+        mut transforms: Query<&mut Next<Transform>>,
+    ) {
+        let Some(entity) = conn
+            .client_state
+            .as_ref()
+            .and_then(|state| state.server_entity_to_client_entity.get(&state.view?))
+        else {
+            return;
+        };
+
+        if let Ok(mut transform) = transforms.get_mut(*entity) {
+            transform.component.rotation = angles.into();
+            transform.elapsed_secs = msg_time;
+        }
+    }
+
     pub fn update_entity(
         In((update, msg_time)): In<(EntityUpdate, f64)>,
         mut commands: Commands<'_, '_>,
         mut conn: ResMut<Connection>,
         mut existing_entities: Query<(
-            &mut Next<Transform>,
+            Option<&Baseline>,
+            Option<&mut Next<Transform>>,
             Option<&mut MdlSettings>,
-            Option<&mut WorldAssetRoot>,
+            Option<&WorldAssetRoot>,
         )>,
     ) {
         let Some(state) = conn.client_state.as_mut() else {
             return;
         };
 
-        if let Some(entity) = state.server_entity_to_client_entity.get(&update.ent_id) {
-            if commands.get_entity(*entity).is_err() {
+        if let Some(entity) = state.server_entity_to_client_entity.get(&update.ent_id).copied() {
+            let Ok((baseline, transform, mdl, scene)) = existing_entities.get_mut(entity) else {
                 warn!("Server tried to update non-existent entity {}", update.ent_id);
                 return;
             };
 
-            let mut ent = commands.entity(*entity);
+            // Updates are diffs against the baseline, so an empty update still has meaning: it
+            // resets the entity to its baseline state. Quake zero-initialises baselines, so treat a
+            // missing one as all-zeroes.
+            let full = match baseline {
+                Some(Baseline(baseline)) => baseline.apply_update(&update),
+                None => EntityState::uninitialized().apply_update(&update),
+            };
+            let new_transform = entity_state_transform(&full);
 
-            if !update.any() {
-                return;
-            }
+            let mut ent = commands.entity(entity);
 
             if update.no_lerp {
                 ent.insert(NoInterpolation);
@@ -603,78 +605,55 @@ impl ClientState {
                 ent.remove::<NoInterpolation>();
             }
 
-            if let Ok((mut transform, mdl, scene)) = existing_entities.get_mut(*entity) {
-                if let Some(model_id) = update.model_id
-                    && let Some(PrecacheModel::Loaded(model)) =
-                        state.models.get(model_id as usize).cloned()
-                    && scene.as_deref().map(|s| &s.0) != Some(&model)
-                {
-                    commands.entity(*entity).insert(WorldAssetRoot(model));
-                }
+            if let Some(PrecacheModel::Loaded(model)) =
+                state.models.get(full.model_id as usize).cloned()
+                && scene.map(|s| &s.0) != Some(&model)
+            {
+                ent.insert(WorldAssetRoot(model));
+            }
 
-                if let Some(mut mdl) = mdl {
-                    if let Some(new_frame) = update.frame_id {
-                        mdl.frame = new_frame;
-                    }
+            let new_settings = MdlSettings { frame: full.frame_id, skin: full.skin_id };
+            if let Some(mut mdl) = mdl {
+                write_if_neq!(mdl.frame, new_settings.frame);
+                write_if_neq!(mdl.skin, new_settings.skin);
+            } else {
+                ent.insert(new_settings);
+            }
 
-                    if let Some(new_skin) = update.skin_id {
-                        mdl.skin = new_skin;
-                    }
-                } else {
-                    commands.entity(*entity).insert(MdlSettings {
-                        frame: update.frame_id.unwrap_or_default(),
-                        skin: update.skin_id.unwrap_or_default(),
-                    });
-                }
-
-                transform.component = apply_entity_update(transform.component, &update);
+            if let Some(mut transform) = transform {
+                transform.component = new_transform;
                 transform.elapsed_secs = msg_time;
             } else {
-                if let Some(model_id) = update.model_id
-                    && let Some(PrecacheModel::Loaded(model)) =
-                        state.models.get(model_id as usize).cloned()
-                {
-                    ent.insert(WorldAssetRoot(model));
-                }
+                ent.insert(Next { component: new_transform, elapsed_secs: msg_time });
+            }
 
-                ent.insert((
-                    Next {
-                        component: apply_entity_update(Transform::IDENTITY, &update),
-                        elapsed_secs: msg_time,
-                    },
-                    MdlSettings {
-                        frame: update.frame_id.unwrap_or_default(),
-                        skin: update.skin_id.unwrap_or_default(),
-                    },
-                ));
+            if baseline.is_none() {
+                ent.insert(Baseline(EntityState::uninitialized()));
             }
         } else {
-            let Some(model_id) = update.model_id else {
+            if update.model_id.is_none() {
                 warn!("Tried to spawn ent without model");
                 return;
-            };
+            }
+
+            let full = EntityState::uninitialized().apply_update(&update);
 
             let mut ent = commands.spawn((
-                Next {
-                    component: apply_entity_update(Transform::IDENTITY, &update),
-                    elapsed_secs: msg_time,
-                },
+                Next { component: entity_state_transform(&full), elapsed_secs: msg_time },
+                Baseline(EntityState::uninitialized()),
                 Visibility::Inherited,
                 ChildOf(state.worldspawn),
             ));
 
             if let Some(PrecacheModel::Loaded(model)) =
-                update.model_id.and_then(|model_id| state.models.get(model_id as usize).cloned())
+                state.models.get(full.model_id as usize).cloned()
             {
                 ent.insert((
                     WorldAssetRoot(model),
-                    MdlSettings {
-                        frame: update.frame_id.unwrap_or_default(),
-                        skin: update.skin_id.unwrap_or_default(),
-                    },
+                    MdlSettings { frame: full.frame_id, skin: full.skin_id },
                 ));
             } else {
-                warn!("Model {model_id} not found (TODO)");
+                warn!("Model {} not found (TODO)", full.model_id);
             }
 
             state.server_entity_to_client_entity.insert(update.ent_id, ent.id());

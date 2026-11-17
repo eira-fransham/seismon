@@ -1416,13 +1416,10 @@ mod systems {
                         // Applied to the view entity's `Transform` by `apply_local_view_angles`.
                         if let Some(state) = conn.client_state.as_mut() {
                             // TODO: This feels a bit hacky, but ensures that view angles are interpolated in demos
-                            if is_demo && let Some(view) = state.view {
+                            if is_demo && state.view.is_some() {
                                 commands.run_system_cached_with(
-                                    ClientState::update_entity,
-                                    (
-                                        EntityUpdate::new_angles(view, angles),
-                                        conn.last_msg_time.as_secs_f64(),
-                                    ),
+                                    ClientState::set_view_angles,
+                                    (angles, conn.last_msg_time.as_secs_f64()),
                                 );
                             } else {
                                 state.look_angles = angles;
