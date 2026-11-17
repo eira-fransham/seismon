@@ -599,7 +599,13 @@ impl ClientState {
 
             let mut ent = commands.entity(entity);
 
-            if update.no_lerp {
+            // Like Quake's `CL_RelinkEntities`, don't lerp across large jumps (e.g. teleports),
+            // otherwise the entity visibly slides through walls over one message interval.
+            let teleported = transform.as_ref().is_some_and(|prev| {
+                (new_transform.translation - prev.component.translation).abs().max_element() > 100.
+            });
+
+            if update.no_lerp || teleported {
                 ent.insert(NoInterpolation);
             } else {
                 ent.remove::<NoInterpolation>();
