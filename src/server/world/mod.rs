@@ -540,8 +540,7 @@ impl LevelCollision {
         {
             Ok((collide_trace, collide_ent))
         } else {
-            // As in Quake's `SV_ClipMoveToEntity`, the trace only has an entity if it hit
-            // something.
+            // The trace only has an entity if it hit something, see `SV_ClipMoveToEntity`.
             let hit_world = !world_trace.is_terminal() || world_trace.start_solid();
             Ok((world_trace, hit_world.then_some(worldspawn)))
         }

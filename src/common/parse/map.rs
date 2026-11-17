@@ -105,7 +105,7 @@ mod tests {
             ]
         );
 
-        // As in `COM_Parse`, quoted strings may span lines.
+        // Quoted strings can be multiline.
         assert_eq!(parse("{ \"a\" \"b\nc\" }"), [vec![("a", "b\nc")]]);
     }
 

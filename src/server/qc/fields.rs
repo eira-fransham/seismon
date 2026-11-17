@@ -149,7 +149,7 @@ macro_rules! qc_components {
                 let QcValue::Vector(value) = value else {
                     return Err(type_mismatch(Type::Vector, &value));
                 };
-                // As in `put_vector`, invalid values are zeroed.
+                // Any invalid values are just nulled out.
                 world.get_mut::<$component>(entity).ok_or(FieldError::NoEntity { entity })?.$field =
                     limit_vec3(value, None);
                 Ok(())

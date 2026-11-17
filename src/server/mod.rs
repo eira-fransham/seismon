@@ -1015,8 +1015,8 @@ impl ServerCtx<'_> {
 
     pub fn clientcmd_prespawn(&mut self, slot: usize) -> anyhow::Result<()> {
         // A client that is already in its slot is reconnecting after a level change, and keeps
-        // the spawn parms saved by `SetChangeParms`. As in Quake, only brand-new connections
-        // run `SetNewParms`.
+        // the spawn parms saved by `SetChangeParms`. Only run that function again on fresh
+        // connections.
         if self.session_mut().persist.client(slot).is_some() {
             return Ok(());
         }
@@ -1501,7 +1501,7 @@ pub mod systems {
             qc_worldspawn_component,
         });
         {
-            // As in `SV_SpawnServer`, Quake sets either `coop` or `deathmatch`, not both.
+            // Quake sets either `coop` or `deathmatch`, not both.
             let registry = world.resource::<Registry>();
             let coop = registry.read_cvar::<f32>("coop").unwrap_or_default();
             let deathmatch = if coop != 0. {

@@ -1,22 +1,20 @@
 COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" | "//" ~ (!line_terminator ~ ANY)* }
 
 WHITESPACE = _{
-  "\u{0009}" |
-  "\u{000B}" |
-  "\u{000C}" |
-  "\u{0020}" |
-  "\u{00A0}" |
-  "\u{FEFF}" |
-  SPACE_SEPARATOR |
-  line_terminator
+    "\u{0009}"
+  | "\u{000B}"
+  | "\u{000C}"
+  | "\u{0020}"
+  | "\u{00A0}"
+  | "\u{FEFF}"
+  | SPACE_SEPARATOR
+  | line_terminator
 }
 
 line_terminator = _{ "\u{000A}" | "\u{000D}" | "\u{2028}" | "\u{2029}" }
 
-line_terminator_sequence = _{ "\u{000D}" ~ "\u{000A}" | line_terminator }
-
-// As in Quake's `COM_Parse`, a quoted string is everything up to the closing quote: there are no
-// escapes here. A `\n` in a value is turned into a newline when the entity is spawned.
+// Quake considers a quoted string to be everything up to the closing quote, without
+// quote escapes. A `\n` in a value is turned into a newline when the entity is spawned.
 double_quote_char = _{ !"\"" ~ ANY }
 
 // We don't want every char to generate a new `Pair`

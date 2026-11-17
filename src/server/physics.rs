@@ -629,8 +629,7 @@ impl ServerCtx<'_> {
 
         let mut ent_error_map = HashMap::<Entity, ServerError>::new();
 
-        // As in Quake's `SV_RunClients`, apply each client's latest movement once per frame,
-        // before running physics.
+        // Apply movement once per frame, before physics
         for &entity_id in clients {
             let cmd = self.client_cmd(entity_id);
             if let Err(e) = self.client_think(entity_id, &cmd, frame_time) {
@@ -968,7 +967,7 @@ impl ServerCtx<'_> {
         let new_local_time = old_local_time + frame_time;
 
         let move_time = if next_think < new_local_time {
-            // As in Quake's `SV_Physics_Pusher`, clamp to zero if the think is overdue.
+            // If the think is overdue, dt is zero
             next_think.saturating_sub(old_local_time)
         } else {
             frame_time
