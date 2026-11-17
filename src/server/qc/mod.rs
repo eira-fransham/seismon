@@ -24,7 +24,7 @@ use bevy_mod_scripting::{
 use bevy_mod_scripting_qcvm::{
     QCEntity, QCFunction, QCString, QCVmContext, QCWorldspawn,
     qcvm::{
-        FunctionRef,
+        FunctionRef, MissingArguments, VmOptions,
         quake1::{fields::FieldAddr, globals::GlobalAddr},
     },
 };
@@ -75,6 +75,11 @@ pub fn qcvm_plugin() -> QCScriptingPlugin {
             context_pre_handling_initializers: vec![],
             emit_responses: false,
             processing_pipeline_plugin: Default::default(),
+        },
+        vm_options: VmOptions {
+            // `id1/progs.dat` relies on stale parameters: `ogre_smash12` calls `ai_charge()`
+            // without its argument, so it gets whatever the last call left in `OFS_PARM0`.
+            missing_arguments: MissingArguments::Stale,
         },
     }
 }
