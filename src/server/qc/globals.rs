@@ -194,6 +194,8 @@ fn initial_value(vm: &QCVmContext, addr: GlobalAddr, world: Entity) -> Option<Qc
             QcValue::Function(QCFunction(index))
         }
         qcvm::Value::Void => kind.zero(world),
+        // `progdefs.h` has no field-typed globals.
+        qcvm::Value::Field(_) => return None,
     })
 }
 

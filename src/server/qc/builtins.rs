@@ -2,8 +2,8 @@
 //!
 //! Builtins are registered by name in the `QCWorldspawn` namespace. Arguments and return values
 //! are converted by `bevy_mod_scripting`: floats are `f32`, vectors are `[f32; 3]`, entities are
-//! references to their `QCEntity` component, strings are `QCString` and field references are passed
-//! as their offset.
+//! references to their `QCEntity` component, strings are `QCString` and field references are
+//! `QCField`.
 
 use std::{any::TypeId, io::Write as _, ops::Bound};
 
@@ -12,7 +12,7 @@ use bevy_mod_commands::Registry;
 use bevy_mod_scripting::bindings::{
     InteropError, NamespaceBuilder, ReflectBase, ReflectReference, ThreadWorldContainer, V,
 };
-use bevy_mod_scripting_qcvm::{QCEntity, QCString, QCWorldspawn};
+use bevy_mod_scripting_qcvm::{QCEntity, QCField, QCString, QCWorldspawn};
 use byteorder::{LittleEndian, WriteBytesExt as _};
 use num::FromPrimitive as _;
 use seismon_utils::QString;
@@ -204,9 +204,9 @@ pub fn register(world: &mut World) {
                 Ok(entity_ref(ctx, entity))
             })
         })
-        .register("find", |e: Ent, field: f32, matching: S| {
+        .register("find", |e: Ent, field: V<QCField>, matching: S| {
             with_ctx(|ctx| {
-                let entity = builtin_find(ctx, entity(&e)?, field, string(&matching))?;
+                let entity = builtin_find(ctx, entity(&e)?, field.0, string(&matching))?;
                 Ok(entity_ref(ctx, entity))
             })
         })
@@ -545,13 +545,12 @@ fn builtin_trace_line(
 fn builtin_find(
     ctx: &mut ServerCtx<'_>,
     start: Entity,
-    field: f32,
+    field: QCField,
     matching: &[u8],
 ) -> Result<Entity, ServerError> {
     let tables = ctx.world.resource::<QcTables>().clone();
-    let field = field as u16;
-    let Some(name) = tables.fields.name_at(field) else {
-        return Err(ServerError::with_msg(format!("find: invalid field {field}")));
+    let Some(name) = tables.fields.name_at(field.0) else {
+        return Err(ServerError::with_msg(format!("find: invalid field {}", field.0)));
     };
 
     debug!("Finding {} for field {name}", String::from_utf8_lossy(matching));

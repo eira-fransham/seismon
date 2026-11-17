@@ -22,7 +22,7 @@ use bevy_mod_scripting::{
     core::ScriptingPlugin,
 };
 use bevy_mod_scripting_qcvm::{
-    QCEntity, QCFunction, QCString, QCVmContext, QCWorldspawn,
+    QCEntity, QCField, QCFunction, QCString, QCVmContext, QCWorldspawn,
     qcvm::{
         FunctionRef, MissingArguments, VmOptions,
         quake1::{fields::FieldAddr, globals::GlobalAddr},
@@ -259,6 +259,7 @@ pub fn build(app: &mut App) {
         .add_plugins(qcvm_plugin())
         .register_type::<QCString>()
         .register_type::<QCFunction>()
+        .register_type::<QCField>()
         .register_type::<QCEntity>()
         .register_type::<QCWorldspawn>();
 
