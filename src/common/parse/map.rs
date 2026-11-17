@@ -15,7 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use bevy::log::info;
+use bevy::log::{info, trace};
 use pest::Parser as _;
 use pest_derive::Parser;
 
@@ -33,7 +33,7 @@ pub fn entities(
         .filter_map(|p| match p.as_rule() {
             Rule::map => Some(p.into_inner()),
             rule => {
-                info!("Found {rule:?}");
+                trace!("Found {rule:?}");
                 None
             }
         })
@@ -41,7 +41,7 @@ pub fn entities(
         .filter_map(|p| match p.as_rule() {
             Rule::object => Some(p.into_inner()),
             rule => {
-                info!("Found {rule:?}");
+                trace!("Found {rule:?}");
                 None
             }
         })
@@ -75,7 +75,7 @@ pub fn entities(
                     Some((k, v))
                 }
                 rule => {
-                    info!("Found {rule:?}");
+                    trace!("Found {rule:?}");
                     None
                 }
             })
