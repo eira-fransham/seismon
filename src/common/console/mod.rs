@@ -93,39 +93,23 @@ pub struct ConsoleInputContext {
     pub cmd_buf: String,
 }
 
+/// The editor's output terminal. The console draws its input line from the editor's buffer
+/// directly, so the terminal escape codes the editor writes here are discarded.
 #[derive(Default)]
-pub struct ConsoleInputTerminal {
-    pub stdout: Vec<u8>,
-}
+pub struct ConsoleInputTerminal;
 
 impl io::Write for ConsoleInputTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stdout.write(buf)
-    }
-
-    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        self.stdout.write_vectored(bufs)
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.stdout.write_all(buf)
-    }
-
-    fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> io::Result<()> {
-        self.stdout.write_fmt(fmt)
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.stdout.flush()
+        Ok(())
     }
 }
 
 impl Tty for ConsoleInputTerminal {
-    fn next_key(&mut self) -> Option<std::io::Result<lined::Key>> {
-        unreachable!("TODO: Remove `next_key` from `lined::Tty`")
-    }
-
-    fn width(&self) -> std::io::Result<usize> {
+    fn width(&self) -> io::Result<usize> {
         Ok(80) // TODO: Make this actually read the console width
     }
 }
@@ -140,7 +124,7 @@ impl fmt::Write for ConsoleInputContext {
 
 impl EditorContext for ConsoleInputContext {
     type Terminal = ConsoleInputTerminal;
-    type WordDividerIter = <lined::Context as EditorContext>::WordDividerIter;
+    type WordDividerIter = <DefaultWordDivider as WordDivider>::DividerIter;
 
     fn history(&self) -> &lined::History {
         &self.history

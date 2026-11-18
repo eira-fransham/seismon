@@ -1,6 +1,5 @@
 use crate::{Editor, EditorContext, Highlighter, complete::Completer, event::*};
 use std::io::{self, ErrorKind};
-use termion::event::Key;
 
 /// Trait to handle key mappings.
 pub trait KeyMap: Default {
@@ -92,9 +91,9 @@ pub use emacs::Emacs;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Key::*;
     use crate::{Context, editor::Prompt};
     use std::{borrow::Cow, io::ErrorKind};
-    use termion::event::Key::*;
 
     #[derive(Default)]
     struct TestKeyMap;

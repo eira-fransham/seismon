@@ -6,10 +6,14 @@ use std::{
     iter, mem,
 };
 use strip_ansi_escapes::strip;
-use termion::{self, clear, color, cursor};
 
 use super::complete::Completer;
-use crate::{Buffer, EditorContext, Highlighter, NoHighlighting, Tty, event::*, util};
+use crate::{
+    Buffer, EditorContext, Highlighter, NoHighlighting, Tty,
+    ansi::{clear, color, cursor},
+    event::*,
+    util,
+};
 use itertools::Itertools;
 
 /// Indicates the mode that should be currently displayed in the propmpt.
@@ -585,19 +589,20 @@ where
     }
 
     fn print_completion_list(
+        terminal_width: usize,
         completions: &[String],
         highlighted: Option<usize>,
         output_buf: &mut String,
     ) -> io::Result<usize> {
         use std::cmp::max;
 
-        let (w, _) = termion::terminal_size()?;
+        let w = terminal_width;
 
         // XXX wide character support
         let max_word_size = completions.iter().fold(1, |m, x| max(m, x.chars().count()));
-        let cols = max(1, w as usize / (max_word_size));
-        let col_width = 2 + w as usize / cols;
-        let cols = max(1, w as usize / col_width);
+        let cols = max(1, w / (max_word_size));
+        let col_width = 2 + w / cols;
+        let cols = max(1, w / col_width);
 
         let lines = completions.len() / cols;
 
@@ -1083,7 +1088,10 @@ where
 
         let (prompt, rev_prompt_width) = self.search_prompt();
 
-        let terminal_width = util::terminal_width()?;
+        let terminal_width = match self.context.terminal().width()? {
+            0 => 80,
+            width => width,
+        };
         let prompt_width = util::last_prompt_line_width(&prompt);
 
         let buf = cur_buf!(self);
@@ -1138,7 +1146,8 @@ where
         // If we're cycling through completions, show those
         let mut completion_lines = 0;
         if let Some((completions, i)) = self.show_completions_hint.as_ref() {
-            completion_lines = 1 + Self::print_completion_list(completions, *i, &mut out_buf)?;
+            completion_lines =
+                1 + Self::print_completion_list(terminal_width, completions, *i, &mut out_buf)?;
             out_buf.push_str("\r\n");
         }
 

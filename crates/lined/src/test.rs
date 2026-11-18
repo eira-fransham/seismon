@@ -11,12 +11,14 @@ pub struct TestTty {
 }
 
 impl Tty for TestTty {
-    fn next_key(&mut self) -> Option<io::Result<Key>> {
-        None
-    }
-
     fn width(&self) -> io::Result<usize> {
         Ok(80)
+    }
+}
+
+impl ReadKeys for TestTty {
+    fn next_key(&mut self) -> Option<io::Result<Key>> {
+        None
     }
 }
 
