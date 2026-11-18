@@ -69,6 +69,15 @@ pub fn register_cvars(app: &mut App) {
     app.cvar("fov", "90", "sets the camera's field of view angle (in degrees)");
     // TODO: What is the difference between this and `cl_skipCrosshair`?
     app.cvar("crosshair", "1", "whether to draw the crosshair");
+    // TODO: These are shown in the options menu but not yet used.
+    app.cvar("volume", Cvar::new("0.7").archive(), "the sound effect volume");
+    app.cvar("bgmvolume", Cvar::new("1").archive(), "the music volume");
+    app.cvar(
+        "lookspring",
+        Cvar::new("0").archive(),
+        "whether the view recenters when releasing mlook",
+    );
+    app.cvar("lookstrafe", Cvar::new("0").archive(), "whether mlook makes the mouse strafe");
     app.cvar(
         "m_pitch",
         Cvar::new("0.022").archive(),

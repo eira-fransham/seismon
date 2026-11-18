@@ -13,6 +13,7 @@ pub mod sound;
 pub mod state;
 pub mod text;
 pub mod trace;
+pub(crate) mod ui;
 mod view;
 
 use self::{
@@ -333,6 +334,8 @@ where
                 ),
             )
             .add_plugins(HudPlugin::default())
+            .add_plugins(ui::UiPlugin)
+            .add_plugins(menu::render::MenuRenderPlugin)
             .add_plugins(SeismonConsoleRenderPlugin)
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)

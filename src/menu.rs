@@ -85,22 +85,19 @@ fn build_menu_mp_join_tcp(builder: MenuBuilder) -> anyhow::Result<Menu> {
 }
 
 fn build_menu_options(builder: MenuBuilder) -> anyhow::Result<Menu> {
+    // Ranges match `M_AdjustSliders` in `menu.c`.
     Ok(builder
-        // .add_submenu("Customize controls", unimplemented!())
+        // TODO: "Customize controls"
         .add_action("Go to console", |mut commands: MessageWriter<RunCmd<'static>>| {
             commands.write("toggleconsole".into());
         })
-        // TODO
         .add_action("Reset to defaults", |mut cvars: ResMut<Registry>| {
             for cvar in [
-                "r_renderscale",
-                "r_screensize",
+                "viewsize",
                 "gamma",
-                "cl_sensitivity",
+                "sensitivity",
                 "bgmvolume",
                 "volume",
-                "cl_alwaysrun",
-                "invertmouse",
                 "lookspring",
                 "lookstrafe",
             ] {
@@ -109,18 +106,17 @@ fn build_menu_options(builder: MenuBuilder) -> anyhow::Result<Menu> {
                 }
             }
         })
-        .add_slider("Render scale", 0.25, 1.0, 2, 0, "r_renderscale")?
-        .add_slider("Screen Size", 0.0, 1.0, 10, 9, "r_screensize")?
-        .add_slider("Brightness", 0.5, 1.5, 10, 5, "r_gamma")?
-        .add_slider("Mouse Speed", 0.0, 1.0, 10, 9, "cl_sensitivity")?
-        .add_slider("CD music volume", 0.0, 1.0, 10, 9, "bgmvolume")?
-        .add_slider("Sound volume", 0.0, 1.0, 10, 9, "volume")?
-        // TODO
-        .add_toggle("Always run", true, "cl_alwaysrun")
-        .add_toggle("Invert mouse", false, "invertmouse")
+        .add_slider("Screen size", 30., 120., 10, 7, "viewsize")?
+        // Lower gamma is brighter, so the slider is inverted.
+        .add_slider("Brightness", 1., 0.5, 11, 0, "gamma")?
+        .add_slider("Mouse Speed", 1., 11., 21, 4, "sensitivity")?
+        .add_slider("CD Music Volume", 0., 1., 11, 10, "bgmvolume")?
+        .add_slider("Sound Volume", 0., 1., 11, 7, "volume")?
+        // TODO: "Always Run" (`cl_forwardspeed`/`cl_backspeed` 200 <-> 400) and "Invert Mouse"
+        // (negate `m_pitch`) need toggles that aren't backed by a single boolean cvar.
         .add_toggle("Lookspring", false, "lookspring")
         .add_toggle("Lookstrafe", false, "lookstrafe")
-        // .add_submenu("Video options", unimplemented!())
+        // TODO: "Video Options"
         .build(MenuView {
             draw_plaque: true,
             title_path: "gfx/p_option.lmp".into(),

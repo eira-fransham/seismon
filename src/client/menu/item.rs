@@ -20,7 +20,7 @@
 
 use std::{fmt::Debug, str::FromStr};
 
-use bevy_mod_commands::{CName, SetCvar};
+use bevy_mod_commands::{CName, Registry, SetCvar};
 
 use crate::client::menu::Menu;
 
@@ -62,13 +62,13 @@ impl Toggle {
 
         move |mut c| {
             if let Some(val) = val {
-                c.queue(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), toggle_value(val)))
             }
         }
     }
 
     pub fn set_true(&mut self) -> impl FnOnce(Commands) + '_ {
-        let val = if self.state {
+        let val = if !self.state {
             self.state = true;
             Some(self.state)
         } else {
@@ -77,7 +77,7 @@ impl Toggle {
 
         move |mut c| {
             if let Some(val) = val {
-                c.queue(SetCvar(self.cvar.clone(), val.into()))
+                c.queue(SetCvar(self.cvar.clone(), toggle_value(val)))
             }
         }
     }
@@ -85,12 +85,41 @@ impl Toggle {
     pub fn toggle(&mut self) -> impl FnOnce(Commands) + '_ {
         self.state = !self.state;
 
-        move |mut c| c.queue(SetCvar(self.cvar.clone(), self.state.into()))
+        move |mut c| c.queue(SetCvar(self.cvar.clone(), toggle_value(self.state)))
     }
 
     pub fn get(&self) -> bool {
         self.state
     }
+
+    pub fn cvar(&self) -> &str {
+        &self.cvar
+    }
+
+    /// Read the current value of the cvar backing this toggle, if it exists and is a number or
+    /// boolean.
+    pub fn read(&self, registry: &Registry) -> Option<bool> {
+        read_toggle(registry, &self.cvar)
+    }
+
+    /// Update the state of this toggle from its cvar.
+    pub fn sync_from(&mut self, registry: &Registry) {
+        if let Some(state) = self.read(registry) {
+            self.state = state;
+        }
+    }
+}
+
+/// Toggles are stored as `0`/`1`, like in Quake, so that other code can read them as numbers.
+fn toggle_value(state: bool) -> Value {
+    Value::from(i64::from(state))
+}
+
+fn read_toggle(registry: &Registry, cvar: &str) -> Option<bool> {
+    let cvar = registry.get_cvar(cvar)?;
+    let value = cvar.value();
+
+    value.as_bool().or_else(|| value.as_f64().map(|v| v != 0.))
 }
 
 // TODO: add wrapping configuration to enums
@@ -135,8 +164,8 @@ impl Enum {
     }
 
     pub fn select_prev(&mut self) -> impl FnOnce(Commands) + '_ {
-        let val = if self.selected > 1 {
-            self.selected += 1;
+        let val = if self.selected > 0 {
+            self.selected -= 1;
             Some(self.selected_value())
         } else {
             None
@@ -146,6 +175,30 @@ impl Enum {
             if let Some(val) = val {
                 c.queue(SetCvar(self.cvar.clone(), val))
             }
+        }
+    }
+
+    pub fn cvar(&self) -> &str {
+        &self.cvar
+    }
+
+    /// The index of the item matching the current value of the cvar, if any.
+    pub fn read(&self, registry: &Registry) -> Option<usize> {
+        let value = registry.get_cvar(&self.cvar)?.value();
+
+        self.items.iter().position(|item| item.value == *value)
+    }
+
+    /// The name of the item matching the current value of the cvar, falling back to the
+    /// selected item.
+    pub fn read_name(&self, registry: &Registry) -> &str {
+        self.read(registry).map_or_else(|| self.selected_name(), |i| self.items[i].name.as_ref())
+    }
+
+    /// Update the selected item from the cvar.
+    pub fn sync_from(&mut self, registry: &Registry) {
+        if let Some(selected) = self.read(registry) {
+            self.selected = selected;
         }
     }
 }
@@ -187,6 +240,7 @@ impl Slider {
     ) -> anyhow::Result<Slider> {
         ensure!(steps > 1, "Slider must have at least 2 steps");
         ensure!(init < steps, "Invalid initial setting");
+        ensure!(min != max, "Slider must have a non-empty range");
 
         Ok(Slider {
             min,
@@ -236,8 +290,36 @@ impl Slider {
         self.min + self.selected as f32 * self.increment
     }
 
+    /// The position of the slider handle, from `0` to `1`.
     pub fn position(&self) -> f32 {
-        self.selected as f32 / self.steps as f32
+        self.selected as f32 / (self.steps - 1) as f32
+    }
+
+    /// The position of the slider handle for the given value, from `0` to `1`. `min` may be
+    /// greater than `max`, in which case the slider is inverted (e.g. brightness/gamma).
+    pub fn position_of(&self, value: f32) -> f32 {
+        ((value - self.min) / (self.increment * (self.steps - 1) as f32)).clamp(0., 1.)
+    }
+
+    /// The step closest to the given value.
+    fn step_of(&self, value: f32) -> usize {
+        (self.position_of(value) * (self.steps - 1) as f32).round() as usize
+    }
+
+    pub fn cvar(&self) -> &str {
+        &self.cvar
+    }
+
+    /// Read the current value of the cvar backing this slider, if it exists and is a number.
+    pub fn read(&self, registry: &Registry) -> Option<f32> {
+        registry.read_cvar::<f32>(&self.cvar).ok()
+    }
+
+    /// Update the selected step from the cvar.
+    pub fn sync_from(&mut self, registry: &Registry) {
+        if let Some(value) = self.read(registry) {
+            self.selected = self.step_of(value);
+        }
     }
 }
 
@@ -299,7 +381,7 @@ impl TextField {
 
     pub fn cursor_left(&mut self) {
         let curs = self.cursor;
-        if curs > 1 {
+        if curs > 0 {
             self.cursor = curs - 1;
         }
     }
@@ -309,6 +391,7 @@ impl TextField {
             None
         } else {
             self.chars.insert(self.cursor, c);
+            self.cursor += 1;
             Some(self.text())
         };
 
@@ -322,9 +405,14 @@ impl TextField {
     }
 
     pub fn backspace(&mut self) {
-        if self.cursor > 1 {
+        if self.cursor > 0 {
             self.chars.remove(self.cursor - 1);
+            self.cursor -= 1;
         }
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
     }
 
     pub fn delete(&mut self) {
@@ -334,127 +422,107 @@ impl TextField {
     }
 }
 
-// TODO: Fix tests
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//     use std::{cell::RefCell, rc::Rc};
+#[cfg(test)]
+mod test {
+    use super::*;
 
-//     #[test]
-//     fn test_toggle() {
-//         let s = Rc::new(RefCell::new("false".to_string()));
+    #[test]
+    fn toggle_set_true_and_false() {
+        let mut toggle = Toggle::new(false, "t");
 
-//         let s2 = s.clone();
-//         let item = Toggle::new(
-//             false,
-//             Box::new(move |state| {
-//                 s2.replace(format!("{}", state));
-//             }),
-//         );
-//         item.toggle();
+        let _ = toggle.set_false();
+        assert!(!toggle.get());
+        let _ = toggle.set_true();
+        assert!(toggle.get());
+        let _ = toggle.set_true();
+        assert!(toggle.get());
+        let _ = toggle.set_false();
+        assert!(!toggle.get());
+        let _ = toggle.toggle();
+        assert!(toggle.get());
+    }
 
-//         assert_eq!(*s.borrow(), "true");
-//     }
+    #[test]
+    fn enum_stays_in_bounds() {
+        let items = (0..3).map(|i| EnumItem::new(format!("option_{i}"), i.to_string()).unwrap());
+        let mut e = Enum::new(0, "e", items);
 
-//     #[test]
-//     fn test_enum() {
-//         let target = Rc::new(RefCell::new("null".to_string()));
+        let _ = e.select_prev();
+        assert_eq!(e.selected_name(), "option_0");
+        let _ = e.select_next();
+        assert_eq!(e.selected_name(), "option_1");
+        let _ = e.select_prev();
+        assert_eq!(e.selected_name(), "option_0");
 
-//         let enum_items = (0..3i32)
-//             .into_iter()
-//             .map(|i: i32| {
-//                 let target_handle = target.clone();
-//                 EnumItem::new(
-//                     format!("option_{}", i),
-//                     Box::new(move || {
-//                         target_handle.replace(format!("option_{}", i));
-//                     }),
-//                 )
-//                 .unwrap()
-//             })
-//             .collect();
+        for _ in 0..5 {
+            let _ = e.select_next();
+        }
+        assert_eq!(e.selected_name(), "option_2");
+    }
 
-//         let e = Enum::new(0, enum_items).unwrap();
-//         assert_eq!(*target.borrow(), "option_0");
+    #[test]
+    fn slider_positions() {
+        let mut slider = Slider::new(0., 10., 11, 0, "s".into()).unwrap();
 
-//         // wrap under
-//         e.select_prev();
-//         assert_eq!(*target.borrow(), "option_2");
+        let _ = slider.decrease();
+        assert_eq!(slider.value(), 0.);
+        assert_eq!(slider.position(), 0.);
 
-//         e.select_next();
-//         e.select_next();
-//         e.select_next();
-//         assert_eq!(*target.borrow(), "option_2");
+        for i in 0..10 {
+            let _ = slider.increase();
+            assert_eq!(slider.value(), i as f32 + 1.);
+        }
 
-//         // wrap over
-//         e.select_next();
-//         assert_eq!(*target.borrow(), "option_0");
-//     }
+        let _ = slider.increase();
+        assert_eq!(slider.value(), 10.);
+        assert_eq!(slider.position(), 1.);
 
-//     #[test]
-//     fn test_slider() {
-//         let f = Rc::new(Cell::new(0.0f32));
+        assert_eq!(slider.position_of(5.), 0.5);
+        assert_eq!(slider.position_of(-5.), 0.);
+        assert_eq!(slider.position_of(50.), 1.);
+        assert_eq!(slider.step_of(4.4), 4);
+    }
 
-//         let f2 = f.clone();
-//         let item = Slider::new(
-//             0.0,
-//             10.0,
-//             11,
-//             0,
-//             Box::new(move |f| {
-//                 f2.set(f);
-//             }),
-//         )
-//         .unwrap();
+    #[test]
+    fn inverted_slider() {
+        let slider = Slider::new(1., 0.5, 11, 0, "gamma".into()).unwrap();
 
-//         // don't underflow
-//         item.decrease();
-//         assert_eq!(f.get(), 0.0);
+        assert_eq!(slider.value(), 1.);
+        assert_eq!(slider.position_of(1.), 0.);
+        assert_eq!(slider.position_of(0.5), 1.);
+        assert_eq!(slider.position_of(0.75), 0.5);
+        assert_eq!(slider.step_of(0.75), 5);
+    }
 
-//         for i in 0..10 {
-//             item.increase();
-//             assert_eq!(f.get(), i as f32 + 1.0);
-//         }
+    #[test]
+    fn slider_rejects_empty_range() {
+        assert!(Slider::new(1., 1., 11, 0, "s".into()).is_err());
+    }
 
-//         // don't overflow
-//         item.increase();
-//         assert_eq!(f.get(), 10.0);
-//     }
+    #[test]
+    fn text_field_editing() {
+        let mut tf = TextField::new(Some("abc"), Some(5), "t");
 
-//     #[test]
-//     fn test_textfield() {
-//         let MAX_LEN = 10;
-//         let s = Rc::new(RefCell::new("before".to_owned()));
-//         let s2 = s.clone();
+        tf.home();
+        tf.cursor_left();
+        assert_eq!(tf.cursor(), 0);
+        tf.backspace();
+        assert_eq!(tf.text(), "abc");
 
-//         let mut tf = TextField::new(
-//             Some("default"),
-//             Some(MAX_LEN),
-//             Box::new(move |x| {
-//                 s2.replace(x.to_string());
-//             }),
-//         )
-//         .unwrap();
+        tf.cursor_right();
+        tf.backspace();
+        assert_eq!(tf.text(), "bc");
+        assert_eq!(tf.cursor(), 0);
 
-//         tf.cursor_left();
-//         tf.backspace();
-//         tf.backspace();
-//         tf.home();
-//         tf.delete();
-//         tf.delete();
-//         tf.delete();
-//         tf.cursor_right();
-//         tf.insert('f');
-//         tf.end();
-//         tf.insert('e');
-//         tf.insert('r');
+        let _ = tf.insert('x');
+        assert_eq!(tf.text(), "xbc");
+        assert_eq!(tf.cursor(), 1);
 
-//         assert_eq!(tf.text(), *s.borrow());
-
-//         for _ in 0..2 * MAX_LEN {
-//             tf.insert('x');
-//         }
-
-//         assert_eq!(tf.len(), MAX_LEN);
-//     }
-// }
+        tf.end();
+        tf.delete();
+        let _ = tf.insert('y');
+        let _ = tf.insert('z');
+        let _ = tf.insert('!');
+        assert_eq!(tf.text(), "xbcyz");
+    }
+}

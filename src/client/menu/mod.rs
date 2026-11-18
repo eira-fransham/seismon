@@ -19,15 +19,16 @@
 // SOFTWARE.
 
 mod item;
+pub mod render;
 
 use anyhow::bail;
 use bevy::ecs::{
     resource::Resource,
-    system::{Commands, IntoSystem, SystemId},
+    system::{Commands, IntoSystem},
     world::World,
 };
 
-use bevy_mod_commands::CName;
+use bevy_mod_commands::{CName, Registry};
 
 pub use self::item::{Enum, EnumItem, Item, Slider, TextField, Toggle};
 
@@ -86,7 +87,11 @@ pub struct Menu {
     items: Vec<NamedMenuItem>,
     state: MenuState,
     view: MenuView,
+    generation: u64,
 }
+
+/// A deferred effect of a menu input (e.g. setting a cvar or running an action).
+pub type MenuAction<'a> = Box<dyn FnOnce(Commands) + 'a>;
 
 impl Menu {
     /// Returns a reference to the active submenu of this menu and its parent.
@@ -127,31 +132,6 @@ impl Menu {
         }
 
         Ok(m)
-    }
-
-    /// Returns a reference to the active submenu of this menu and its parent.
-    fn active_submenu_parent_mut(&mut self) -> anyhow::Result<Option<&mut Menu>> {
-        let MenuState::InSubMenu { mut index } = self.active_submenu()?.state else {
-            return Ok(Some(self));
-        };
-        let Item::Submenu(m) = &mut self.items[index].item else {
-            bail!("Menu state points to invalid submenu");
-        };
-        let mut m = m;
-
-        loop {
-            match &mut m.items[index].item {
-                Item::Submenu(s) => {
-                    m = s;
-                    if let MenuState::InSubMenu { index: new_index } = m.state {
-                        index = new_index;
-                    } else {
-                        return Ok(Some(m));
-                    }
-                }
-                _ => bail!("Menu state points to invalid submenu"),
-            }
-        }
     }
 
     /// Select the next element of this Menu.
@@ -202,69 +182,91 @@ impl Menu {
     /// If this item is an `Action`, executes the function contained in the
     /// `Action`.
     ///
+    /// If this item is a toggle it is flipped, and if it is a slider or enum it is moved to the
+    /// right (like `M_AdjustSliders(1)` in Quake).
+    ///
     /// Otherwise, this has no effect.
-    pub fn activate(&mut self) -> anyhow::Result<impl FnOnce(Commands)> {
-        fn run(action: Option<SystemId>) -> impl FnOnce(Commands) {
-            move |mut c: Commands| {
-                if let Some(action) = action {
-                    c.run_system(action);
-                }
-            }
+    pub fn activate(&mut self) -> anyhow::Result<MenuAction<'_>> {
+        if matches!(self.selected(), Ok(Item::Submenu(_))) {
+            self.generation += 1;
         }
 
         let m = self.active_submenu_mut()?;
 
-        if let MenuState::Active { index } = m.state {
-            match &mut m.items[index].item {
-                Item::Submenu(submenu) => {
-                    m.state = MenuState::InSubMenu { index };
-                    submenu.state = MenuState::Active { index: 0 };
+        let MenuState::Active { index } = m.state else {
+            return Ok(Box::new(|_| {}));
+        };
 
-                    Ok(run(None))
-                }
+        if let Item::Submenu(submenu) = &mut m.items[index].item {
+            m.state = MenuState::InSubMenu { index };
+            submenu.state = MenuState::Active { index: 0 };
 
-                Item::Action(action) => {
-                    let action = *action;
-                    Ok(run(Some(action)))
-                }
+            return Ok(Box::new(|_| {}));
+        }
 
-                _ => Ok(run(None)),
+        match &mut m.items[index].item {
+            Item::Action(action) => {
+                let action = *action;
+                Ok(Box::new(move |mut c: Commands| c.run_system(action)))
             }
-        } else {
-            Ok(run(None))
+            Item::Toggle(toggle) => Ok(Box::new(toggle.toggle())),
+            Item::Enum(e) => Ok(Box::new(e.select_next())),
+            Item::Slider(slider) => Ok(Box::new(slider.increase())),
+            Item::Submenu(_) | Item::TextField(_) => Ok(Box::new(|_| {})),
         }
     }
 
-    pub fn left(&mut self) -> anyhow::Result<impl FnOnce(Commands) + '_> {
+    pub fn left(&mut self) -> anyhow::Result<MenuAction<'_>> {
         let m = self.active_submenu_mut()?;
 
-        Ok(move |c: Commands| {
-            if let MenuState::Active { index } = m.state {
-                match &mut m.items[index].item {
-                    Item::Enum(e) => (e.select_prev())(c),
-                    Item::Slider(slider) => (slider.decrease())(c),
-                    Item::TextField(text) => text.cursor_left(),
-                    Item::Toggle(toggle) => (toggle.set_false())(c),
-                    _ => {}
-                }
+        let MenuState::Active { index } = m.state else {
+            return Ok(Box::new(|_| {}));
+        };
+
+        Ok(match &mut m.items[index].item {
+            Item::Enum(e) => Box::new(e.select_prev()),
+            Item::Slider(slider) => Box::new(slider.decrease()),
+            Item::TextField(text) => {
+                text.cursor_left();
+                Box::new(|_| {})
             }
+            Item::Toggle(toggle) => Box::new(toggle.set_false()),
+            Item::Submenu(_) | Item::Action(_) => Box::new(|_| {}),
         })
     }
 
-    pub fn right(&mut self) -> anyhow::Result<impl FnOnce(Commands) + '_> {
+    pub fn right(&mut self) -> anyhow::Result<MenuAction<'_>> {
         let m = self.active_submenu_mut()?;
 
-        Ok(move |c: Commands| {
-            if let MenuState::Active { index } = m.state {
-                match &mut m.items[index].item {
-                    Item::Enum(e) => (e.select_next())(c),
-                    Item::Slider(slider) => (slider.increase())(c),
-                    Item::TextField(text) => text.cursor_right(),
-                    Item::Toggle(toggle) => (toggle.set_true())(c),
-                    _ => {}
-                }
+        let MenuState::Active { index } = m.state else {
+            return Ok(Box::new(|_| {}));
+        };
+
+        Ok(match &mut m.items[index].item {
+            Item::Enum(e) => Box::new(e.select_next()),
+            Item::Slider(slider) => Box::new(slider.increase()),
+            Item::TextField(text) => {
+                text.cursor_right();
+                Box::new(|_| {})
             }
+            Item::Toggle(toggle) => Box::new(toggle.set_true()),
+            Item::Submenu(_) | Item::Action(_) => Box::new(|_| {}),
         })
+    }
+
+    /// Update the state of the items in the active submenu from their cvars, so that adjusting
+    /// them starts from the current value even if it was changed elsewhere (e.g. the console).
+    pub fn sync_from(&mut self, registry: &Registry) -> anyhow::Result<()> {
+        for item in &mut self.active_submenu_mut()?.items {
+            match &mut item.item {
+                Item::Toggle(toggle) => toggle.sync_from(registry),
+                Item::Enum(e) => e.sync_from(registry),
+                Item::Slider(slider) => slider.sync_from(registry),
+                Item::Submenu(_) | Item::Action(_) | Item::TextField(_) => {}
+            }
+        }
+
+        Ok(())
     }
 
     /// Return `true` if the root menu is active, `false` otherwise.
@@ -274,26 +276,58 @@ impl Menu {
 
     /// Deactivate the active menu and activate its parent
     pub fn back(&mut self) -> anyhow::Result<()> {
-        if self.at_root() {
+        let MenuState::InSubMenu { index } = self.state else {
             bail!("Cannot back out of root menu!");
+        };
+
+        let Item::Submenu(child) = &mut self.items[index].item else {
+            bail!("Menu state points to invalid submenu");
+        };
+
+        if let MenuState::InSubMenu { .. } = child.state {
+            child.back()?;
+        } else {
+            child.state = MenuState::Inactive;
+            self.state = MenuState::Active { index };
         }
 
-        let m = self.active_submenu_mut()?;
-        m.state = MenuState::Inactive;
-
-        match self.active_submenu_parent_mut()? {
-            Some(mp) => {
-                let s = mp.state;
-                match s {
-                    MenuState::InSubMenu { index } => mp.state = MenuState::Active { index },
-                    _ => unreachable!(),
-                };
-            }
-
-            None => unreachable!(),
-        }
+        self.generation += 1;
 
         Ok(())
+    }
+
+    /// Return to the root menu, with the first item selected.
+    pub fn reset(&mut self) {
+        while !self.at_root() {
+            if self.back().is_err() {
+                break;
+            }
+        }
+
+        self.state = MenuState::Active { index: 0 };
+        self.generation += 1;
+    }
+
+    /// The index of the selected item in the active submenu.
+    pub fn cursor(&self) -> Option<usize> {
+        match self.active_submenu().ok()?.state {
+            MenuState::Active { index } => Some(index),
+            _ => None,
+        }
+    }
+
+    /// A counter that changes every time the active submenu changes, so that the renderer
+    /// knows when to rebuild the page.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Iterate over this menu and all of its submenus, recursively.
+    pub fn all_menus(&self) -> Box<dyn Iterator<Item = &Menu> + '_> {
+        Box::new(std::iter::once(self).chain(self.items.iter().flat_map(|item| match &item.item {
+            Item::Submenu(submenu) => submenu.all_menus(),
+            _ => Box::new(std::iter::empty()),
+        })))
     }
 
     pub fn items(&self) -> impl Iterator<Item = &NamedMenuItem> + '_ {
@@ -331,7 +365,7 @@ impl<'a> MenuBuilder<'a> {
             }
         }
 
-        Menu { items: self.items, state: MenuState::Active { index: 0 }, view }
+        Menu { items: self.items, state: MenuState::Active { index: 0 }, view, generation: 0 }
     }
 
     pub fn add_submenu<S>(
@@ -465,5 +499,74 @@ impl NamedMenuItem {
 
     pub fn item(&self) -> &Item {
         &self.item
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view() -> MenuView {
+        MenuView::default()
+    }
+
+    fn nested(world: &mut World) -> Menu {
+        MenuBuilder::new(world)
+            .add_toggle("a", false, "a")
+            .add_submenu("b", |b| {
+                Ok(b.add_toggle("b0", false, "b0")
+                    .add_submenu("c", |c| Ok(c.add_toggle("c0", false, "c0").build(view())))?
+                    .build(view()))
+            })
+            .unwrap()
+            .build(view())
+    }
+
+    #[test]
+    fn back_returns_to_parent() {
+        let mut world = World::new();
+        let mut menu = nested(&mut world);
+
+        assert!(menu.at_root());
+        assert!(menu.back().is_err());
+
+        menu.select_next().unwrap();
+        let _ = menu.activate().unwrap();
+        assert_eq!(menu.cursor(), Some(0));
+        menu.select_next().unwrap();
+        let _ = menu.activate().unwrap();
+        assert_eq!(menu.active_submenu().unwrap().items().next().unwrap().name(), "c0");
+
+        let generation = menu.generation();
+        menu.back().unwrap();
+        assert!(menu.generation() > generation);
+        assert!(!menu.at_root());
+        assert_eq!(menu.active_submenu().unwrap().items().next().unwrap().name(), "b0");
+        assert_eq!(menu.cursor(), Some(1));
+
+        menu.back().unwrap();
+        assert!(menu.at_root());
+        assert_eq!(menu.cursor(), Some(1));
+    }
+
+    #[test]
+    fn reset_returns_to_root() {
+        let mut world = World::new();
+        let mut menu = nested(&mut world);
+
+        menu.select_next().unwrap();
+        let _ = menu.activate().unwrap();
+        menu.select_next().unwrap();
+        let _ = menu.activate().unwrap();
+
+        menu.reset();
+        assert!(menu.at_root());
+        assert_eq!(menu.cursor(), Some(0));
+    }
+
+    #[test]
+    fn all_menus_walks_submenus() {
+        let mut world = World::new();
+        assert_eq!(nested(&mut world).all_menus().count(), 3);
     }
 }

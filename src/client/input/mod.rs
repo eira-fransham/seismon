@@ -63,8 +63,13 @@ pub mod systems {
 
     use bevy_mod_commands::{Registry, RunCmd};
 
+    use bevy_seedling::prelude::AudioSample;
+
     use crate::{
-        client::menu::Menu,
+        client::{
+            menu::{Item, Menu, render::MenuSounds},
+            sound::MixerMessage,
+        },
         common::console::{ConsoleInput, ConsoleOutput, to_terminal_key},
     };
 
@@ -210,6 +215,13 @@ pub mod systems {
         }
     }
 
+    /// Whether the item is a value (slider, toggle, enum) that changes when activated or moved
+    /// left/right.
+    fn is_value_item(item: &Item) -> bool {
+        matches!(item, Item::Slider(_) | Item::Toggle(_) | Item::Enum(_))
+    }
+
+    #[expect(clippy::too_many_arguments)]
     pub fn menu_input(
         mut reader: ResMut<InputMessageReader<KeyboardInput>>,
         keyboard_events: Res<Messages<KeyboardInput>>,
@@ -217,7 +229,14 @@ pub mod systems {
         mut run_cmds: MessageWriter<RunCmd<'static>>,
         mut menu: ResMut<Menu>,
         input: Res<GameInput>,
+        registry: Res<Registry>,
+        sounds: Res<MenuSounds>,
+        mut mixer: MessageWriter<MixerMessage>,
     ) {
+        let mut play = |sound: &Handle<AudioSample>| {
+            mixer.write(MixerMessage::StartLocalSound(sound.clone()));
+        };
+
         // TODO: Use a thread_local vector instead of reallocating
         for key in reader.reader.read(&keyboard_events) {
             let KeyboardInput { logical_key, state, .. } = key;
@@ -252,19 +271,32 @@ pub mod systems {
                     run_cmds.write("togglemenu".into());
                 } else {
                     menu.back().expect("TODO: Handle menu failures");
+                    play(&sounds.enter);
                 }
             } else if input == AnyInput::ENTER {
+                let adjusts_value = menu.selected().is_ok_and(is_value_item);
+                play(if adjusts_value { &sounds.adjust } else { &sounds.enter });
+
+                menu.sync_from(&registry).expect("TODO: Handle menu failures");
                 let func = menu.activate().expect("TODO: Handle menu failures");
                 func(commands.reborrow());
             } else if input == AnyInput::UPARROW {
+                play(&sounds.navigate);
                 menu.select_prev().expect("TODO: Handle menu failures");
             } else if input == AnyInput::DOWNARROW {
+                play(&sounds.navigate);
                 menu.select_next().expect("TODO: Handle menu failures");
-            } else if input == AnyInput::LEFTARROW {
-                let func = menu.left().expect("TODO: Handle menu failures");
-                func(commands.reborrow());
-            } else if input == AnyInput::RIGHTARROW {
-                let func = menu.right().expect("TODO: Handle menu failures");
+            } else if input == AnyInput::LEFTARROW || input == AnyInput::RIGHTARROW {
+                if menu.selected().is_ok_and(is_value_item) {
+                    play(&sounds.adjust);
+                }
+
+                menu.sync_from(&registry).expect("TODO: Handle menu failures");
+                let func = if input == AnyInput::LEFTARROW {
+                    menu.left().expect("TODO: Handle menu failures")
+                } else {
+                    menu.right().expect("TODO: Handle menu failures")
+                };
                 func(commands.reborrow());
             }
         }

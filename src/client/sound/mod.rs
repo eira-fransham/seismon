@@ -98,6 +98,11 @@ pub struct MainPool;
 #[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub struct MusicPool;
 
+/// Pool for non-spatialized sounds that should play even without a listener, e.g. menu sounds
+/// (`S_LocalSound`).
+#[derive(PoolLabel, PartialEq, Eq, Debug, Hash, Clone, Default)]
+pub struct LocalPool;
+
 impl Plugin for SeismonSoundPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut commands = app.world_mut().commands();
@@ -114,6 +119,7 @@ impl Plugin for SeismonSoundPlugin {
             .connect(MasterOut);
 
         commands.spawn((SamplerPool(MusicPool), PoolSize(1..=1)));
+        commands.spawn((SamplerPool(LocalPool), PoolSize(4..=16)));
         commands
             .spawn((
                 SamplerPool(MainPool),
@@ -187,6 +193,8 @@ pub enum MixerMessage {
     StartSound(StartSound),
     StopSound(StopSound),
     StartStaticSound(StartStaticSound),
+    /// Play a non-spatialized sound, like `S_LocalSound`.
+    StartLocalSound(Handle<AudioSample>),
     /// If None, restarts already-playing music
     StartMusic(Option<MusicSource>),
     PauseMusic,
@@ -293,6 +301,9 @@ mod systems {
                             SendNode::new(Volume::Linear(REVERB_AMT), ReverbBus)
                         ],
                     ));
+                }
+                MixerMessage::StartLocalSound(src) => {
+                    commands.spawn((SamplePlayer::new(src.clone()), LocalPool));
                 }
                 MixerMessage::StartMusic(Some(MusicSource::Named(named))) => {
                     // TODO: Error handling

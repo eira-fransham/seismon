@@ -3,7 +3,7 @@
 //!
 //! Positions are given in the same coordinate space as `sbar.c`: x from the left of the
 //! 320-pixel-wide status bar and y from the top of the bar it is drawn on (`SBAR` or `IBAR`), all
-//! scaled by `STATUS_BAR_SCALE`.
+//! scaled by `UI_SCALE`.
 
 use std::marker::PhantomData;
 
@@ -50,6 +50,7 @@ use crate::{
         },
         state::PlayerState,
         text::{AtlasText, Conchars},
+        ui::{GLYPH_SIZE, abs_node, abs_rect, fill_node, px, ui_image, ui_text},
     },
     common::net::ItemFlags,
 };
@@ -375,8 +376,6 @@ impl HudGfx {
     }
 }
 
-const STATUS_BAR_SCALE: f32 = 1.8;
-
 /// This is the default status bar width, and we can use it as a baseline for the
 /// rest of the UI.
 const STATUS_BAR_WIDTH: f32 = 320.;
@@ -385,8 +384,6 @@ const BAR_HEIGHT: f32 = 24.;
 
 /// The width and height of the large status bar digits.
 const NUM_SIZE: f32 = 24.;
-/// The width and height of a conchars glyph.
-const GLYPH_SIZE: f32 = 8.;
 
 const WEAPON_SLOT_WIDTH: f32 = 24.;
 const SIGIL_SLOT_WIDTH: f32 = 8.;
@@ -422,56 +419,9 @@ const AMMO_ITEMS: [ItemFlags; 4] =
 /// Conchars index of the small gold `0` digit used for the ammo counters.
 const SMALL_DIGIT_BASE: u8 = 18;
 
-/// Scale a size in status bar pixels to UI pixels.
-fn px(value: f32) -> Val {
-    Val::Px(value * STATUS_BAR_SCALE)
-}
-
-/// An absolutely-positioned node at the given position, in status bar pixels.
-fn abs_node(left: f32, top: f32) -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        left: px(left),
-        top: px(top),
-        ..Default::default()
-    }
-}
-
-/// An absolutely-positioned node with the given position and size, in status bar pixels.
-fn abs_rect(left: f32, top: f32, width: f32, height: f32) -> Node {
-    Node { width: px(width), height: px(height), ..abs_node(left, top) }
-}
-
-/// A node filling its parent.
-fn fill_node(display: Display) -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        width: Val::Percent(100.),
-        height: Val::Percent(100.),
-        display,
-        ..Default::default()
-    }
-}
-
-/// Text drawn with conchars at the status bar scale.
-fn hud_text(conchars: &Conchars) -> AtlasText {
-    AtlasText {
-        text: "".into(),
-        image: conchars.image.clone().into(),
-        layout: conchars.layout.clone(),
-        glyph_size: (px(GLYPH_SIZE), px(GLYPH_SIZE)),
-        line_padding: UiRect::DEFAULT,
-        justify: JustifyContent::FlexStart,
-    }
-}
-
 /// A large number at the given position, in status bar pixels.
 fn hud_number(left: f32, top: f32, digits: usize) -> (HudNumber, Node) {
     (HudNumber::new(digits), abs_rect(left, top, NUM_SIZE * digits as f32, NUM_SIZE))
-}
-
-fn hud_image(image: Handle<Image>) -> ImageNode {
-    ImageNode { image, ..Default::default() }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -606,7 +556,7 @@ where
                         display: Display::None,
                         ..abs_rect(16. * i as f32, 0., 16., INVENTORY_ICON_HEIGHT)
                     },
-                    hud_image(image.clone()),
+                    ui_image(image.clone()),
                 )
             })
             .collect::<Vec<_>>();
@@ -630,7 +580,7 @@ where
                         height: px(BAR_HEIGHT),
                         ..Default::default()
                     },
-                    hud_image(gfx.ibar.clone()),
+                    ui_image(gfx.ibar.clone()),
                     children![
                         (
                             Name::new("weapons"),
@@ -665,7 +615,7 @@ where
                         height: px(BAR_HEIGHT),
                         ..Default::default()
                     },
-                    hud_image(gfx.sbar.clone()),
+                    ui_image(gfx.sbar.clone()),
                     children![
                         (
                             Name::new("status"),
@@ -679,7 +629,7 @@ where
                                         display: Display::None,
                                         ..abs_rect(0., 0., NUM_SIZE, NUM_SIZE)
                                     },
-                                    hud_image(gfx.armor[0].clone()),
+                                    ui_image(gfx.armor[0].clone()),
                                 ),
                                 (
                                     Name::new("armor"),
@@ -690,7 +640,7 @@ where
                                     Name::new("face"),
                                     HudContainer::<HudFace>::new(root),
                                     abs_rect(112., 0., NUM_SIZE, NUM_SIZE),
-                                    hud_image(gfx.faces[4][0].clone()),
+                                    ui_image(gfx.faces[4][0].clone()),
                                 ),
                                 (
                                     Name::new("health"),
@@ -704,7 +654,7 @@ where
                                         display: Display::None,
                                         ..abs_rect(224., 0., NUM_SIZE, NUM_SIZE)
                                     },
-                                    hud_image(gfx.ammo[0].clone()),
+                                    ui_image(gfx.ammo[0].clone()),
                                 ),
                                 (
                                     Name::new("current ammo"),
@@ -718,13 +668,13 @@ where
                             HudContainer::<HudScoreboard>::new(root),
                             fill_node(Display::None),
                             children![
-                                (ScoreboardLine::Monsters, abs_node(8., 4.), hud_text(&conchars)),
-                                (ScoreboardLine::Secrets, abs_node(8., 12.), hud_text(&conchars)),
-                                (ScoreboardLine::Time, abs_node(184., 4.), hud_text(&conchars)),
+                                (ScoreboardLine::Monsters, abs_node(8., 4.), ui_text(&conchars)),
+                                (ScoreboardLine::Secrets, abs_node(8., 12.), ui_text(&conchars)),
+                                (ScoreboardLine::Time, abs_node(184., 4.), ui_text(&conchars)),
                                 (
                                     ScoreboardLine::LevelName,
                                     abs_node(232., 12.),
-                                    hud_text(&conchars)
+                                    ui_text(&conchars)
                                 ),
                             ]
                         ),
@@ -746,7 +696,7 @@ where
                 display: Display::None,
                 ..Default::default()
             },
-            AtlasText { text: "+".into(), ..hud_text(&conchars) },
+            AtlasText { text: "+".into(), ..ui_text(&conchars) },
             ChildOf(root),
         ));
 
@@ -775,17 +725,17 @@ where
                     HudContainer::<HudIntermissionGroup>::new(root),
                     fill_node(Display::None),
                     children![
-                        (abs_rect(64., 24., 192., 24.), hud_image(gfx.complete.clone())),
-                        (abs_rect(0., 56., 160., 144.), hud_image(gfx.inter.clone())),
+                        (abs_rect(64., 24., 192., 24.), ui_image(gfx.complete.clone())),
+                        (abs_rect(0., 56., 160., 144.), ui_image(gfx.inter.clone())),
                         (OverlayNumber::Minutes, hud_number(160., 64., 3)),
-                        (abs_rect(234., 64., 16., NUM_SIZE), hud_image(gfx.colon.clone())),
+                        (abs_rect(234., 64., 16., NUM_SIZE), ui_image(gfx.colon.clone())),
                         (OverlayNumber::SecondsTens, hud_number(246., 64., 1)),
                         (OverlayNumber::SecondsUnits, hud_number(266., 64., 1)),
                         (OverlayNumber::Secrets, hud_number(160., 104., 3)),
-                        (abs_rect(232., 104., 16., NUM_SIZE), hud_image(gfx.slash.clone())),
+                        (abs_rect(232., 104., 16., NUM_SIZE), ui_image(gfx.slash.clone())),
                         (OverlayNumber::TotalSecrets, hud_number(240., 104., 3)),
                         (OverlayNumber::Monsters, hud_number(160., 144., 3)),
-                        (abs_rect(232., 144., 16., NUM_SIZE), hud_image(gfx.slash.clone())),
+                        (abs_rect(232., 144., 16., NUM_SIZE), ui_image(gfx.slash.clone())),
                         (OverlayNumber::TotalMonsters, hud_number(240., 144., 3)),
                     ]
                 ),
@@ -793,7 +743,7 @@ where
                     Name::new("finale"),
                     HudContainer::<HudFinaleGroup>::new(root),
                     fill_node(Display::None),
-                    children![(abs_rect(16., 16., 288., 24.), hud_image(gfx.finale.clone()))]
+                    children![(abs_rect(16., 16., 288., 24.), ui_image(gfx.finale.clone()))]
                 ),
             ],
         ));
@@ -889,7 +839,7 @@ mod systems {
             for (i, glyph) in glyphs.into_iter().enumerate() {
                 commands.spawn((
                     abs_rect(NUM_SIZE * (pad + i) as f32, 0., NUM_SIZE, NUM_SIZE),
-                    hud_image(gfx.num(glyph, number.alt)),
+                    ui_image(gfx.num(glyph, number.alt)),
                     HudNumberDigit(entity),
                     ChildOf(entity),
                 ));
@@ -1281,7 +1231,7 @@ mod observers {
                         ..Default::default()
                     },
                     HudForItem { representing: new_item },
-                    hud_image(item.gfx.clone()),
+                    ui_image(item.gfx.clone()),
                     ChildOf(*weapon_container),
                 ));
             }
@@ -1324,7 +1274,7 @@ mod observers {
 
         commands.spawn((
             abs_rect(48. * ammo.order as f32, 0., 3. * GLYPH_SIZE, GLYPH_SIZE),
-            hud_text(&conchars),
+            ui_text(&conchars),
             HudForItem { representing: new_ammo },
             ChildOf(*ammo_container),
         ));
