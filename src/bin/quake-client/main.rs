@@ -1,5 +1,7 @@
 #[cfg(feature = "dev-tools")]
 mod dev;
+#[cfg(feature = "embedded-librequake")]
+mod embedded;
 mod menu;
 
 use std::{path::PathBuf, process::ExitCode, time::Duration};
@@ -217,6 +219,8 @@ fn main() -> ExitCode {
     if let Err(e) = check_game_dirs(&base_dir, opt.game.as_deref()) {
         // Logging isn't set up until the app is built, so print directly.
         eprintln!("error: {e}");
+
+        #[cfg(not(feature = "embedded-librequake"))]
         return ExitCode::FAILURE;
     }
 
@@ -258,10 +262,21 @@ fn main() -> ExitCode {
         path: String,
     }
 
+    #[cfg(not(feature = "embedded-librequake"))]
+    let pakfiles = PakfilePlugin::from_paths(games);
+
+    #[cfg(feature = "embedded-librequake")]
+    let pakfiles = {
+        let mut plugin = PakfilePlugin::from_paths(games);
+        plugin.push_reader(|| Box::new(embedded::EmbeddedLibrequake) as _);
+
+        plugin
+    };
+
     app
         // TODO: Respect game dir.
         // TODO: Use `BEVY_ASSET_ROOT`
-        .add_plugins(PakfilePlugin::from_paths(games))
+        .add_plugins(pakfiles)
         .add_plugins(default_plugins)
         // TODO: These shouldn't be here, we should have `SeismonCorePlugin`
         .add_plugins(MdlPlugin::default())

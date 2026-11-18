@@ -109,6 +109,8 @@ serde.workspace = true
 snafu.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
+seismon-embedded-librequake = { optional = true, git = "https://github.com/eira-fransham/seismon-embedded-librequake.git" }
+
 arrayvec = "0.7"
 bevy_seedling = { git = "https://github.com/eswartz/bevy_seedling-fork.git", branch = "migrate-to-bevy-0.20", features = [
     "effects",
@@ -143,9 +145,8 @@ default-features = false
 features = ["client", "bsp"]
 
 [features]
-# Feels a bit backwards to do this, but otherwise we pull in tracing even
-# when we don't need to specify any features.
-default = []
+default = ["embedded-librequake"]
+embedded-librequake = ["dep:seismon-embedded-librequake"]
 fast-compile = ["bevy/dynamic_linking"]
 # `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
 color-shift = []

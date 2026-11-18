@@ -7147,6 +7147,7 @@ dependencies = [
  "pest_derive",
  "qbsp",
  "rand 0.9.5",
+ "seismon-embedded-librequake",
  "seismon-utils",
  "serde",
  "serde-lexpr",
@@ -7159,6 +7160,11 @@ dependencies = [
  "uuid",
  "wgpu",
 ]
+
+[[package]]
+name = "seismon-embedded-librequake"
+version = "0.1.0"
+source = "git+https://github.com/eira-fransham/seismon-embedded-librequake.git#5403754ba3e94666334e5b871a2ee745558d65f2"
 
 [[package]]
 name = "seismon-utils"
