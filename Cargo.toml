@@ -7,6 +7,7 @@ authors = [
 ]
 edition = "2024"
 resolver = "2"
+default-run = "quake-client"
 
 [workspace]
 members = [
