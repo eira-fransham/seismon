@@ -8,93 +8,68 @@
 
 Seismon is a Quake engine written in Rust, based on the [Bevy](https://bevyengine.org/) framework. It is extensible,
 written in a modern ECS style, has a modern deferred and pipelined rendering system, and includes a modern audio
-framework. The engine is built as a set of plugins, and much of the work could be extracted to work in other games,
-particularly the console system. Work to extract these pieces out is ongoing (see
-[#30](https://github.com/eira-fransham/seismon/issues/30)).
-
-Bevy has a lot of features related to rendering, audio and state management that in my [previous Quake-related project](https://github.com/eira-fransham/goeld)
-had to be implement manually - specifically, tonemapping/HDR and pipelined rendering. The audio system has also been completely
-overhauled, originally with a custom-written Bevy module but now the system has been switched over to use
-[`bevy_seedling`](https://github.com/CorvusPrudens/bevy_seedling/).
-
-Based on [Richter](https://github.com/cormac-obrien/richter) by Cormac O'Brien, and still shares a lot of its DNA. Seismon
-originally started as a quick weekend project to make Richter run on macOS, but I've now ended up spending months on it and
-the diff is something like +43,000, -26,000 LoC.
+framework. The engine is built as a set of plugins, and much of the work could be extracted to work in other games.
 
 To my knowledge, this is the first full from-scratch rewrite of Quake 1, i.e. not forked from the Quake 1 source code
 release.
 
 ![Preview of demo playback](content/preview.gif)
 
+### Installation
+
+```sh
+cargo install --frozen --git https://github.com/eira-fransham/seismon.git
+```
+
+### Running
+
+Run the original Quake or other total conversions such as LibreQuake:
+
+```sh
+seismon --base-dir /path/to/quake
+```
+
+Run a mod:
+
+```sh
+seismon --base-dir /path/to/quake --game xmenroa
+```
+
+Run some commands at startup:
+
+```sh
+seismon --base-dir /path/to/quake +skill 2 +map e1m1
+```
+
 ### Goals
 
-The ultimate goal is for the renderer, client-server interactions, server, input and console to be separate modules that can
-be mixed and matched without requiring all of them. As Quake already has a client-server model even in singleplayer games,
-once the client is its own separate system that only communicates with the server through regular networking methods it
-should be possible to write game logic in Rust (and therefore any scripting layer that integrates with Bevy, such as Lua)
-and still have regular Quake clients connect to it, instead of being restricted to QuakeC.
-
-These goals are partially completed, as the audio, rendering and input handling are already separate plugins, although
-there are still some remaining interdependence issues.
-
-The QuakeC interpreter is currently reasonably self-contained, but once the server is functional and all the relevant QuakeC functions
-are implemented I hope to move it to use `bevy_mod_scripting` and for the entity field storage to be done via the ECS. This
-will make it far easier to write Quake mods in languages other than QuakeC, such as Lua. The Quake networking protocol is
-fairly extensible and the client knows little about the server's game logic, so without the limitations of QuakeC it should
-be possible to implement fairly complex games while still letting the DOS version of Quake connect to your server.
+The goal of this engine is to have the most-extensible Quake engine in the world. While engines
+such as FTEQW are very powerful, they are still limited by the fact that any new features need
+to be special-cased and built into the engine. As Bevy is incredibly modular, the intention is
+to allow new features to be added easily by pulling in external Bevy crates. With
+`bevy_mod_scripting`, code in Lua can access the ECS, which even opens up the possibility of
+implementing builtins or new core engine features without recompiling the engine.
 
 ### Status
 
-The console and post-processing are done using regular Bevy primitives, with the console being rendered using `bevy-ui`.
-The world and client updates are still handled with a centralised struct instead of components, making it impossible for
-regular systems to interact with it. The console and keybinding system has been updated to be much more extensible, and
-command implementations are just regular systems which can access any resource or component. All rendering is done through
-the Bevy rendergraph, although the rendering code itself is still mostly written by hand using wgpu, albeit in a much more
-extensible way than the original Richter implementation.
-
-Audio is done using `bevy_seedling`, a modern audiograph-based audio system replacing Bevy's default. This lets us apply
-effects to the audio, and while it is relatively simple for now it should allow for some more advanced features later.
-
-Hosting a listen server is currently working to a reasonable degree, in that the game is playable. There are plenty of
-bugs and instances of weird behaviour, but previously the player would just fall through the world and enemies would run
-away instead of trying to reach you, so this is a huge improvement. Here's a video of playing the game on `e1m1.bsp`
-(excuse the awful gameplay, I was playing on a trackpad):
+The game boots and can be played normally. Demos will play at startup, and you can open the
+menu and start a new single-player game. Entering gates to transition between levels, as well
+as the intermission screen at the end of levels, is fully implemented. I have yet to do a
+full playthrough of the game, but I've played far enough to feel reasonably confident that
+a full playthrough could be possible.
 
 #### Click here for a preview video:
 
 [![Preview of running server](https://img.youtube.com/vi/cYRXDSovfwI/0.jpg)](https://www.youtube.com/watch?v=cYRXDSovfwI)
 
-Networking is untested since beginning the rewrite, and I've been only using demos as a testcase. It is a priority to get this
-working again once the client update code is ported to use the ECS. I haven't touched most of the networking code, so in
-theory it should still work or only require minor changes. The main issue is that the very old version of the protocol
-implemented by Richter is not used by any servers I could find - hopefully soon I can implement protocol 666 (FitzQuake's
-protocol version) which will rectify this issue.
-
-I've implemented mod support outside of the original `id1` directory, and so far all the mods that are designed to work with the
-original Quake release work. I have tried Hipnotic, Rogue, Soul of Evil, Xmen: Ravages of Apocalypse, MALICE (all the cutscenes
-work but some of the regular levels have strange issues where entities are displayed with the wrong models), Omen, and Alien Quake.
-Playing demos from all of these mods work.
-
-A host of bugs and limitations from the original Richter were fixed. Inputs are no longer handled by an enum and you can
-define your own arbitrary `+action`/`-action` commands which can be bound, and arbitrary cvars which can have a system
-attached which will run when the cvar is changed. Commands are also implemented as systems, and so can have access to global
-state.
+The console works much the same as the original game. You can run commands such as `map`,
+explicitly invoke actions such as `+mlook`, set cvars like `sensitivity 2`, and bind
+keys like `bind space +jump`. You can see the documentation for a command, action or
+cvar with `help somecommand`.
 
 ### Help needed
 
 See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-up-to-date list of what needs help implementing.
-
-### Running
-
-```bash
-cd /path/to/quake
-# To run Quake 1 (id1 folder)
-cargo run --release --bin quake-client -- --base-dir /path/to/quake
-# To run other games
-cargo run --release --bin quake-client -- --base-dir /path/to/quake --game [GAME_NAME]
-# To run extra commands on startup
-cargo run --release --bin quake-client -- --base-dir /path/to/quake +map e1m1
-```
 
 #### Feature checklist
 
@@ -147,7 +122,7 @@ cargo run --release --bin quake-client -- --base-dir /path/to/quake +map e1m1
   - [ ] Use `hanabi` for particles
   - [x] Use `bevy-ui` for UI
   - [x] Use standard Bevy rendering for the world/models
-  - [ ] Use `bevy_mod_scripting` for the QuakeC (partially completed)
+  - [x] Use `bevy_mod_scripting` for the QuakeC
   - [ ] Support for rollback netcode using `matchbox`
   - [ ] Integrate an optional physics engine
 - Sound
