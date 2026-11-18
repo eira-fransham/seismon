@@ -1787,7 +1787,10 @@ pub mod systems {
                     continue;
                 }
 
-                if !ctx.is_networked(entity) {
+                // Like `SV_WriteEntitiesToClient`, the client's own entity is always sent, even
+                // without a model (e.g. during intermission, where QuakeC sets `modelindex = 0`
+                // and moves the player to the intermission spot in the same frame).
+                if !ctx.is_networked(entity) && entity != client_entity {
                     continue;
                 };
 

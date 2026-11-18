@@ -9,7 +9,10 @@ use seismon_utils::{QAngles, duration_to_f32, write_if_neq};
 use serde::Deserialize;
 
 use crate::{
-    client::{Connection, inventory::FaceAnim, state::ViewModel, systems::frame::ViewEntities},
+    client::{
+        Connection, hud::HudIntermission, inventory::FaceAnim, state::ViewModel,
+        systems::frame::ViewEntities,
+    },
     common::net::DEFAULT_VIEWHEIGHT,
 };
 
@@ -135,6 +138,7 @@ pub fn kick_factor(dmg_time: f32, kick_time: f32) -> f32 {
 pub fn apply_view_effects(
     time: Res<Time<Virtual>>,
     registry: Res<Registry>,
+    intermission: Res<HudIntermission>,
     mut views: Query<(&Transform, &mut ViewEffects, &ViewEntities)>,
     mut cameras: Query<
         (&mut Transform, &ViewBase),
@@ -143,6 +147,37 @@ pub fn apply_view_effects(
     mut viewmodels: Query<(&mut Transform, &ViewBase), (With<ViewModel>, Without<ViewEffects>)>,
 ) {
     if views.is_empty() {
+        return;
+    }
+
+    // Port of `V_CalcIntermissionRefdef`: the view is exactly at the view entity's origin and
+    // angles, with only the idle sway (at `v_idlescale 1`) applied. The viewmodel is hidden by
+    // `ClientState::update_player`.
+    if intermission.0.is_some() {
+        let idle_vars = match registry.read_cvars::<IdleVars>() {
+            Ok(vars) => vars,
+            Err(e) => {
+                error!("Could not read idle cvars: {e}");
+                return;
+            }
+        };
+        let idle = idle_angles(time.elapsed(), idle_vars, 1.);
+
+        for (view_transform, _, view_entities) in &views {
+            let look = view_transform.rotation;
+            let swayed: Quat = (QAngles::from(look) + idle).into();
+            for child in view_entities.iter() {
+                if let Ok((mut transform, base)) = cameras.get_mut(child) {
+                    let new = Transform {
+                        translation: base.0.translation - Vec3::Z * DEFAULT_VIEWHEIGHT,
+                        rotation: look.inverse() * swayed * base.0.rotation,
+                        scale: base.0.scale,
+                    };
+                    write_if_neq!(*transform, new);
+                }
+            }
+        }
+
         return;
     }
 
@@ -285,6 +320,26 @@ pub fn roll(view_rotation: Quat, velocity: Vec3, vars: RollVars) -> f32 {
     roll_abs * sign
 }
 
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct IdleVars {
+    pub v_iyaw_cycle: f32,
+    pub v_iroll_cycle: f32,
+    pub v_ipitch_cycle: f32,
+    pub v_iyaw_level: f32,
+    pub v_iroll_level: f32,
+    pub v_ipitch_level: f32,
+}
+
+/// Port of `V_AddIdle`: the slow view sway, scaled by `v_idlescale`.
+pub fn idle_angles(time: Duration, vars: IdleVars, scale: f32) -> QAngles {
+    let time = duration_to_f32(time);
+    QAngles {
+        roll_deg: scale * (time * vars.v_iroll_cycle).sin() * vars.v_iroll_level,
+        pitch_deg: scale * (time * vars.v_ipitch_cycle).sin() * vars.v_ipitch_level,
+        yaw_deg: scale * (time * vars.v_iyaw_cycle).sin() * vars.v_iyaw_level,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +347,32 @@ mod tests {
     const BOB: BobVars = BobVars { cl_bob: 0.02, cl_bobcycle: 0.6, cl_bobup: 0.5 };
     const ROLL: RollVars = RollVars { cl_rollangle: 2.0, cl_rollspeed: 200.0 };
     const KICK: KickVars = KickVars { kick_pitch: 0.6, kick_roll: 0.6, kick_time: 0.5 };
+    const IDLE: IdleVars = IdleVars {
+        v_iyaw_cycle: 2.,
+        v_iroll_cycle: 0.5,
+        v_ipitch_cycle: 1.,
+        v_iyaw_level: 0.3,
+        v_iroll_level: 0.1,
+        v_ipitch_level: 0.3,
+    };
+
+    #[test]
+    fn idle_is_bounded_and_scaled() {
+        for i in 0..1000 {
+            let time = Duration::from_millis(i * 13);
+            let zero = idle_angles(time, IDLE, 0.);
+            assert_eq!([zero.pitch_deg, zero.yaw_deg, zero.roll_deg], [0.; 3]);
+
+            let a = idle_angles(time, IDLE, 1.);
+            assert!(a.pitch_deg.abs() <= IDLE.v_ipitch_level + 1e-6);
+            assert!(a.yaw_deg.abs() <= IDLE.v_iyaw_level + 1e-6);
+            assert!(a.roll_deg.abs() <= IDLE.v_iroll_level + 1e-6);
+        }
+
+        // `sin(t * cycle) * level`: a quarter period in, pitch is at its peak.
+        let peak = idle_angles(Duration::from_secs_f32(PI / 2.), IDLE, 1.);
+        assert!((peak.pitch_deg - IDLE.v_ipitch_level).abs() < 1e-5);
+    }
 
     #[test]
     fn bob_is_bounded_and_zero_when_still() {

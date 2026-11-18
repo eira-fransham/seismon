@@ -955,6 +955,7 @@ mod systems {
         frame_time: Res<Time<Virtual>>,
         mut client_events: MessageWriter<ClientMessage>,
         mut impulses: MessageReader<Impulse>,
+        intermission: Res<HudIntermission>,
     ) -> Result<(), ClientError> {
         fn handle_input(
             registry: &Registry,
@@ -1012,7 +1013,7 @@ mod systems {
                     Ok(mouse_move) => {
                         let mouse_move = mouse_move * Vec2::new(yaw_factor, pitch_factor);
                         look_angles.yaw_deg -= mouse_move.x;
-                        look_angles.pitch_deg -= mouse_move.y;
+                        look_angles.pitch_deg += mouse_move.y;
 
                         look_angles.yaw_deg %= 360.;
                         look_angles.pitch_deg = look_angles.pitch_deg.clamp(-90., 90.);
@@ -1054,8 +1055,13 @@ mod systems {
 
         let mut dummy_look_angles = QAngles::default();
 
-        let look_angles =
-            client_state.as_mut().map(|s| &mut s.look_angles).unwrap_or(&mut dummy_look_angles);
+        // During intermission the view is fixed to the angles the server set (vanilla ignores
+        // `cl.viewangles` in `V_CalcIntermissionRefdef`), so mouse-look must not move it. Moves
+        // are still sent, as the buttons are used to leave the intermission.
+        let look_angles = match client_state.as_mut() {
+            Some(state) if intermission.0.is_none() => &mut state.look_angles,
+            _ => &mut dummy_look_angles,
+        };
 
         let Some(move_cmd) = handle_input(
             &registry,
@@ -1100,7 +1106,10 @@ mod systems {
         };
 
         if let Ok(mut transform) = transforms.get_mut(view) {
-            transform.rotation = state.look_angles.into();
+            let QAngles { pitch_deg, yaw_deg, roll_deg } = state.look_angles;
+            let angles: QAngles = [-pitch_deg, yaw_deg, roll_deg].into();
+
+            transform.rotation = angles.into();
         }
     }
 

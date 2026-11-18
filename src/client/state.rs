@@ -4,6 +4,7 @@ use std::{iter, mem};
 use crate::{
     client::{
         ClientError, Connection, InvalidConnectResponseSnafu, OVERLAY_RENDER_LAYER,
+        hud::HudIntermission,
         interpolation::{Next, NoInterpolation},
         inventory::{Armor, CurrentAmmo, Health},
         post_process::{ColorShift, Powerup},
@@ -209,9 +210,16 @@ impl ClientState {
 
     pub fn drain_dead_entities(&mut self) -> impl Iterator<Item = Entity> {
         let keepalive = mem::take(&mut self.frame_keepalive);
+        let view = self.view;
 
+        // The view entity is never disabled: like `cl_entities[cl.viewentity]` in Quake its state
+        // (and the camera parented to it) must persist even if the server stops sending it.
         self.server_entity_to_client_entity.iter().filter_map(move |(k, v)| {
-            if *keepalive.get(*k as usize).as_deref().unwrap_or(&false) { None } else { Some(*v) }
+            if Some(*k) == view || *keepalive.get(*k as usize).as_deref().unwrap_or(&false) {
+                None
+            } else {
+                Some(*v)
+            }
         })
     }
 
@@ -313,6 +321,7 @@ impl ClientState {
     }
 
     /// Sets the entity represented by the server-side `ent_id` to be the current player.
+    #[expect(clippy::too_many_arguments)]
     pub fn update_player(
         In(player_data): In<PlayerData>,
         conn: Res<Connection>,
@@ -325,6 +334,7 @@ impl ClientState {
             With<ViewModel>,
         >,
         mut view_effects: Query<&mut ViewEffects>,
+        intermission: Res<HudIntermission>,
         mut commands: Commands<'_, '_>,
     ) {
         use crate::client::inventory::{
@@ -375,18 +385,20 @@ impl ClientState {
         }
 
         // A missing weapon model (or index 0) means "no viewmodel", and vanilla also doesn't draw
-        // the viewmodel while dead (`R_DrawViewModel`).
+        // the viewmodel while dead (`R_DrawViewModel`) or during intermission
+        // (`V_CalcIntermissionRefdef`).
         let weapon_model = player_data.weapon_model_id.filter(|&id| id != 0).and_then(|id| {
             match state.models.get(id as usize) {
                 Some(PrecacheModel::Loaded(model)) => Some(model.clone()),
                 _ => None,
             }
         });
-        let viewmodel_visibility = if weapon_model.is_some() && player_data.health > 0 {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+        let viewmodel_visibility =
+            if weapon_model.is_some() && player_data.health > 0 && intermission.0.is_none() {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
 
         if let Some(existing) = view_entities
             .get(ent)
@@ -544,6 +556,9 @@ impl ClientState {
         };
 
         if let Ok(mut transform) = transforms.get_mut(*entity) {
+            let QAngles { pitch_deg, yaw_deg, roll_deg } = angles;
+            let angles: QAngles = [-pitch_deg, yaw_deg, roll_deg].into();
+
             transform.component.rotation = angles.into();
             transform.elapsed_secs = msg_time;
         }
