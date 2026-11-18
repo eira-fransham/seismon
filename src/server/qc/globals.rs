@@ -6,8 +6,9 @@ use bevy::prelude::*;
 use bevy_mod_scripting_qcvm::qcvm::strum::VariantArray as _;
 use bevy_mod_scripting_qcvm::{
     QCFunction, QCString, QCVmContext,
-    qcvm::{self, Address as _, Type, quake1::globals::GlobalAddr},
+    qcvm::{self, Address as _, Type},
 };
+use qcvm_defs_quake1::GlobalAddr;
 use hashbrown::HashMap;
 
 use crate::server::{

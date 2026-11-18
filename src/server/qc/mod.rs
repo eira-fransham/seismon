@@ -23,17 +23,14 @@ use bevy_mod_scripting::{
 };
 use bevy_mod_scripting_qcvm::{
     QCEntity, QCField, QCFunction, QCString, QCVmContext, QCWorldspawn,
-    qcvm::{
-        FunctionRef, MissingArguments, Type, VmOptions,
-        quake1::{BuiltinAddr, fields::FieldAddr, globals::GlobalAddr},
-    },
+    qcvm::{FunctionRef, MissingArguments, Type, VmOptions},
 };
+use qcvm_defs_quake1::Quake1;
 
 use self::fields::{FieldError, QcTables, QcValue};
 use super::error::ServerError;
 
-pub type QCScriptingPlugin =
-    bevy_mod_scripting_qcvm::QCScriptingPlugin<GlobalAddr, FieldAddr, BuiltinAddr>;
+pub type QCScriptingPlugin = bevy_mod_scripting_qcvm::QCScriptingPlugin<Quake1>;
 
 /// The VM for the current level.
 #[derive(Resource, Clone, Debug)]
@@ -61,7 +58,7 @@ pub fn call(world: &mut World, function: impl Into<FunctionRef>) -> Result<(), S
     }
 
     let vm = world.resource::<LevelVm>().0.clone();
-    vm.call_with_world::<GlobalAddr, FieldAddr, BuiltinAddr, ()>(world, function, ())?;
+    vm.call_with_world::<Quake1, ()>(world, function, ())?;
 
     Ok(())
 }
