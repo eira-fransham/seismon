@@ -208,7 +208,7 @@ pub struct Client {
     // TODO: Implement `color`.
     #[expect(dead_code)]
     color: u8,
-    state: ClientState,
+    state: ClientSlotState,
     spawn_params: [f32; NUM_SPAWN_PARAMS],
 }
 
@@ -217,7 +217,7 @@ impl Default for Client {
         Self {
             name: "player".into(),
             color: 0,
-            state: ClientState::Connecting,
+            state: ClientSlotState::Connecting,
             spawn_params: [0.; NUM_SPAWN_PARAMS],
         }
     }
@@ -226,7 +226,7 @@ impl Default for Client {
 impl Client {
     pub fn entity(&self) -> Option<Entity> {
         match &self.state {
-            ClientState::Active(active) => Some(active.entity),
+            ClientSlotState::Active(active) => Some(active.entity),
             _ => None,
         }
     }
@@ -234,7 +234,7 @@ impl Client {
 
 #[derive(Debug)]
 /// The state of a client's connection to the server.
-pub enum ClientState {
+pub enum ClientSlotState {
     /// The client is still connecting.
     Connecting,
 
@@ -289,7 +289,7 @@ impl ClientSlots {
 
     pub fn active_clients(&self) -> impl Iterator<Item = (usize, &ClientActive)> + '_ {
         self.connected_clients().filter_map(|i| {
-            if let Some(ClientState::Active(active)) = self.get(i).map(|c| &c.state) {
+            if let Some(ClientSlotState::Active(active)) = self.get(i).map(|c| &c.state) {
                 Some((i, active))
             } else {
                 None
@@ -299,7 +299,7 @@ impl ClientSlots {
 
     pub fn active_clients_mut(&mut self) -> impl Iterator<Item = (usize, &mut ClientActive)> + '_ {
         self.slots.iter_mut().enumerate().filter_map(|(i, client)| {
-            if let Some(ClientState::Active(active)) = client.as_mut().map(|c| &mut c.state) {
+            if let Some(ClientSlotState::Active(active)) = client.as_mut().map(|c| &mut c.state) {
                 Some((i, active))
             } else {
                 None
@@ -1176,7 +1176,7 @@ impl ServerCtx<'_> {
             };
 
             // TODO: All players are currently privileged
-            client.state = ClientState::Active(ClientActive {
+            client.state = ClientSlotState::Active(ClientActive {
                 _privileged: true,
                 entity: client_entity,
                 sent_baseline: BitVec::repeat(false, qc::edict::MAX_ENTITIES),
@@ -1306,7 +1306,7 @@ impl ServerCtx<'_> {
 
         let entity = {
             let mut session = self.session_mut();
-            let Some(Client { state: ClientState::Active(active), .. }) =
+            let Some(Client { state: ClientSlotState::Active(active), .. }) =
                 session.persist.client_mut(client_id)
             else {
                 return Ok(());
@@ -1549,7 +1549,7 @@ pub mod systems {
         // Carried-over clients have to sign on again: their entities belonged to the old level.
         for slot in persist.client_slots.connected_clients().collect::<Vec<_>>() {
             if let Some(client) = persist.client_mut(slot) {
-                client.state = ClientState::Connecting;
+                client.state = ClientSlotState::Connecting;
             }
         }
 
@@ -1737,7 +1737,7 @@ pub mod systems {
 
             let (client_entity, mut sent_baseline) = {
                 let mut session = world.resource_mut::<Session>();
-                let Some(Client { state: ClientState::Active(client), .. }) =
+                let Some(Client { state: ClientSlotState::Active(client), .. }) =
                     session.persist.client_mut(client_id)
                 else {
                     continue;
@@ -1813,7 +1813,7 @@ pub mod systems {
             // broadcasted events related to those entities
             packet.extend_from_slice(&ctx.level().broadcast);
 
-            if let Some(Client { state: ClientState::Active(client), .. }) =
+            if let Some(Client { state: ClientSlotState::Active(client), .. }) =
                 world.resource_mut::<Session>().persist.client_mut(client_id)
             {
                 client.sent_baseline = sent_baseline;

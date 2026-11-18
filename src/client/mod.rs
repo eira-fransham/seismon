@@ -1,7 +1,6 @@
 pub mod commands;
 mod cvars;
 pub mod demo;
-pub mod entity;
 mod hud;
 pub mod input;
 mod interpolation;
@@ -33,7 +32,6 @@ use std::{
 use crate::{
     client::{
         demo::{Demo, DemoError, DemoLoader, DemoServer},
-        entity::ClientEntity,
         hud::{HudIntermission, HudPlugin, IntermissionState, LevelStats},
         interpolation::InterpolateApp,
         inventory::InventoryPlugin,

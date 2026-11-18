@@ -76,7 +76,6 @@ pub struct PlayerInfo {
     pub name: QString,
     pub frags: i32,
     pub colors: PlayerColor,
-    // translations: [u8; VID_GRADES],
 }
 
 #[derive(Clone)]
