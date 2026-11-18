@@ -6,6 +6,7 @@ use seismon_utils::QString;
 
 use crate::client::{
     hud::MakeHud,
+    particles::ParticleEvent,
     state::PrecacheModel,
     systems::frame::{ViewEntities, ViewFor},
 };
@@ -264,6 +265,19 @@ impl ServerMsgCtx<'_, '_> {
 
         if let Some(PrecacheModel::Loaded(model)) = state.models.get(model_id as usize).cloned() {
             ent.insert(WorldAssetRoot(model));
+        }
+    }
+
+    /// `svc_particle`.
+    pub fn particle(&mut self, origin: Vec3, direction: Vec3, count: u8, color: u8) {
+        self.commands
+            .write_message(ParticleEvent::from_particle_cmd(origin, direction, count, color));
+    }
+
+    /// `svc_temp_entity`. Only the particles are handled so far: no beams, sounds or lights.
+    pub fn temp_entity(&mut self, temp_entity: &net::TempEntity) {
+        if let Some(event) = ParticleEvent::from_temp_entity(temp_entity) {
+            self.commands.write_message(event);
         }
     }
 

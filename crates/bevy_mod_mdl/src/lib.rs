@@ -48,6 +48,14 @@ impl Plugin for MdlPlugin {
             .init_asset::<AnimMeshes>()
             .register_type::<MdlSettings>()
             .register_type::<MeshAnimPlayer>()
+            .register_type::<MdlFlagRocket>()
+            .register_type::<MdlFlagGrenade>()
+            .register_type::<MdlFlagGib>()
+            .register_type::<MdlFlagRotate>()
+            .register_type::<MdlFlagTracer>()
+            .register_type::<MdlFlagZomgib>()
+            .register_type::<MdlFlagTracer2>()
+            .register_type::<MdlFlagTracer3>()
             .register_asset_loader(MdlLoader::default())
             .add_systems(
                 PostUpdate,
@@ -101,20 +109,28 @@ pub enum MdlFileError {
 // TODO: Use `DynamicComponent` so libraries can define their own flags.
 
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagRocket;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagGrenade;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagGib;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagRotate;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagTracer;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagZomgib;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagTracer2;
 #[derive(Component, Default, Reflect, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[reflect(Component)]
 pub struct MdlFlagTracer3;
 
 #[derive(Reflect, Hash, Clone, PartialEq, Eq)]
@@ -528,17 +544,30 @@ async fn load_mdl_as_scene(
     let mut world = World::new();
 
     let lightmap = mdl.lightmap.clone();
+    let flags = mdl.flags.clone();
 
     let mdl = load_context.add_labeled_asset("mdldata".to_owned(), mdl);
 
-    world.spawn((
-        transform,
-        CalculatedMdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
-        Lightmap { image: lightmap, uv_rect: Rect::new(0., 0., 1., 1.), bicubic_sampling: false },
-        anim_player,
-        texture,
-        mesh,
-    ));
+    let root = world
+        .spawn((
+            transform,
+            CalculatedMdlSettings { frame: 0, skin: 0, mdl, cur_animation: 0, cur_skin: 0 },
+            Lightmap {
+                image: lightmap,
+                uv_rect: Rect::new(0., 0., 1., 1.),
+                bicubic_sampling: false,
+            },
+            anim_player,
+            texture,
+            mesh,
+        ))
+        .id();
+
+    // Expose the model flags (trails, rotation) as marker components on the model's root entity,
+    // which is a direct child of the entity the model is attached to.
+    for flag in flags {
+        flag.apply(world.entity_mut(root));
+    }
 
     Ok(WorldAsset { world })
 }

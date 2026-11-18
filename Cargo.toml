@@ -57,6 +57,7 @@ bevy_shape = { version = "0.20" }
 
 anyhow = "1.0"
 beef = "0.5"
+bevy_hanabi = { version = "0.20", default-features = false, features = ["3d"] }
 bevy_materialize = "0.12"
 bevy_mod_scripting = { version = "0.24", default-features = false }
 bevy_mod_billboard = { git = "https://github.com/eira-fransham/bevy_mod_billboard.git", branch = "bevy-0.20" }
@@ -94,6 +95,7 @@ lined.workspace = true
 bevy_dev_tools = { workspace = true, optional = true }
 bevy.workspace = true
 bevy_mod_billboard.workspace = true
+bevy_hanabi.workspace = true
 beef.workspace = true
 bitflags.workspace = true
 byteorder.workspace = true

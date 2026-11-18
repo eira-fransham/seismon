@@ -8,6 +8,7 @@ mod interpolation;
 mod inventory;
 mod loading_screen;
 pub mod menu;
+pub mod particles;
 mod post_process;
 mod server_msg;
 pub mod sound;
@@ -341,6 +342,7 @@ where
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
             .add_plugins(InventoryPlugin::default())
+            .add_plugins(particles::ParticlesPlugin)
             .add_plugins(
                 TrenchBroomPlugins(Default::default())
                     .build()
@@ -1428,8 +1430,10 @@ mod systems {
                     }
 
                     ServerCmd::LightStyle { .. } => msg_todo!("lightstyle"),
-                    ServerCmd::Particle { .. } => msg_todo!("particle"),
-                    ServerCmd::TempEntity { temp_entity: _ } => msg_todo!("temp entity"),
+                    ServerCmd::Particle { origin, direction, count, color } => {
+                        ctx.particle(origin, direction, count, color)
+                    }
+                    ServerCmd::TempEntity { temp_entity } => ctx.temp_entity(&temp_entity),
                     ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
                         msg_todo!("update colors")
                     }
