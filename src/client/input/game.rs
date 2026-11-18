@@ -456,6 +456,7 @@ impl GameInput {
         self.bind("S", "+back").unwrap();
         self.bind("D", "+moveright").unwrap();
         self.bind("SPACE", "+jump").unwrap();
+        self.bind("C", "+movedown").unwrap();
         self.bind("UPARROW", "+lookup").unwrap();
         self.bind("LEFTARROW", "+left").unwrap();
         self.bind("DOWNARROW", "+lookdown").unwrap();

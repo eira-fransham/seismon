@@ -41,7 +41,7 @@ use crate::{
     },
     server::{
         error::ServerError,
-        math::angle_vectors,
+        math::{AngleVectors, angle_vectors},
         qc::{
             edict::{Edict, EdictTable},
             fields::{
@@ -459,6 +459,83 @@ pub fn accelerate(vel: Vec3, wish_dir: Vec3, wish_speed: f32, accel_speed: f32) 
     vel + accel_speed.min(add_speed) * wish_dir
 }
 
+/// Slows a player who is running into a wall, depending on how directly they are facing it.
+///
+/// `forward` is the player's view direction and `wall_normal` faces out of the wall. The
+/// component of the velocity into the wall is removed, and the rest of the horizontal velocity is
+/// scaled down the more directly the player faces the wall. Vertical velocity is unchanged.
+///
+/// Equivalent to `SV_WallFriction`.
+pub fn wall_friction(velocity: Vec3, forward: Vec3, wall_normal: Vec3) -> Vec3 {
+    let d = wall_normal.dot(forward) + 0.5;
+    if d >= 0. {
+        return velocity;
+    }
+
+    let side = velocity - wall_normal * wall_normal.dot(velocity);
+    (side.xy() * (1. + d)).extend(velocity.z)
+}
+
+/// Calculates a swimming player's new velocity.
+///
+/// Swimming follows the full view direction (`view`, from `v_angle`), and `cmd.up` moves straight
+/// up or down. With no input at all the player slowly sinks.
+///
+/// Equivalent to `SV_WaterMove`.
+pub fn water_move(
+    velocity: Vec3,
+    view: &AngleVectors,
+    cmd: &MoveCmd,
+    max_speed: f32,
+    friction: f32,
+    accel: f32,
+    dt: f32,
+) -> Vec3 {
+    /// How fast a player with no input tries to sink.
+    const DRIFT_SPEED: f32 = 60.;
+    /// Swimming is slower than walking by this factor.
+    const SWIM_SPEED_SCALE: f32 = 0.7;
+
+    let mut wish_vel = view.forward * cmd.forward + view.right * cmd.side;
+    if cmd.forward == 0. && cmd.side == 0. && cmd.up == 0. {
+        wish_vel.z -= DRIFT_SPEED;
+    } else {
+        wish_vel.z += cmd.up;
+    }
+
+    let mut wish_speed = wish_vel.length();
+    if wish_speed > max_speed {
+        wish_vel *= max_speed / wish_speed;
+        wish_speed = max_speed;
+    }
+    wish_speed *= SWIM_SPEED_SCALE;
+
+    // Water friction, which unlike ground friction is in 3D and has no stop speed.
+    let speed = velocity.length();
+    let (mut velocity, new_speed) = if speed != 0. {
+        let new_speed = (speed - dt * speed * friction).max(0.);
+        (velocity * (new_speed / speed), new_speed)
+    } else {
+        (velocity, 0.)
+    };
+
+    // Water acceleration. Unlike `accelerate`, this compares against the whole speed rather than
+    // the speed in the wished-for direction.
+    if wish_speed == 0. {
+        return velocity;
+    }
+
+    let add_speed = wish_speed - new_speed;
+    if add_speed <= 0. {
+        return velocity;
+    }
+
+    let accel_speed = (accel * wish_speed * dt).min(add_speed);
+    velocity += accel_speed * wish_vel.normalize_or_zero();
+
+    velocity
+}
+
 /// Calculates how far to roll the player model during a strafe.
 ///
 /// Equivalent to `V_CalcRoll`
@@ -526,17 +603,11 @@ pub struct PlayerVars {
     stop_speed: f32,
     #[serde(rename(deserialize = "sv_accelerate"))]
     accel: f32,
-    // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
-    #[serde(rename(deserialize = "sv_wateraccelerate"))]
-    water_accel: f32,
     #[serde(rename(deserialize = "sv_friction"))]
     ground_friction: f32,
     /// Multiplier for `ground_friction` when the player is about to walk off an edge.
     #[serde(rename(deserialize = "edgefriction"))]
     edge_friction: f32,
-    // TODO: Used by `SV_WaterMove`, which isn't implemented yet.
-    #[serde(rename(deserialize = "sv_waterfriction"))]
-    water_friction: f32,
 }
 
 /// Returns the factor to scale a player's velocity by after applying `friction` for `dt` seconds
@@ -1783,6 +1854,60 @@ mod tests {
 
         // Stationary (should have friction scale of 1).
         assert_approx_eq(super::friction_scale(0., 4., 100., TICK_RATE), 1.);
+    }
+
+    fn assert_approx_eq_v3(a: Vec3, b: Vec3) {
+        assert!(a.abs_diff_eq(b, 1e-3), "{a} != {b}");
+    }
+
+    #[test]
+    fn wall_friction_matches_quake() {
+        // The wall faces +x, so the player is on its +x side.
+        let normal = Vec3::X;
+        let velocity = Vec3::new(-100., 200., -50.);
+
+        // Facing straight into the wall: d = -1 + 0.5. The into-wall part is removed and the
+        // horizontal speed along the wall is halved, but falling speed is unchanged.
+        let into_wall = super::wall_friction(velocity, -Vec3::X, normal);
+        assert_approx_eq_v3(into_wall, Vec3::new(0., 100., -50.));
+
+        // Facing mostly along the wall (d = -0.4 + 0.5 >= 0), so there is no extra friction.
+        let along = Vec3::new(-0.4, 0.84f32.sqrt(), 0.);
+        assert_eq!(super::wall_friction(velocity, along, normal), velocity);
+    }
+
+    #[test]
+    fn water_move_matches_quake() {
+        const MAX_SPEED: f32 = 320.;
+        const FRICTION: f32 = 4.;
+        const ACCEL: f32 = 10.;
+
+        // Looking straight up.
+        let view = AngleVectors { forward: Vec3::Z, right: Vec3::X, up: -Vec3::Y };
+        let swim = |velocity, forward, up| {
+            let cmd = MoveCmd { forward, side: 0., up };
+            super::water_move(velocity, &view, &cmd, MAX_SPEED, FRICTION, ACCEL, TICK_RATE)
+        };
+
+        // With no input, sink: wishspeed = 60 * 0.7 = 42, so accelerate by 10 * 42 * 0.05 = 21.
+        assert_approx_eq_v3(swim(Vec3::ZERO, 0., 0.), Vec3::new(0., 0., -21.));
+
+        // Swimming up with `upmove`: wishspeed = 200 * 0.7 = 140, accelerating by 70.
+        assert_approx_eq_v3(swim(Vec3::ZERO, 0., 200.), Vec3::new(0., 0., 70.));
+
+        // Swimming forward follows the view, which here is straight up.
+        assert_approx_eq_v3(swim(Vec3::ZERO, 200., 0.), Vec3::new(0., 0., 70.));
+
+        // Friction is applied to the whole speed, and the result (256) is already above the
+        // wished-for speed (42), so there is no acceleration: 320 - 0.05 * 320 * 4 = 256.
+        assert_approx_eq_v3(swim(Vec3::X * 320., 0., 0.), Vec3::X * 256.);
+
+        // Holding forward faster than `sv_maxspeed` settles at 0.7 * `sv_maxspeed`.
+        let mut velocity = Vec3::ZERO;
+        for _ in 0..200 {
+            velocity = swim(velocity, 400., 0.);
+        }
+        assert_approx_eq_v3(velocity, Vec3::Z * 0.7 * MAX_SPEED);
     }
 
     #[test]

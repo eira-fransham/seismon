@@ -347,6 +347,9 @@ impl ServerCtx<'_> {
         self.push_entity(ent_id, upmove)?;
 
         let mut clip = self.physics_player_fly(ent_id, frame_time)?;
+        // The wall hit by the stepped-up move. `SV_TryUnstick` uses its own trace, so this is
+        // kept even if it replaces `clip`.
+        let step_trace = clip.metadata.take();
 
         let post_step_origin = self.phys(ent_id)?.origin;
         let post_clip_move = (post_step_origin - old_origin).xy().abs();
@@ -357,8 +360,15 @@ impl ServerCtx<'_> {
             clip = self.try_unstick(ent_id, old_velocity)?;
         }
 
-        if clip.wall_or_step {
-            error!("TODO: SV_WallFriction");
+        // Extra friction based on the view angle.
+        if clip.wall_or_step
+            && let Some(wall) = step_trace.as_ref().and_then(Trace::plane)
+        {
+            let forward = angle_vectors(self.player(ent_id)?.v_angle).forward;
+            let mut ent = self.phys_mut(ent_id)?;
+            // Our trace planes face into the solid, but Quake's face out of it.
+            let velocity = super::wall_friction(ent.velocity, forward, -wall.normal());
+            ent.set_velocity(velocity);
         }
 
         let (downtrace, down_ent) = self.push_entity(ent_id, downmove)?;
@@ -780,7 +790,9 @@ impl ServerCtx<'_> {
         }
 
         // Show the player model with 1/3 of the view pitch, and roll it when strafing.
-        let v_angle = player.v_angle + player.punchangle;
+        // Swimming uses the view angle without the view kick.
+        let swim_angle = player.v_angle;
+        let v_angle = swim_angle + player.punchangle;
         let fix_angle = player.fixangle != 0.;
         let move_dir = self.ai(ent_id)?.movedir;
         let teleport_time = self.player(ent_id)?.teleport_time;
@@ -809,7 +821,16 @@ impl ServerCtx<'_> {
         }
 
         if ent.waterlevel >= 2. && move_kind != MoveKind::NoClip {
-            warn_once!("TODO: SV_WaterMove");
+            let velocity = super::water_move(
+                ent.velocity,
+                &angle_vectors(swim_angle),
+                cmd,
+                player_vars.max_speed,
+                player_vars.ground_friction,
+                player_vars.accel,
+                dt,
+            );
+            ent.set_velocity(velocity);
             return Ok(());
         }
 

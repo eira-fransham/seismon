@@ -25,6 +25,8 @@ pub fn register_commands(app: &mut App) {
         .action("moveleft")
         .action("back")
         .action("moveright")
+        .action("moveup")
+        .action("movedown")
         .action("jump")
         .action("lookup")
         .action("left")
