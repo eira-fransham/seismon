@@ -106,7 +106,7 @@ impl TryFrom<usize> for MsgDest {
     }
 }
 
-const MAX_LIGHTSTYLES: usize = 256;
+use crate::common::MAX_LIGHTSTYLES;
 /// Tick rate for the server.
 ///
 /// > TODO: Make this a cvar
@@ -624,13 +624,7 @@ fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
     (speed - dt * control * friction).max(0.) / speed
 }
 
-// TODO: Copied from Quake 1 source, can be done better.
-fn angle_mod(quake_angle: f32) -> f32 {
-    const PRECISION: f32 = 65536.;
-    let quake_angle = quake_angle.rem_euclid(360.);
-
-    (360f32 / PRECISION) * (quake_angle * PRECISION / 360.0).floor()
-}
+use seismon_utils::angle_mod;
 
 /// Return value of [`chase_dirs`].
 ///

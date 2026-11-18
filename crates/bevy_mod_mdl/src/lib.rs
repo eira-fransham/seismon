@@ -167,6 +167,39 @@ pub struct MdlLoaderSettings {
     pub override_palette: Option<Palette>,
 }
 
+/// Converts palette-indexed texture data into an RGBA [`Image`].
+///
+/// If `transparent` is set, pixels with that palette index become fully transparent
+/// (sprites use `0xff`). All other pixels are opaque.
+pub fn palette_image(
+    indices: &[u8],
+    width: u32,
+    height: u32,
+    palette: &Palette,
+    transparent: Option<u8>,
+) -> Image {
+    let data = indices
+        .iter()
+        .flat_map(|&i| {
+            if Some(i) == transparent {
+                [0; 4]
+            } else {
+                let [r, g, b] = palette.colors[i as usize];
+
+                [r, g, b, 0xff]
+            }
+        })
+        .collect();
+
+    Image::new(
+        Extent3d { width, height, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
 async fn load_mdl(
     loader: &MdlLoader,
     reader: &mut dyn bevy_asset::io::Reader,
@@ -182,25 +215,6 @@ async fn load_mdl(
     const MDL_LIGHTMAP_COLOR: [u8; 4] = [2, 2, 2, 255];
     const TRENCHBROOM_LIGHTMAP_EXPOSURE: f32 = 10_000.;
 
-    fn translate_tex(tex: &[u8], width: u32, height: u32, palette: &Palette) -> Image {
-        let data = tex
-            .iter()
-            .flat_map(|i| {
-                let [r, g, b] = palette.colors[*i as usize];
-
-                [r, g, b, 0xff]
-            })
-            .collect();
-
-        Image::new(
-            Extent3d { width, height, depth_or_array_layers: 1 },
-            TextureDimension::D2,
-            data,
-            TextureFormat::Rgba8Unorm,
-            RenderAssetUsages::RENDER_WORLD,
-        )
-    }
-
     let raw = crate::read::load(reader).await.into_result()?;
 
     let textures = raw
@@ -211,11 +225,12 @@ async fn load_mdl(
             Texture::Static(static_texture) => {
                 let img = load_context.add_labeled_asset(
                     format!("img{i}"),
-                    translate_tex(
+                    palette_image(
                         static_texture.indices(),
                         raw.texture_width(),
                         raw.texture_height(),
                         settings.override_palette.as_ref().unwrap_or(&loader.default_palette),
+                        None,
                     ),
                 );
                 let mat = load_context.add_labeled_asset(
@@ -234,11 +249,12 @@ async fn load_mdl(
 
                 let img = load_context.add_labeled_asset(
                     format!("img{i}"),
-                    translate_tex(
+                    palette_image(
                         static_texture.indices(),
                         raw.texture_width(),
                         raw.texture_height(),
                         settings.override_palette.as_ref().unwrap_or(&loader.default_palette),
+                        None,
                     ),
                 );
                 let mat = load_context.add_labeled_asset(
@@ -264,7 +280,7 @@ async fn load_mdl(
                     .map(|(frame_idx, tex)| {
                         let img = load_context.add_labeled_asset(
                             format!("img{i}frame{frame_idx}"),
-                            translate_tex(
+                            palette_image(
                                 tex.indices(),
                                 raw.texture_width(),
                                 raw.texture_height(),
@@ -272,6 +288,7 @@ async fn load_mdl(
                                     .override_palette
                                     .as_ref()
                                     .unwrap_or(&loader.default_palette),
+                                None,
                             ),
                         );
 

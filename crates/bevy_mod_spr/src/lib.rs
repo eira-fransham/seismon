@@ -1,7 +1,7 @@
 use std::{io, time::Duration};
 
 use bevy_app::{Plugin, PostUpdate};
-use bevy_asset::{Asset, AssetApp, AssetLoader, Handle, RenderAssetUsages};
+use bevy_asset::{Asset, AssetApp, AssetLoader, Handle};
 use bevy_ecs::{schedule::IntoScheduleConfigs as _, world::World};
 use bevy_image::Image;
 use bevy_log::{debug, warn};
@@ -9,7 +9,6 @@ use bevy_math::Vec3;
 use bevy_mesh::Mesh;
 use bevy_mod_billboard::{BillboardMesh, BillboardTexture};
 use bevy_reflect::Reflect;
-use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_shape::Rectangle;
 use bevy_tasks::ConditionalSendFuture;
 use bevy_transform::components::Transform;
@@ -93,28 +92,6 @@ impl AssetLoader for SpriteLoader {
         settings: &Self::Settings,
         load_context: &mut bevy_asset::LoadContext,
     ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
-        fn translate_tex(tex: &[u8], width: u32, height: u32, palette: &Palette) -> Image {
-            let data = tex
-                .iter()
-                .flat_map(|i| match i {
-                    0xff => [0; 4],
-                    i => {
-                        let [r, g, b] = palette.colors[*i as usize];
-
-                        [r, g, b, 0xff]
-                    }
-                })
-                .collect();
-
-            Image::new(
-                Extent3d { width, height, depth_or_array_layers: 1 },
-                TextureDimension::D2,
-                data,
-                TextureFormat::Rgba8Unorm,
-                RenderAssetUsages::RENDER_WORLD,
-            )
-        }
-
         async move {
             const SPRITE_HANDLE_NAME: &str = "sprite";
 
@@ -148,11 +125,12 @@ impl AssetLoader for SpriteLoader {
 
                     let img = load_context.add_labeled_asset(
                         format!("img{i}"),
-                        translate_tex(
+                        bevy_mod_mdl::palette_image(
                             &frame.image,
                             frame.width,
                             frame.height,
                             settings.override_palette.as_ref().unwrap_or(&self.default_palette),
+                            Some(0xff),
                         ),
                     );
 

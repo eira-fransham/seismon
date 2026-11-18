@@ -104,8 +104,11 @@ impl Add for QAngles {
     }
 }
 
+/// Quantizes an angle in degrees to Quake's 16-bit precision, wrapped into `[0, 360)`.
+///
+/// Equivalent to Quake's `anglemod`.
 // TODO: Copied from Quake 1 source, can be done better.
-fn angle_mod(quake_angle: f32) -> f32 {
+pub fn angle_mod(quake_angle: f32) -> f32 {
     const PRECISION: f32 = 65536.;
     let quake_angle = quake_angle.rem_euclid(360.);
 
