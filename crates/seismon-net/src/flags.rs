@@ -1,6 +1,6 @@
 //! Bitflags and small value types shared by several messages.
 
-use bevy::prelude::*;
+use bevy_log::warn;
 use bitflags::bitflags;
 use num_derive::FromPrimitive;
 

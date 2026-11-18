@@ -6,7 +6,7 @@ use std::{
 };
 
 use beef::Cow;
-use bevy::prelude::*;
+use bevy_log::error;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

@@ -11,6 +11,7 @@ resolver = "2"
 [workspace]
 members = [
     "crates/seismon-utils",
+    "crates/seismon-net",
     "crates/lined",
     "crates/bevy_mod_mdl",
     "crates/bevy_mod_pakfile",
@@ -26,6 +27,7 @@ repository = "https://github.com/eira-fransham/seismon"
 
 [workspace.dependencies]
 seismon-utils = { path = "crates/seismon-utils" }
+seismon-net = { path = "crates/seismon-net" }
 bevy_mod_mdl = { path = "crates/bevy_mod_mdl" }
 bevy_mod_spr = { path = "crates/bevy_mod_spr" }
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
@@ -82,6 +84,7 @@ qbsp = { version = "0.17", features = ["bevy_reflect", "serde"] }
 [dependencies]
 anyhow.workspace = true
 seismon-utils.workspace = true
+seismon-net.workspace = true
 bevy_mod_mdl.workspace = true
 bevy_mod_spr.workspace = true
 bevy_mod_pakfile.workspace = true

@@ -2,7 +2,7 @@
 
 use std::io::Read;
 
-use bevy::prelude::*;
+use bevy_math::Vec3;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

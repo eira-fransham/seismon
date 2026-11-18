@@ -7170,6 +7170,7 @@ dependencies = [
  "qbsp",
  "qcvm-defs-quake1",
  "rand 0.9.5",
+ "seismon-net",
  "seismon-utils",
  "serde",
  "serde-lexpr",
@@ -7181,6 +7182,23 @@ dependencies = [
  "tracing",
  "uuid",
  "wgpu",
+]
+
+[[package]]
+name = "seismon-net"
+version = "0.1.0"
+dependencies = [
+ "beef",
+ "bevy_ecs",
+ "bevy_log",
+ "bevy_math",
+ "bitflags 2.13.2",
+ "byteorder",
+ "num",
+ "num-derive",
+ "num-traits",
+ "seismon-utils",
+ "snafu",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@
 
 use std::io::{self, Read, Write};
 
-use bevy::prelude::*;
+use bevy_math::Vec3;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use seismon_utils::QAngles;
 

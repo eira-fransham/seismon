@@ -7,7 +7,8 @@ use std::{
     time::Duration,
 };
 
-use bevy::prelude::*;
+use bevy_ecs::prelude::Resource;
+use bevy_log::debug;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

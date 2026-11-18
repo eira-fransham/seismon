@@ -1,0 +1,25 @@
+[package]
+name = "seismon-net"
+version = "0.1.0"
+edition = "2024"
+authors = [
+    "Eira Fransham <eira.fransham@gmail.com>",
+    "Cormac O'Brien <cormac@c-obrien.org>",
+]
+description = "The Quake network protocol, as used by Seismon"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+seismon-utils.workspace = true
+
+beef.workspace = true
+bevy_ecs.workspace = true
+bevy_log.workspace = true
+bevy_math.workspace = true
+bitflags.workspace = true
+byteorder.workspace = true
+num.workspace = true
+num-derive.workspace = true
+num-traits.workspace = true
+snafu.workspace = true

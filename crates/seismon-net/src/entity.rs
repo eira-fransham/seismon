@@ -2,7 +2,7 @@
 
 use std::io::{self, Read, Write};
 
-use bevy::prelude::*;
+use bevy_math::Vec3;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -34,8 +34,8 @@ pub struct EntityState {
 impl EntityState {
     pub fn uninitialized() -> EntityState {
         EntityState {
-            origin: default(),
-            angles: default(),
+            origin: Default::default(),
+            angles: Default::default(),
             model_id: 0,
             frame_id: 0,
             colormap: 0,

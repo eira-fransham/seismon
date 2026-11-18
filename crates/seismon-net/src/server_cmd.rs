@@ -5,7 +5,8 @@ use std::{
     mem,
 };
 
-use bevy::prelude::*;
+use bevy_ecs::prelude::Message;
+use bevy_math::Vec3;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;
 use num_derive::FromPrimitive;

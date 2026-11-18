@@ -25,7 +25,7 @@ use std::{
     time::Duration,
 };
 
-use crate::common::net::{MAX_MESSAGE, NetError, QSocket};
+use crate::{MAX_MESSAGE, NetError, QSocket};
 
 use byteorder::{LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use num::FromPrimitive;

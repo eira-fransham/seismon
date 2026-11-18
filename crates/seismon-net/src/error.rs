@@ -1,6 +1,5 @@
 //! Network errors.
 
-use bevy::prelude::*;
 use snafu::{Backtrace, prelude::*};
 
 #[derive(Snafu, Debug)]

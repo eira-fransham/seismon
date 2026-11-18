@@ -18,22 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub mod connect;
+//! Networking. The wire protocol lives in the [`seismon_net`] crate and is re-exported here;
+//! this module adds the in-process message types used between the local client and server.
 
-mod client_cmd;
-mod codec;
-mod consts;
-mod entity;
-mod error;
-mod flags;
-mod server_cmd;
-mod socket;
-mod temp_entity;
-
-pub use self::{
-    client_cmd::*, codec::*, consts::*, entity::*, error::*, flags::*, server_cmd::*, socket::*,
-    temp_entity::*,
-};
+pub use seismon_net::*;
 
 use std::sync::Arc;
 
