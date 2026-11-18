@@ -15,6 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+mod ai;
 mod commands;
 mod cvars;
 pub mod error;
@@ -625,49 +626,6 @@ fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
 }
 
 use seismon_utils::angle_mod;
-
-/// Return value of [`chase_dirs`].
-///
-/// The directions a monster can try to move in to chase its goal
-#[derive(Debug, PartialEq)]
-struct ChaseDirs {
-    /// The direction along the x axis, if the goal is far enough away along it.
-    x: Option<f32>,
-    /// The direction along the y axis, if the goal is far enough away along it.
-    y: Option<f32>,
-    /// The diagonal direction, if the goal is far enough away along both axes.
-    diagonal: Option<f32>,
-}
-
-/// Returns the directions to try for a monster chasing a goal `(delta_x, delta_y)` away.
-///
-/// Part of the implementation equivalent to `SV_NewChaseDir`.
-fn chase_dirs(delta_x: f32, delta_y: f32) -> ChaseDirs {
-    let x = if delta_x > 10. {
-        Some(0.)
-    } else if delta_x < -10. {
-        Some(180.)
-    } else {
-        None
-    };
-
-    let y = if delta_y < -10. {
-        Some(270.)
-    } else if delta_y > 10. {
-        Some(90.)
-    } else {
-        None
-    };
-
-    // Quake uses 215 rather than 225 here, so we do too.
-    let diagonal = match (x, y) {
-        (Some(0.), Some(y)) => Some(if y == 90. { 45. } else { 315. }),
-        (Some(_), Some(y)) => Some(if y == 90. { 135. } else { 215. }),
-        _ => None,
-    };
-
-    ChaseDirs { x, y, diagonal }
-}
 
 /// Formats a float in the format expected by QuakeC.
 ///
@@ -1933,30 +1891,5 @@ mod tests {
         assert_eq!(super::ftos(5.5), "  5.5");
         assert_eq!(super::ftos(-0.25), " -0.2");
         assert_eq!(super::vtos(Vec3::new(1., -2.5, 100.)), "'  1.0  -2.5 100.0'");
-    }
-
-    #[test]
-    fn chase_dirs_match_quake() {
-        use super::{ChaseDirs, chase_dirs};
-
-        assert_eq!(chase_dirs(100., 0.), ChaseDirs { x: Some(0.), y: None, diagonal: None });
-        assert_eq!(chase_dirs(-100., 0.), ChaseDirs { x: Some(180.), y: None, diagonal: None });
-        // Positive y is a yaw of 90.
-        assert_eq!(chase_dirs(0., 100.), ChaseDirs { x: None, y: Some(90.), diagonal: None });
-        assert_eq!(chase_dirs(0., -100.), ChaseDirs { x: None, y: Some(270.), diagonal: None });
-        // Within 10 units isn't far enough.
-        assert_eq!(chase_dirs(10., -10.), ChaseDirs { x: None, y: None, diagonal: None });
-
-        assert_eq!(chase_dirs(100., 100.).diagonal, Some(45.));
-        assert_eq!(chase_dirs(100., -100.).diagonal, Some(315.));
-        assert_eq!(chase_dirs(-100., 100.).diagonal, Some(135.));
-        assert_eq!(chase_dirs(-100., -100.).diagonal, Some(215.));
-
-        // The diagonal points the same way as the delta (apart from Quake's 215).
-        for (dx, dy) in [(100., 100.), (100., -100.), (-100., 100.)] {
-            let yaw = chase_dirs(dx, dy).diagonal.unwrap();
-            let dir = Vec2::from_angle(yaw.to_radians());
-            assert!(dir.dot(Vec2::new(dx, dy).normalize()) > 0.99, "{dx} {dy} -> {yaw}");
-        }
     }
 }
