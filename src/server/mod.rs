@@ -71,7 +71,6 @@ use seismon_utils::{QString, duration_to_f32};
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
 
-use crate::client::{ConnectionStage, NewConnection};
 use crate::common::net::SignOnStage;
 
 /// The destination of a message in the `Write*` family of QuakeC fns
@@ -116,53 +115,9 @@ const TICK_RATE: f32 = 0.05;
 #[derive(Default, Copy, Clone)]
 pub struct SeismonServerPlugin;
 
-/// Enable running a listen server that the local client can connect to directly,
-/// e.g. for single-player games.
-#[derive(Default, Copy, Clone)]
-pub struct SeismonListenServerPlugin;
-
 /// Notify the local client that the server has initiated a level load.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct LocalLevelStarted;
-
-impl Plugin for SeismonListenServerPlugin {
-    fn build(&self, app: &mut App) {
-        /// Connect the local client to the level that the local server just started loading.
-        fn connect_to_local_server(
-            mut client_messages: ResMut<Messages<ClientMessage>>,
-            mut server_messages: ResMut<Messages<ServerMessage>>,
-            mut new_connection: MessageWriter<NewConnection>,
-        ) {
-            // Drop any messages that were sent to or from the previous level.
-            client_messages.clear();
-            server_messages.clear();
-
-            new_connection
-                .write(NewConnection::Server(None, ConnectionStage::SignOn(SignOnStage::Prespawn)));
-        }
-
-        fn shutdown_on_remote_connect(
-            mut commands: Commands,
-            mut new_connections: MessageReader<NewConnection>,
-        ) {
-            // If we connect to a remote server, i.e. `NewConnection::Server` with a `QSocket`,
-            // shut down the listen server session.
-            if new_connections.read().any(|conn| matches!(conn, NewConnection::Server(Some(_), _)))
-            {
-                commands.remove_resource::<Session>();
-                commands.remove_resource::<PendingLevel>();
-            }
-        }
-
-        app.add_plugins(SeismonServerPlugin).add_systems(
-            Last,
-            (
-                connect_to_local_server.run_if(on_message::<LocalLevelStarted>),
-                shutdown_on_remote_connect.run_if(on_message::<NewConnection>),
-            ),
-        );
-    }
-}
 
 impl Plugin for SeismonServerPlugin {
     fn build(&self, app: &mut App) {

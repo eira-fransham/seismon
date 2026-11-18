@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod console;
 mod cvars;
 pub mod demo;
 mod hud;
@@ -31,6 +32,7 @@ use std::{
 
 use crate::{
     client::{
+        console::SeismonConsoleRenderPlugin,
         demo::{Demo, DemoError, DemoLoader, DemoServer},
         hud::{HudIntermission, HudPlugin, IntermissionState, LevelStats},
         interpolation::InterpolateApp,
@@ -42,7 +44,7 @@ use crate::{
     },
     common::{
         self, Template,
-        console::{ConsoleOutput, SeismonConsoleRenderPlugin, TextAsset, TextLoader},
+        console::{ConsoleOutput, TextAsset, TextLoader},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
             QSocket, ServerCmd, ServerMessage, SignOnStage,

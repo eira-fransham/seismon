@@ -26,7 +26,7 @@ use seismon::{
         default_world_camera,
     },
     common::{Template, console::StuffCmds, default_base_dir},
-    server::SeismonListenServerPlugin,
+    listen::SeismonListenServerPlugin,
 };
 use serde_lexpr::Value;
 
