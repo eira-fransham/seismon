@@ -2,7 +2,10 @@
 
 use std::{collections::HashSet, sync::Arc};
 
-use bevy::{log::debug, math::Vec3};
+use bevy::{
+    log::debug,
+    math::{FloatExt as _, Vec3},
+};
 use num::FromPrimitive as _;
 use num_derive::FromPrimitive;
 use qbsp::{
@@ -354,14 +357,30 @@ impl BspCollisionHull {
                     return Ok(false);
                 }
 
+                let hit_plane = match far_side {
+                    HyperplaneSide::Positive => plane.to_owned(),
+                    HyperplaneSide::Negative => -plane.to_owned(),
+                };
+
+                // Float rounding can still leave `mid` inside the solid, so back up until it
+                // isn't. Quake: "shouldn't really happen, but does occasionally".
+                let mut frac = point_intersect.relative_ratio();
+                let (mut mid, mut mid_ratio) = (mid, mid_ratio);
+                while self.contents_at_point_node(self.node_id, mid)? == BspLeafContents::Solid {
+                    frac -= 0.1;
+                    if frac < 0. {
+                        debug!("Trace backed up past its start");
+                        break;
+                    }
+                    mid = start.lerp(end, frac);
+                    mid_ratio = start_ratio.lerp(end_ratio, frac);
+                }
+
                 trace.end = TraceEnd {
                     point: mid,
                     kind: TraceEndKind::Boundary(TraceEndBoundary {
                         ratio: mid_ratio,
-                        plane: match far_side {
-                            HyperplaneSide::Positive => plane.to_owned(),
-                            HyperplaneSide::Negative => -plane.to_owned(),
-                        },
+                        plane: hit_plane,
                     }),
                 };
 
@@ -725,6 +744,60 @@ mod test {
         assert!((trace.end_point().x + 1.).abs() < 0.1, "end = {}", trace.end_point());
         // Hit planes face into the solid (cf. `Hyperplane::is_floor`).
         assert_eq!(trace.plane().unwrap().normal(), Vec3::X);
+    }
+
+    /// A hull which is solid behind a single (non-axial) plane.
+    fn half_space(normal: Vec3, dist: f32) -> BspCollisionHull {
+        BspCollisionHull {
+            planes: vec![Hyperplane::new(normal, dist)].into(),
+            nodes: vec![BspCollisionNode {
+                plane_id: 0,
+                children: [
+                    BspCollisionNodeChild::Contents(BspLeafContents::Empty),
+                    BspCollisionNodeChild::Contents(BspLeafContents::Solid),
+                ],
+            }]
+            .into(),
+            node_id: 0,
+            mins: Vec3::ZERO,
+            maxs: Vec3::ZERO,
+        }
+    }
+
+    #[test]
+    fn test_trace_never_ends_in_solid_far_from_origin() {
+        // Rounding error in plane distances grows with the size of the coordinates, so the end of
+        // a trace must be backed off from the plane by enough to stay out of the solid. Quake uses
+        // 1/32 of a unit plus a backup loop (`SV_RecursiveHullCheck`).
+        let normal = Vec3::new(0.6, 0.8, 0.1).normalize();
+        let base = Vec3::new(3517.3, -3901.7, 2911.1);
+        let hull = half_space(normal, base.dot(normal));
+
+        // Deterministic xorshift, so failures are reproducible.
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut rand = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 40) as f32 / (1u64 << 24) as f32
+        };
+
+        let mut failures = 0;
+        for _ in 0..10_000 {
+            let jitter = Vec3::new(rand(), rand(), rand()) * 64. - 32.;
+            let on_plane = base + jitter - normal * jitter.dot(normal);
+            // Moves of up to ~16 units, which is one 20 Hz tick at full run speed.
+            let start = on_plane + normal * (rand() * 8. + 0.05);
+            let end = on_plane - normal * (rand() * 8. + 0.05) + Vec3::new(rand(), rand(), 0.) * 8.;
+
+            let trace = hull.trace(start, end).unwrap();
+            assert!(!trace.start_solid(), "start {start} began in solid");
+            if hull.contents_at_point(trace.end_point()).unwrap() == BspLeafContents::Solid {
+                failures += 1;
+            }
+        }
+
+        assert_eq!(failures, 0, "{failures} traces ended inside the solid");
     }
 
     #[test]

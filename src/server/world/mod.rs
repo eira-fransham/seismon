@@ -532,12 +532,17 @@ impl LevelCollision {
             kind,
         };
 
-        let (collide_trace, collide_ent) = self.collide(world, &collide)?;
+        let (mut collide_trace, collide_ent) = self.collide(world, &collide)?;
 
         if collide_trace.all_solid()
             || collide_trace.start_solid()
             || collide_trace.ratio() < world_trace.ratio()
         {
+            // Quake seeds the entity clip with the world trace (`SV_Move`), so starting in the
+            // world's solid is kept even if an entity is hit first.
+            if world_trace.start_solid() {
+                collide_trace.set_start_solid(true);
+            }
             Ok((collide_trace, collide_ent))
         } else {
             // The trace only has an entity if it hit something, see `SV_ClipMoveToEntity`.

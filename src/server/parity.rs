@@ -106,13 +106,29 @@ pub fn model_bounds(world: &World, name: &str) -> Option<(Vec3, Vec3)> {
 /// Moves edict `edict` to `origin` and relinks it, running the touch functions of the triggers it
 /// now touches (like `setorigin` followed by a physics move).
 pub fn move_edict(world: &mut World, edict: u16, origin: Vec3) -> Result<(), ServerError> {
-    let entity = world
-        .resource::<EdictTable>()
-        .get(edict)
-        .ok_or_else(|| ServerError::with_msg(format!("No entity for edict {edict}")))?;
+    let entity = edict_entity(world, edict)?;
     let mut ctx = ServerCtx::new(world);
     ctx.phys_mut(entity)?.set_origin(origin);
     ctx.link_entity(entity, true)
+}
+
+fn edict_entity(world: &World, edict: u16) -> Result<Entity, ServerError> {
+    world
+        .resource::<EdictTable>()
+        .get(edict)
+        .ok_or_else(|| ServerError::with_msg(format!("No entity for edict {edict}")))
+}
+
+/// The origin of edict `edict`.
+pub fn edict_origin(world: &mut World, edict: u16) -> Result<Vec3, ServerError> {
+    let entity = edict_entity(world, edict)?;
+    Ok(ServerCtx::new(world).phys(entity)?.origin)
+}
+
+/// Whether edict `edict` is inside a solid, i.e. can't move (`SV_TestEntityPosition`).
+pub fn edict_is_stuck(world: &mut World, edict: u16) -> Result<bool, ServerError> {
+    let entity = edict_entity(world, edict)?;
+    ServerCtx::new(world).entity_is_stuck(entity)
 }
 
 /// Every named global, for debugging (see `SEISMON_PARITY_ALL_FIELDS`).

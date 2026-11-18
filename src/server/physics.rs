@@ -346,13 +346,15 @@ impl ServerCtx<'_> {
 
         self.push_entity(ent_id, upmove)?;
 
-        let clip = self.physics_player_fly(ent_id, frame_time)?;
+        let mut clip = self.physics_player_fly(ent_id, frame_time)?;
 
         let post_step_origin = self.phys(ent_id)?.origin;
         let post_clip_move = (post_step_origin - old_origin).xy().abs();
 
+        // Check for stuckness, possibly due to the limited precision of floats in the clipping
+        // hulls: stepping up didn't make any progress.
         if clip.any_collision() && post_clip_move.to_array().iter().all(|v| *v < ORIGIN_EPSILON) {
-            error!("TODO: SV_TryUnstick");
+            clip = self.try_unstick(ent_id, old_velocity)?;
         }
 
         if clip.wall_or_step {
@@ -378,6 +380,97 @@ impl ServerCtx<'_> {
             ent.set_origin(pre_step_origin);
             ent.set_velocity(pre_step_velocity);
         }
+
+        Ok(())
+    }
+
+    /// Nudges a walking entity which made no progress around a little, in case it is snagged on
+    /// a corner. Returns the result of the first nudge which got it moving.
+    ///
+    /// Equivalent to `SV_TryUnstick`.
+    fn try_unstick(
+        &mut self,
+        ent_id: Entity,
+        old_velocity: Vec3,
+    ) -> Result<CollisionResult<Option<Trace>>, ServerError> {
+        const NUDGES: [Vec2; 8] = [
+            Vec2::new(2., 0.),
+            Vec2::new(0., 2.),
+            Vec2::new(-2., 0.),
+            Vec2::new(0., -2.),
+            Vec2::new(2., 2.),
+            Vec2::new(-2., 2.),
+            Vec2::new(2., -2.),
+            Vec2::new(-2., -2.),
+        ];
+
+        let old_origin = self.phys(ent_id)?.origin;
+
+        for nudge in NUDGES {
+            self.push_entity(ent_id, nudge.extend(0.))?;
+            if !self.exists(ent_id) {
+                return Ok(CollisionResult::default());
+            }
+
+            self.phys_mut(ent_id)?.set_velocity(old_velocity.with_z(0.));
+            let clip = self.physics_player_fly(ent_id, Duration::from_millis(100))?;
+            if !self.exists(ent_id) {
+                return Ok(clip);
+            }
+
+            let moved = (self.phys(ent_id)?.origin - old_origin).xy().abs();
+            if moved.x > 4. || moved.y > 4. {
+                return Ok(clip);
+            }
+
+            // Go back to the start.
+            self.phys_mut(ent_id)?.set_origin(old_origin);
+        }
+
+        // Still not moving.
+        self.phys_mut(ent_id)?.set_velocity(Vec3::ZERO);
+        Ok(CollisionResult { floor: true, wall_or_step: true, dead_stop: true, metadata: None })
+    }
+
+    /// If the entity starts the frame inside a solid, moves it back to its last good position
+    /// (`oldorigin`) or to a nearby free spot.
+    ///
+    /// Equivalent to `SV_CheckStuck`.
+    fn check_stuck(&mut self, ent_id: Entity) -> Result<(), ServerError> {
+        if !self.entity_is_stuck(ent_id)? {
+            let mut ent = self.phys_mut(ent_id)?;
+            ent.oldorigin = ent.origin;
+            return Ok(());
+        }
+
+        let (origin, old_origin) = {
+            let ent = self.phys(ent_id)?;
+            (ent.origin, ent.oldorigin)
+        };
+
+        self.phys_mut(ent_id)?.set_origin(old_origin);
+        if !self.entity_is_stuck(ent_id)? {
+            debug!("Unstuck {ent_id} by moving it back to its old origin");
+            self.link_entity(ent_id, true)?;
+            return Ok(());
+        }
+
+        for z in 0..18 {
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    let nudge = Vec3::new(x as f32, y as f32, z as f32);
+                    self.phys_mut(ent_id)?.set_origin(origin + nudge);
+                    if !self.entity_is_stuck(ent_id)? {
+                        debug!("Unstuck {ent_id} by nudging it {nudge}");
+                        self.link_entity(ent_id, true)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        self.phys_mut(ent_id)?.set_origin(origin);
+        debug!("{ent_id} is stuck");
 
         Ok(())
     }
@@ -470,7 +563,7 @@ impl ServerCtx<'_> {
                     self.apply_gravity(player_id, server_vars.gravity, frame_time)?;
                 }
 
-                // TODO: SV_CheckStuck
+                self.check_stuck(player_id)?;
                 self.physics_walk(player_id, frame_time, &server_vars)?;
             }
             // e.g. dead players.

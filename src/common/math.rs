@@ -220,6 +220,9 @@ pub struct PointIntersection {
     // percentage of distance between start and end where crossover occurred
     ratio: f32,
 
+    // like `ratio`, but relative to the segment being tested rather than the whole trace
+    relative_ratio: f32,
+
     // crossover point
     point: Vec3,
 
@@ -230,6 +233,12 @@ pub struct PointIntersection {
 impl PointIntersection {
     pub fn ratio(&self) -> f32 {
         self.ratio
+    }
+
+    /// The fraction of the tested segment (rather than the whole trace) at which the crossing
+    /// occurred.
+    pub fn relative_ratio(&self) -> f32 {
+        self.relative_ratio
     }
 
     pub fn point(&self) -> Vec3 {
@@ -291,8 +300,10 @@ impl Neg for Hyperplane {
     }
 }
 
-// see https://github.com/id-Software/Quake/blob/master/WinQuake/world.c#L525
-const DISTANCE_EPSILON: f32 = 0.001;
+/// How far a trace stops in front of a plane it hits, `DIST_EPSILON` in Quake.
+///
+/// See https://github.com/id-Software/Quake/blob/master/WinQuake/world.c#L525
+const DIST_EPSILON: f32 = 0.03125;
 
 /// Result of a move that could hit a wall.
 // TODO: Can we return more info? Do we need to?
@@ -429,9 +440,10 @@ impl Hyperplane {
             return LinePlaneIntersect::NoIntersection(start_side);
         }
 
-        let start_dist = start_dist - start_dist.signum() * DISTANCE_EPSILON;
-
-        let relative_ratio = (start_dist / (start_dist - end_dist)).clamp(0., 1.);
+        // Stop short of the plane, on the start side. Only the numerator is adjusted, so the hit
+        // is `DIST_EPSILON` units in front of the plane (as in `SV_RecursiveHullCheck`).
+        let backed_off_dist = start_dist - start_dist.signum() * DIST_EPSILON;
+        let relative_ratio = (backed_off_dist / (start_dist - end_dist)).clamp(0., 1.);
 
         // calculate how far along the segment the intersection occurred
         let absolute_ratio = start_ratio.lerp(end_ratio, relative_ratio);
@@ -445,6 +457,7 @@ impl Hyperplane {
 
         LinePlaneIntersect::PointIntersection(PointIntersection {
             ratio: absolute_ratio,
+            relative_ratio,
             point,
             plane,
         })
@@ -761,8 +774,9 @@ mod test {
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_approx_eq(p_i.ratio(), 0.5);
-                assert_approx_eq_v3(p_i.point(), Vec3::new(1., 0.5, 0.5));
+                // The hit is backed off from the plane by `DIST_EPSILON`, as in Quake.
+                assert_approx_eq(p_i.ratio(), (1. - DIST_EPSILON) / 2.);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(1. - DIST_EPSILON, 0.5, 0.5));
             }
             _ => panic!(),
         }
@@ -776,8 +790,9 @@ mod test {
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_approx_eq(p_i.ratio(), 0.5);
-                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 1., 0.5));
+                // The hit is backed off from the plane by `DIST_EPSILON`, as in Quake.
+                assert_approx_eq(p_i.ratio(), (1. - DIST_EPSILON) / 2.);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 1. - DIST_EPSILON, 0.5));
             }
             _ => panic!(),
         }
@@ -791,8 +806,9 @@ mod test {
 
         match plane.line_segment_intersection(start, end, 0., 1.) {
             LinePlaneIntersect::PointIntersection(p_i) => {
-                assert_approx_eq(p_i.ratio(), 0.5);
-                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 0.5, 1.));
+                // The hit is backed off from the plane by `DIST_EPSILON`, as in Quake.
+                assert_approx_eq(p_i.ratio(), (1. - DIST_EPSILON) / 2.);
+                assert_approx_eq_v3(p_i.point(), Vec3::new(0.5, 0.5, 1. - DIST_EPSILON));
             }
             _ => panic!(),
         }
