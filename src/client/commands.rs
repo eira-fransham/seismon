@@ -34,6 +34,7 @@ pub fn register_commands(app: &mut App) {
         .action("right")
         .action("attack")
         .action("use")
+        .action("showscores")
         .cvar("mousedelta", "(0 0)", "Mouse delta amount for this frame.");
 
     #[derive(Parser)]

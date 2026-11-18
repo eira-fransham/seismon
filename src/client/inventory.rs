@@ -183,6 +183,21 @@ impl<T: ItemType> Command for UpdateAmmoCount<T> {
 #[derive(Component)]
 pub struct Health(pub i16);
 
+/// The armor value of the player (`STAT_ARMOR`).
+#[derive(Component, Default, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Armor(pub u8);
+
+/// The amount of ammo for the current weapon (`STAT_AMMO`).
+#[derive(Component, Default, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct CurrentAmmo(pub u8);
+
+/// Until when the "pain" face should be shown on the HUD (`cl.faceanimtime`), in seconds of
+/// virtual (client) time.
+#[derive(Component, Default, Debug, PartialEq, Clone, Copy)]
+pub struct FaceAnim {
+    pub until_secs: f32,
+}
+
 // TODO: This probably makes more sense as an asset or similar.
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
@@ -194,7 +209,10 @@ pub struct Weapon {
     pub pickup_time_secs: f32,
 }
 
-pub struct SetActiveWeaponByOrder(pub Entity, pub usize);
+/// Set the active weapon of the given entity to the weapon with the given HUD order, or clear the
+/// active weapon if `None` or the entity does not have that weapon (e.g. the axe, which has no
+/// slot on the HUD).
+pub struct SetActiveWeaponByOrder(pub Entity, pub Option<usize>);
 
 impl Command for SetActiveWeaponByOrder {
     type Out = ();
@@ -205,27 +223,28 @@ impl Command for SetActiveWeaponByOrder {
 
         if let Some(ActiveWeapon(active)) = maybe_active_weapon
             && let Ok(weapon) = weapons.get(world, *active)
-            && weapon.order == self.1
+            && Some(weapon.order) == self.1
         {
             return;
         }
 
-        let inventory = world.get::<Inventory>(self.0).expect("No valid target for remove weapon");
+        let new_active_weapon =
+            self.1.and_then(|order| {
+                world.get::<Inventory>(self.0)?.0.iter().copied().find(|item| {
+                    weapons.get(world, *item).is_ok_and(|weapon| weapon.order == order)
+                })
+            });
 
-        let Some(new_active_weapon) = inventory
-            .0
-            .iter()
-            .find(|item| weapons.get(world, **item).is_ok_and(|weapon| weapon.order == self.1))
-            .copied()
-        else {
-            error!(
-                "Tried to set active weapon to weapon #{} but the player did not have it",
-                self.1
-            );
-            return;
-        };
-
-        world.entity_mut(self.0).insert(ActiveWeapon(new_active_weapon));
+        match new_active_weapon {
+            Some(new_active_weapon) => {
+                world.entity_mut(self.0).insert(ActiveWeapon(new_active_weapon));
+            }
+            None => {
+                if world.get::<ActiveWeapon>(self.0).is_some() {
+                    world.entity_mut(self.0).remove::<ActiveWeapon>();
+                }
+            }
+        }
     }
 }
 
@@ -370,8 +389,8 @@ qweapon!(pub Shotgun, Shells, "SHOTGUN", 0);
 qweapon!(pub SuperShotgun, Shells, "SSHOTGUN", 1);
 qweapon!(pub Nailgun, Nails, "NAILGUN", 2);
 qweapon!(pub SuperNailgun, Nails, "SNAILGUN", 3);
-qweapon!(pub GrenadeLauncher, Rockets, "SRLAUNCH", 4);
-qweapon!(pub RocketLauncher, Rockets, "RLAUNCH", 5);
+qweapon!(pub GrenadeLauncher, Rockets, "RLAUNCH", 4);
+qweapon!(pub RocketLauncher, Rockets, "SRLAUNCH", 5);
 qweapon!(pub LightningGun, Cells, "LIGHTNG", 6);
 
 #[non_exhaustive]

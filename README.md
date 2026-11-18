@@ -108,14 +108,13 @@ cargo run --release --bin quake-client -- --base-dir /path/to/quake +map e1m1
   - [x] Initialisation routines
   - [x] All opcodes implemented
   - [x] Basic physics
-  - [ ] Complete physics
-  - [ ] All builtins implemented
+  - [x] Complete physics
+  - [x] All builtins implemented
   - [x] Input handling
   - [x] Basic client connection handling
-  - [ ] Full client connection
+  - [x] Full client connection
   - [x] Single-player clients
   - [ ] External clients
-  - [ ] Diffing to prevent unnecessarily sending information
 - Rendering
   - [x] Deferred dynamic lighting
   - [x] Particle effects

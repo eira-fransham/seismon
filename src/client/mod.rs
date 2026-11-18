@@ -33,7 +33,7 @@ use crate::{
     client::{
         demo::{Demo, DemoError, DemoLoader, DemoServer},
         entity::ClientEntity,
-        hud::HudPlugin,
+        hud::{HudIntermission, HudPlugin, IntermissionState, LevelStats},
         interpolation::InterpolateApp,
         inventory::InventoryPlugin,
         post_process::ColorShiftPlugin,
@@ -1273,6 +1273,8 @@ mod systems {
             wall_time: Res<Time<Real>>,
             asset_server: Res<AssetServer>,
             transforms: Query<&Transform>,
+            mut level_stats: ResMut<LevelStats>,
+            mut intermission: ResMut<HudIntermission>,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
 
@@ -1325,6 +1327,11 @@ mod systems {
                             UnrecognizedProtocolSnafu { version: protocol_version }.fail()?;
                         }
 
+                        // New level: reset the level stats (`cl.levelname` is the server's
+                        // message) and leave any intermission.
+                        *level_stats = LevelStats { level_name: message.clone(), ..default() };
+                        intermission.0 = None;
+
                         if !message.raw.is_empty() {
                             console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
                             console_output.println_alert(message.raw, &wall_time);
@@ -1368,8 +1375,14 @@ mod systems {
                         commands.run_system_cached_with(ClientState::update_player, player_data);
                     }
 
-                    ServerCmd::Cutscene { text: _ } => {
-                        msg_todo!("cutscene")
+                    ServerCmd::Cutscene { text } => {
+                        // TODO: Typewriter reveal of the text (`SCR_DrawCenterString` in finale
+                        // mode)
+                        console_output.set_center_print(text.clone(), &wall_time);
+                        intermission.0 = Some(IntermissionState {
+                            kind: IntermissionKind::Cutscene { text },
+                            completed_secs: conn.last_msg_time.as_secs_f32(),
+                        });
                     }
 
                     ServerCmd::Damage { armor, blood, source } => {
@@ -1394,14 +1407,23 @@ mod systems {
                         );
                     }
 
-                    ServerCmd::Finale { .. } => msg_todo!("intermission"),
-                    ServerCmd::FoundSecret => msg_todo!("found secret"),
+                    ServerCmd::Finale { text } => {
+                        // TODO: Typewriter reveal of the text (`SCR_DrawCenterString` in finale
+                        // mode)
+                        console_output.set_center_print(text.clone(), &wall_time);
+                        intermission.0 = Some(IntermissionState {
+                            kind: IntermissionKind::Finale { text },
+                            completed_secs: conn.last_msg_time.as_secs_f32(),
+                        });
+                    }
+                    ServerCmd::FoundSecret => level_stats.secrets += 1,
                     ServerCmd::Intermission => {
-                        msg_todo!("intermission");
+                        intermission.0 = Some(IntermissionState {
+                            kind: IntermissionKind::Intermission,
+                            completed_secs: conn.last_msg_time.as_secs_f32(),
+                        });
                     }
-                    ServerCmd::KilledMonster => {
-                        msg_todo!("killed monster")
-                    }
+                    ServerCmd::KilledMonster => level_stats.monsters += 1,
 
                     ServerCmd::LightStyle { .. } => {
                         msg_todo!("lightstyle")
@@ -1677,8 +1699,17 @@ mod systems {
                         msg_todo!("update name");
                     }
 
-                    ServerCmd::UpdateStat { stat: _, value: _ } => {
-                        msg_todo!("Update stat");
+                    ServerCmd::UpdateStat { stat, value } => {
+                        use net::ClientStat as Stat;
+
+                        match stat {
+                            Stat::TotalSecrets => level_stats.total_secrets = value,
+                            Stat::TotalMonsters => level_stats.total_monsters = value,
+                            Stat::FoundSecrets => level_stats.secrets = value,
+                            Stat::KilledMonsters => level_stats.monsters = value,
+                            // The rest are sent in `PlayerData` by Quake servers.
+                            stat => msg_todo!(format!("Update stat {stat:?}")),
+                        }
                     }
 
                     ServerCmd::Version { version } => {

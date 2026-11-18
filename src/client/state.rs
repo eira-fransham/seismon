@@ -5,7 +5,7 @@ use crate::{
     client::{
         ClientError, Connection, InvalidConnectResponseSnafu, OVERLAY_RENDER_LAYER,
         interpolation::{Next, NoInterpolation},
-        inventory::Health,
+        inventory::{Armor, CurrentAmmo, Health},
         post_process::{ColorShift, Powerup},
         systems::frame::{ViewEntities, ViewFor},
         view::{ViewEffects, capture_view_base},
@@ -124,9 +124,9 @@ pub struct ClientState {
     pub server_entity_to_client_entity: HashMap<u16, Entity>,
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 pub struct PlayerState {
-    items: ItemFlags,
+    pub items: ItemFlags,
 }
 
 impl ClientState {
@@ -316,7 +316,7 @@ impl ClientState {
     pub fn update_player(
         In(player_data): In<PlayerData>,
         conn: Res<Connection>,
-        mut existing_data: Query<(&mut PlayerState, &mut Health)>,
+        mut existing_data: Query<(&mut PlayerState, &mut Health, &mut Armor, &mut CurrentAmmo)>,
         // TODO: We should just add a single `IsPlayer` component (or similar) that adds `PlayerState`,
         // `Health` and `ViewEntities`
         view_entities: Query<&ViewEntities>,
@@ -426,14 +426,26 @@ impl ClientState {
                 .queue(capture_view_base);
         }
 
-        let existing_flags = if let Ok((mut existing, mut health)) = existing_data.get_mut(ent) {
-            write_if_neq!(health.0, player_data.health);
+        // `CL_ParseClientdata` treats a missing armor value as 0.
+        let armor = player_data.armor.unwrap_or_default();
 
-            std::mem::replace(&mut existing.items, player_data.items)
+        let existing_flags = if let Ok((mut existing, mut health, mut existing_armor, mut ammo)) =
+            existing_data.get_mut(ent)
+        {
+            write_if_neq!(health.0, player_data.health);
+            write_if_neq!(existing_armor.0, armor);
+            write_if_neq!(ammo.0, player_data.ammo);
+
+            let existing_flags = existing.items;
+            write_if_neq!(existing.items, player_data.items);
+            existing_flags
         } else {
-            commands
-                .entity(ent)
-                .insert((PlayerState { items: player_data.items }, Health(player_data.health)));
+            commands.entity(ent).insert((
+                PlayerState { items: player_data.items },
+                Health(player_data.health),
+                Armor(armor),
+                CurrentAmmo(player_data.ammo),
+            ));
 
             commands.queue(InitItem::<Shells>::new(ent));
             commands.queue(InitItem::<Nails>::new(ent));
@@ -500,26 +512,20 @@ impl ClientState {
             }
         }
 
-        if let Some(active_weapon_order) = player_data.active_weapon.checked_ilog2() {
-            // HACK: This does correctly get the order but it's not good
-            commands.queue(SetActiveWeaponByOrder(ent, active_weapon_order as usize));
-        }
+        // `STAT_ACTIVEWEAPON` is the `IT_*` flag of the active weapon, so its bit index is the
+        // HUD slot. The axe (`IT_AXE`) does not fit in the byte sent over the network and arrives
+        // as 0, in which case no slot is highlighted.
+        // HACK: This does correctly get the order but it's not good
+        let active_weapon_order =
+            player_data.active_weapon.checked_ilog2().map(|order| order as usize);
+        commands.queue(SetActiveWeaponByOrder(ent, active_weapon_order));
 
-        if player_data.items.contains(ItemFlags::SHELLS) {
-            commands.queue(UpdateAmmoCount::<Shells>::new(ent, player_data.ammo_shells));
-        }
-
-        if player_data.items.contains(ItemFlags::NAILS) {
-            commands.queue(UpdateAmmoCount::<Nails>::new(ent, player_data.ammo_nails));
-        }
-
-        if player_data.items.contains(ItemFlags::ROCKETS) {
-            commands.queue(UpdateAmmoCount::<Rockets>::new(ent, player_data.ammo_rockets));
-        }
-
-        if player_data.items.contains(ItemFlags::CELLS) {
-            commands.queue(UpdateAmmoCount::<Cells>::new(ent, player_data.ammo_cells));
-        }
+        // The `IT_SHELLS`/`IT_NAILS`/etc. flags only mark the ammo type of the current weapon
+        // (`W_SetCurrentAmmo`), so all counters are always updated, as in `Sbar_DrawInventory`.
+        commands.queue(UpdateAmmoCount::<Shells>::new(ent, player_data.ammo_shells));
+        commands.queue(UpdateAmmoCount::<Nails>::new(ent, player_data.ammo_nails));
+        commands.queue(UpdateAmmoCount::<Rockets>::new(ent, player_data.ammo_rockets));
+        commands.queue(UpdateAmmoCount::<Cells>::new(ent, player_data.ammo_cells));
     }
 
     /// Sets the rotation of the view entity's interpolation target, leaving its origin alone. Used

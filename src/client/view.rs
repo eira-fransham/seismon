@@ -9,7 +9,7 @@ use seismon_utils::{QAngles, duration_to_f32, write_if_neq};
 use serde::Deserialize;
 
 use crate::{
-    client::{Connection, state::ViewModel, systems::frame::ViewEntities},
+    client::{Connection, inventory::FaceAnim, state::ViewModel, systems::frame::ViewEntities},
     common::net::DEFAULT_VIEWHEIGHT,
 };
 
@@ -59,11 +59,16 @@ pub fn capture_view_base(mut entity: EntityWorldMut) {
     entity.insert(ViewBase(transform));
 }
 
+/// How long the HUD shows the "pain" face after taking damage.
+const FACE_ANIM_SECS: f32 = 0.2;
+
 /// Port of `V_ParseDamage`: start a damage kick away from `source`.
 pub fn handle_damage(
     In((armor, blood, source)): In<(u8, u8, Vec3)>,
+    mut commands: Commands,
     conn: Res<Connection>,
     registry: Res<Registry>,
+    time: Res<Time<Virtual>>,
     mut views: Query<(&Transform, &mut ViewEffects)>,
 ) {
     let kick_vars: KickVars = match registry.read_cvars() {
@@ -81,6 +86,9 @@ pub fn handle_damage(
     else {
         return;
     };
+
+    // Show the "pain" face on the HUD for a moment (`cl.faceanimtime = cl.time + 0.2`).
+    commands.entity(*view).insert(FaceAnim { until_secs: time.elapsed_secs() + FACE_ANIM_SECS });
 
     let Ok((transform, mut effects)) = views.get_mut(*view) else {
         return;
