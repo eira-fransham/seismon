@@ -6,10 +6,12 @@
 use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{Assets, Handle},
+    camera::visibility::Visibility,
     ecs::{
         component::Component,
         query::With,
         system::{Query, Res},
+        world::Mut,
     },
     image::Image,
     ui::{Display, JustifyContent, Node, PositionType, UiRect, Val, widget::ImageNode},
@@ -89,17 +91,20 @@ impl Plugin for UiPlugin {
 /// Sizes every [`NativeSize`] node to its image. This runs every frame (rather than only on
 /// `Changed<ImageNode>`) as the image may finish loading after the node is spawned, but it only
 /// writes the node when the size actually changes.
+#[expect(clippy::type_complexity, reason = "Lifetimes make it too difficult to extract an alias")]
 fn apply_native_size(
     images: Res<Assets<Image>>,
-    mut nodes: Query<(&ImageNode, &mut Node), With<NativeSize>>,
+    mut nodes: Query<(&ImageNode, Mut<Visibility>, Mut<Node>), With<NativeSize>>,
 ) {
-    for (image_node, mut node) in &mut nodes {
+    nodes.par_iter_mut().for_each(|(image_node, mut vis, mut node)| {
         let Some(image) = images.get(&image_node.image) else {
-            continue;
+            return;
         };
+
+        write_if_neq!(*vis, Visibility::Inherited);
 
         let size = image.size_f32();
         write_if_neq!(node.width, px(size.x));
         write_if_neq!(node.height, px(size.y));
-    }
+    });
 }

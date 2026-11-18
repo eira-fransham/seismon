@@ -351,6 +351,7 @@ mod systems {
                 Name::new("plaque"),
                 abs_node(PLAQUE_POS.0, PLAQUE_POS.1),
                 ui_image(gfx.plaque.clone()),
+                Visibility::Hidden,
                 NativeSize,
                 ChildOf(canvas),
             ));
@@ -367,7 +368,11 @@ mod systems {
                 ..Default::default()
             },
             ChildOf(canvas),
-            children![(ui_image(assets.load(view.title_path().to_owned())), NativeSize)],
+            children![(
+                ui_image(assets.load(view.title_path().to_owned())),
+                Visibility::Hidden,
+                NativeSize,
+            )],
         ));
 
         match view.body() {
@@ -376,6 +381,7 @@ mod systems {
                     Name::new("body"),
                     abs_node(BODY_POS.0, BODY_POS.1),
                     ui_image(assets.load(path.to_string())),
+                    Visibility::Hidden,
                     NativeSize,
                     ChildOf(canvas),
                 ));
@@ -384,6 +390,7 @@ mod systems {
                     MenuCursorDot,
                     abs_node(DOT_LEFT, BODY_POS.1),
                     ui_image(gfx.dots[0].clone()),
+                    Visibility::Hidden,
                     NativeSize,
                     ChildOf(canvas),
                 ));

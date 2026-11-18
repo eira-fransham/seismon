@@ -764,6 +764,8 @@ struct HudVars {
 }
 
 mod systems {
+    use bevy::ecs::world::Mut;
+
     use super::*;
 
     /// Returns the element of kind `Kind` for the given HUD root.
@@ -777,7 +779,7 @@ mod systems {
     /// Set the HUD number of kind `Kind` for the given HUD root.
     fn set_number<Kind: Send + Sync + 'static>(
         containers: &Query<&HudContainers<Kind>>,
-        numbers: &mut Query<&mut HudNumber>,
+        numbers: &mut Query<Mut<HudNumber>>,
         hud: Entity,
         value: i32,
         alt: bool,
@@ -794,7 +796,7 @@ mod systems {
     /// Set the image of the element of kind `Kind`, hiding it if `image` is `None`.
     fn set_icon<Kind: Send + Sync + 'static>(
         containers: &Query<&HudContainers<Kind>>,
-        icons: &mut Query<(&mut ImageNode, &mut Node)>,
+        icons: &mut Query<(Mut<ImageNode>, Mut<Node>)>,
         hud: Entity,
         image: Option<Handle<Image>>,
     ) {
@@ -901,7 +903,7 @@ mod systems {
     pub fn update_health(
         hud_owners: Query<(&HasHud, &Health), HudOwnerChanged<Health>>,
         containers: Query<&HudContainers<HudHealth>>,
-        mut numbers: Query<&mut HudNumber>,
+        mut numbers: Query<Mut<HudNumber>>,
     ) {
         for (hud, Health(health)) in hud_owners {
             set_number(&containers, &mut numbers, hud.0, (*health).into(), *health <= 25);
@@ -915,8 +917,8 @@ mod systems {
         hud_owners: Query<ArmorOwner, ArmorChanged>,
         number_containers: Query<&HudContainers<HudArmor>>,
         icon_containers: Query<&HudContainers<HudArmorIcon>>,
-        mut numbers: Query<&mut HudNumber>,
-        mut icons: Query<(&mut ImageNode, &mut Node)>,
+        mut numbers: Query<Mut<HudNumber>>,
+        mut icons: Query<(Mut<ImageNode>, Mut<Node>)>,
         gfx: Res<HudGfx>,
     ) {
         for (hud, Armor(armor), player) in hud_owners {
@@ -967,8 +969,8 @@ mod systems {
         hud_owners: Query<CurrentAmmoOwner, CurrentAmmoChanged>,
         number_containers: Query<&HudContainers<HudCurrentAmmo>>,
         icon_containers: Query<&HudContainers<HudAmmoIcon>>,
-        mut numbers: Query<&mut HudNumber>,
-        mut icons: Query<(&mut ImageNode, &mut Node)>,
+        mut numbers: Query<Mut<HudNumber>>,
+        mut icons: Query<(Mut<ImageNode>, Mut<Node>)>,
         gfx: Res<HudGfx>,
     ) {
         for (hud, CurrentAmmo(ammo), player) in hud_owners {
