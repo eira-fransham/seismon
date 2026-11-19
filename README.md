@@ -16,7 +16,7 @@ release.
 ### Installation
 
 ```sh
-cargo install --frozen --git https://github.com/eira-fransham/seismon.git
+cargo install --locked --git https://github.com/eira-fransham/seismon.git
 ```
 
 ### Running
