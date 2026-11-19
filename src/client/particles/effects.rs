@@ -18,8 +18,18 @@ use super::palette::{LutRow, RAMP1, RAMP2, RAMP3};
 /// client has no `sv_gravity`, so this assumes the default of 800.
 pub const GRAVITY: f32 = 800. * 0.05;
 
-/// Edge length of a particle's quad, in Quake units.
-pub const PARTICLE_SIZE: f32 = 1.5;
+/// Edge length of a particle's quad, in Quake units, at moderate distances.
+///
+/// Software Quake (`D_DrawParticle`) draws particles as squares of `0x8000 / depth >> 7` pixels
+/// at 320x200, i.e. 1.6 units with its 90° horizontal field of view, clamped to between
+/// [`PARTICLE_MIN_PIXELS`] and [`PARTICLE_MAX_PIXELS`]. The clamp stops nearby particles
+/// filling the screen and keeps distant ones visible.
+pub const PARTICLE_SIZE: f32 = 1.6;
+
+/// Minimum particle size, in pixels at 320x200 (`d_pix_min`).
+pub const PARTICLE_MIN_PIXELS: f32 = 1.;
+/// Maximum particle size, in pixels at 320x200 (`d_pix_max`).
+pub const PARTICLE_MAX_PIXELS: f32 = 4.;
 
 /// Quake draws a particle at least once even if it dies on the frame it was spawned; hanabi
 /// would not, so clamp lifetimes to roughly one frame.
@@ -35,6 +45,15 @@ pub const PROP_COLOR_LEN: &str = "color_len";
 pub const PROP_TRAIL_START: &str = "start";
 pub const PROP_TRAIL_END: &str = "end";
 pub const PROP_RAMP_BASE: &str = "ramp_base";
+pub const PROP_TRAIL_SIDE: &str = "side";
+
+/// Camera position, in the same space as the particles. Set on every effect, every frame.
+pub const PROP_VIEW_ORIGIN: &str = "view_origin";
+/// Camera forward vector. Set on every effect, every frame.
+pub const PROP_VIEW_FORWARD: &str = "view_forward";
+/// World size of one 320x200 pixel per unit of depth, i.e. `2 * tan(vfov / 2) / 200`. Set on
+/// every effect, every frame.
+pub const PROP_PIXEL_SCALE: &str = "pixel_scale";
 
 /// Quake's `ptype_t`, which determines how a particle moves and changes color over time.
 ///
@@ -142,6 +161,24 @@ fn lut_color(w: &ExprWriter, index: WriterExpr, row: LutRow) -> WriterExpr {
     w.push(Expr::TextureLoad(load))
 }
 
+/// Sets [`Attribute::SIZE`] each frame to [`PARTICLE_SIZE`], clamped to the on-screen size
+/// limits of software Quake.
+fn size_update(w: &ExprWriter) -> SetAttributeModifier {
+    let view_origin = w.add_property(PROP_VIEW_ORIGIN, Vec3::ZERO.into());
+    let view_forward = w.add_property(PROP_VIEW_FORWARD, Vec3::NEG_Z.into());
+    let pixel_scale = w.add_property(PROP_PIXEL_SCALE, (2. / 200f32).into());
+
+    let depth = (w.attr(Attribute::POSITION) - w.prop(view_origin))
+        .dot(w.prop(view_forward))
+        .max(w.lit(0.));
+    let pixel = depth * w.prop(pixel_scale);
+    let size = w
+        .lit(PARTICLE_SIZE)
+        .clamp(pixel.clone() * w.lit(PARTICLE_MIN_PIXELS), pixel * w.lit(PARTICLE_MAX_PIXELS));
+
+    SetAttributeModifier::new(Attribute::SIZE, size.expr())
+}
+
 /// Assembles an effect from its Quake particle type and initial state.
 fn build(
     w: ExprWriter,
@@ -189,6 +226,7 @@ fn build(
     ));
 
     updates.extend(ptype.velocity_update(&w));
+    updates.push(size_update(&w));
 
     let mut module = w.finish();
     module.add_texture_slot("lut", SlotDimension::D2);
@@ -200,7 +238,10 @@ fn build(
         .with_simulation_condition(SimulationCondition::Always)
         // Quake moves particles with their old velocity before updating it.
         .with_motion_integration(MotionIntegration::PreUpdate)
-        .with_alpha_mode(bevy_hanabi::AlphaMode::Opaque);
+        // Particles are fully opaque, but `AlphaMode::Opaque` puts them in the retained binned
+        // phase, where hanabi 0.20 leaves stale entries behind for despawned effects and panics
+        // in `draw()`. The sorted transparent phase is rebuilt every frame.
+        .with_alpha_mode(bevy_hanabi::AlphaMode::Blend);
 
     for init in inits {
         asset = asset.init(init);
@@ -209,9 +250,7 @@ fn build(
         asset = asset.update(update);
     }
 
-    asset
-        .render(SetSizeModifier { size: Vec3::splat(PARTICLE_SIZE).into() })
-        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+    asset.render(OrientModifier::new(OrientMode::FaceCameraPosition))
 }
 
 /// A burst whose size is set per instance through its `EffectSpawner`.
@@ -366,11 +405,10 @@ const TRAIL_CAPACITY: u32 = 1024;
 
 /// Adds the [`PROP_TRAIL_START`] and [`PROP_TRAIL_END`] properties, returning a random point on
 /// the segment between them.
-fn trail_point(w: &ExprWriter) -> (WriterExpr, WriterExpr, WriterExpr) {
+fn trail_point(w: &ExprWriter) -> WriterExpr {
     let start = w.prop(w.add_property(PROP_TRAIL_START, Vec3::ZERO.into()));
     let end = w.prop(w.add_property(PROP_TRAIL_END, Vec3::ZERO.into()));
-    let point = start.clone().mix(end.clone(), rand(w));
-    (start, end, point)
+    start.mix(end, rand(w))
 }
 
 /// Rocket (type 0) and grenade smoke (type 1) trails.
@@ -378,7 +416,7 @@ fn trail_point(w: &ExprWriter) -> (WriterExpr, WriterExpr, WriterExpr) {
 /// Properties: the trail segment, and [`PROP_RAMP_BASE`] (0 for rockets, 2 for smoke).
 pub fn trail_fire() -> EffectAsset {
     let w = ExprWriter::new();
-    let (_, _, point) = trail_point(&w);
+    let point = trail_point(&w);
     let ramp_base = w.add_property(PROP_RAMP_BASE, 0f32.into());
 
     let init = ParticleInit {
@@ -394,7 +432,7 @@ pub fn trail_fire() -> EffectAsset {
 /// Blood (type 2) and slight blood (type 4) trails.
 pub fn trail_blood() -> EffectAsset {
     let w = ExprWriter::new();
-    let (_, _, point) = trail_point(&w);
+    let point = trail_point(&w);
 
     let init = ParticleInit {
         position: point + rand_offset3(&w, 6.),
@@ -408,17 +446,19 @@ pub fn trail_blood() -> EffectAsset {
 
 /// Scrag (type 3) and Death Knight (type 5) tracers, which drift sideways off the trail.
 ///
-/// Properties: the trail segment, and [`PROP_COLOR_BASE`] (52 or 230).
+/// Properties: the trail segment, [`PROP_COLOR_BASE`] (52 or 230), and [`PROP_TRAIL_SIDE`]
+/// (the sideways velocity, `30 * (dir.y, -dir.x, 0)` for the segment's direction `dir`).
+///
+/// The side is computed on the CPU because hanabi 0.20 doesn't parenthesize binary expressions
+/// before swizzles, so e.g. `(end - start).x` miscompiles.
 pub fn trail_tracer() -> EffectAsset {
     let w = ExprWriter::new();
-    let (start, end, point) = trail_point(&w);
+    let point = trail_point(&w);
     let color_base = w.add_property(PROP_COLOR_BASE, 0f32.into());
+    let side = w.add_property(PROP_TRAIL_SIDE, Vec3::ZERO.into());
 
     // Quake alternates the side and color deterministically; pick them at random instead.
-    let dir = safe_normalize(&w, end - start);
-    let side = dir.clone().y().vec3(w.lit(0.) - dir.x(), w.lit(0.))
-        * w.lit(30.)
-        * (rand_int(&w, 2.) * w.lit(2.) - w.lit(1.));
+    let side = w.prop(side) * (rand_int(&w, 2.) * w.lit(2.) - w.lit(1.));
 
     let init = ParticleInit {
         position: point,
@@ -433,7 +473,7 @@ pub fn trail_tracer() -> EffectAsset {
 /// Vore missile (type 6) trail.
 pub fn trail_voor() -> EffectAsset {
     let w = ExprWriter::new();
-    let (_, _, point) = trail_point(&w);
+    let point = trail_point(&w);
 
     let init = ParticleInit {
         position: point + rand_offset3(&w, 16.),
@@ -472,6 +512,12 @@ mod tests {
                 "{} is missing its LUT slot",
                 effect.name
             );
+
+            // Catches type errors in the expressions, which would otherwise only show up when
+            // the effect is first used.
+            if let Err(e) = bevy_hanabi::EffectShaderSources::generate(&effect, None, 0) {
+                panic!("{} failed to generate its shaders: {e}", effect.name);
+            }
         }
     }
 }

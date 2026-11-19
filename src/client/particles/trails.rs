@@ -18,7 +18,7 @@ use bevy_mod_mdl::{
 
 use super::{
     DespawnAfter, QuakeParticleEffects,
-    effects::{PROP_COLOR_BASE, PROP_RAMP_BASE, PROP_TRAIL_END, PROP_TRAIL_START},
+    effects::{PROP_COLOR_BASE, PROP_RAMP_BASE, PROP_TRAIL_END, PROP_TRAIL_SIDE, PROP_TRAIL_START},
 };
 use crate::client::Connection;
 
@@ -97,20 +97,28 @@ impl TrailKind {
         }
     }
 
+    fn is_tracer(self) -> bool {
+        matches!(self, TrailKind::Tracer | TrailKind::Tracer2)
+    }
+
     fn properties(self) -> EffectProperties {
-        let extra: Option<(&str, f32)> = match self {
-            TrailKind::Rocket => Some((PROP_RAMP_BASE, 0.)),
-            TrailKind::Smoke => Some((PROP_RAMP_BASE, 2.)),
-            TrailKind::Tracer => Some((PROP_COLOR_BASE, 52.)),
-            TrailKind::Tracer2 => Some((PROP_COLOR_BASE, 230.)),
-            TrailKind::Blood | TrailKind::SlightBlood | TrailKind::Voor => None,
+        let extra: &[(&str, bevy_hanabi::Value)] = match self {
+            TrailKind::Rocket => &[(PROP_RAMP_BASE, 0f32.into())],
+            TrailKind::Smoke => &[(PROP_RAMP_BASE, 2f32.into())],
+            TrailKind::Tracer => {
+                &[(PROP_COLOR_BASE, 52f32.into()), (PROP_TRAIL_SIDE, Vec3::ZERO.into())]
+            }
+            TrailKind::Tracer2 => {
+                &[(PROP_COLOR_BASE, 230f32.into()), (PROP_TRAIL_SIDE, Vec3::ZERO.into())]
+            }
+            TrailKind::Blood | TrailKind::SlightBlood | TrailKind::Voor => &[],
         };
 
         EffectProperties::default().with_properties(
             [(PROP_TRAIL_START, Vec3::ZERO.into()), (PROP_TRAIL_END, Vec3::ZERO.into())]
-                .into_iter()
-                .chain(extra.map(|(name, value)| (name, value.into())))
-                .map(|(name, value)| (name.to_owned(), value)),
+                .iter()
+                .chain(extra)
+                .map(|&(name, value)| (name.to_owned(), value)),
         )
     }
 }
@@ -248,9 +256,18 @@ pub fn update_trail_emitters(
         if count > 0 {
             properties.set(PROP_TRAIL_START, prev_origin.into());
             properties.set(PROP_TRAIL_END, origin.into());
+            if emitter.kind.is_tracer() {
+                properties.set(PROP_TRAIL_SIDE, tracer_side(delta).into());
+            }
             spawner.spawn_count = count;
         }
     }
+}
+
+/// The sideways velocity of tracer particles, for a trail moving by `delta`.
+fn tracer_side(delta: Vec3) -> Vec3 {
+    let dir = delta.normalize_or_zero();
+    Vec3::new(dir.y, -dir.x, 0.) * 30.
 }
 
 #[cfg(test)]

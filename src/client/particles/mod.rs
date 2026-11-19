@@ -19,7 +19,7 @@
 //! - The grid layouts of lava and teleport splashes, and the alternating sides and colors of
 //!   tracer trails, are randomized rather than following spawn order, since hanabi has no
 //!   per-spawn particle index.
-//! - Particles are opaque squares with a fixed world-space size, like software Quake, without
+//! - Particles are solid squares with a fixed world-space size, like software Quake, without
 //!   GLQuake's distance-based scaling.
 
 pub mod effects;
@@ -29,9 +29,12 @@ pub mod trails;
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 
-use self::effects::{PROP_COLOR_BASE, PROP_COLOR_LEN, PROP_COLOR_START, PROP_DIRECTION, PType};
+use self::effects::{
+    PROP_COLOR_BASE, PROP_COLOR_LEN, PROP_COLOR_START, PROP_DIRECTION, PROP_PIXEL_SCALE,
+    PROP_VIEW_FORWARD, PROP_VIEW_ORIGIN, PType,
+};
 use crate::{
-    client::Connection,
+    client::{Connection, systems::frame::ViewFor},
     common::{
         net::{PointEntityKind, TempEntity},
         wad::{DEFAULT_PALETTE_PATH, Palette},
@@ -254,6 +257,13 @@ impl Plugin for ParticlesPlugin {
                     trails::update_trail_emitters.after(EffectSystems::TickSpawners),
                     despawn_finished_effects,
                 ),
+            )
+            .add_systems(
+                PostUpdate,
+                update_view_properties
+                    .after(TransformSystems::Propagate)
+                    .after(spawn_particle_effects)
+                    .after(trails::spawn_trail_emitters),
             );
     }
 }
@@ -349,6 +359,34 @@ fn spawn_particle_effects(
                 instance.insert(EffectSpawner::new(&SpawnerSettings::once((count as f32).into())));
             }
         }
+    }
+}
+
+/// The camera rendering the world, as opposed to the overlay camera (which has render layers).
+type WorldCameraFilter =
+    (With<Camera3d>, With<ViewFor>, Without<bevy::camera::visibility::RenderLayers>);
+
+/// Tells every effect where the camera is, so it can clamp its particles' on-screen size.
+fn update_view_properties(
+    cameras: Query<(&GlobalTransform, &Projection), WorldCameraFilter>,
+    mut effects: Query<&mut EffectProperties, With<ParticleEffect>>,
+) {
+    let Some((transform, projection)) = cameras.iter().next() else {
+        return;
+    };
+    let Projection::Perspective(perspective) = projection else {
+        return;
+    };
+
+    // Quake's pixel limits are for a 200-line screen.
+    let pixel_scale = 2. * (perspective.fov / 2.).tan() / 200.;
+    let origin = transform.translation();
+    let forward = transform.forward().as_vec3();
+
+    for mut properties in &mut effects {
+        properties.set(PROP_VIEW_ORIGIN, origin.into());
+        properties.set(PROP_VIEW_FORWARD, forward.into());
+        properties.set(PROP_PIXEL_SCALE, pixel_scale.into());
     }
 }
 
