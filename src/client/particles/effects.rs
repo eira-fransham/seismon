@@ -4,6 +4,12 @@
 //! are expressed as hanabi update modifiers (see [`PType`]), and colors are looked up from the
 //! palette/ramp LUT built in [`super::palette`], bound to texture slot 0.
 //!
+//! Particles are simulated in the emitter's local space ([`SimulationSpace::Local`]). Emitters
+//! are children of `worldspawn` and never move, so this is Quake's coordinate space (Z up, Quake
+//! units), offset to the emitter's origin. `worldspawn` itself converts to Bevy's space (Y up,
+//! scaled down), so constants like [`GRAVITY`] and [`PARTICLE_SIZE`] would be wrong in global
+//! space.
+//!
 //! Quake's `rand() & N` and `rand() % N` are expressed as `floor(rand() * K)`, which gives the
 //! same uniform distribution over `0..K`.
 
@@ -47,9 +53,10 @@ pub const PROP_TRAIL_END: &str = "end";
 pub const PROP_RAMP_BASE: &str = "ramp_base";
 pub const PROP_TRAIL_SIDE: &str = "side";
 
-/// Camera position, in the same space as the particles. Set on every effect, every frame.
+/// Camera position, in the effect's local space. Set on every effect, every frame.
 pub const PROP_VIEW_ORIGIN: &str = "view_origin";
-/// Camera forward vector. Set on every effect, every frame.
+/// Camera forward vector, normalized, in the effect's local space. Set on every effect, every
+/// frame.
 pub const PROP_VIEW_FORWARD: &str = "view_forward";
 /// World size of one 320x200 pixel per unit of depth, i.e. `2 * tan(vfov / 2) / 200`. Set on
 /// every effect, every frame.
@@ -233,7 +240,8 @@ fn build(
 
     let mut asset = EffectAsset::new(capacity, spawner, module)
         .with_name(name)
-        .with_simulation_space(SimulationSpace::Global)
+        // In Quake units, Z up; see the module docs.
+        .with_simulation_space(SimulationSpace::Local)
         // Quake simulates every particle, visible or not.
         .with_simulation_condition(SimulationCondition::Always)
         // Quake moves particles with their old velocity before updating it.

@@ -253,7 +253,10 @@ impl Plugin for ParticlesPlugin {
                 PostUpdate,
                 (
                     (spawn_particle_effects, trails::spawn_trail_emitters)
-                        .before(EffectSystems::TickSpawners),
+                        .before(EffectSystems::TickSpawners)
+                        // So new emitters have a valid `GlobalTransform` for
+                        // `update_view_properties`.
+                        .before(TransformSystems::Propagate),
                     trails::update_trail_emitters.after(EffectSystems::TickSpawners),
                     despawn_finished_effects,
                 ),
@@ -369,25 +372,33 @@ type WorldCameraFilter =
 /// Tells every effect where the camera is, so it can clamp its particles' on-screen size.
 fn update_view_properties(
     cameras: Query<(&GlobalTransform, &Projection), WorldCameraFilter>,
-    mut effects: Query<&mut EffectProperties, With<ParticleEffect>>,
+    mut effects: Query<(&mut EffectProperties, &GlobalTransform), With<ParticleEffect>>,
 ) {
-    let Some((transform, projection)) = cameras.iter().next() else {
+    let Some((camera, projection)) = cameras.iter().next() else {
         return;
     };
     let Projection::Perspective(perspective) = projection else {
         return;
     };
 
-    // Quake's pixel limits are for a 200-line screen.
+    // Quake's pixel limits are for a 200-line screen. This is a ratio of size to depth, so it
+    // doesn't depend on the space they're measured in.
     let pixel_scale = 2. * (perspective.fov / 2.).tan() / 200.;
-    let origin = transform.translation();
-    let forward = transform.forward().as_vec3();
 
-    for mut properties in &mut effects {
+    for (mut properties, emitter) in &mut effects {
+        let (origin, forward) = view_in_effect_space(emitter, camera);
         properties.set(PROP_VIEW_ORIGIN, origin.into());
         properties.set(PROP_VIEW_FORWARD, forward.into());
         properties.set(PROP_PIXEL_SCALE, pixel_scale.into());
     }
+}
+
+/// The camera's position and forward vector in an effect's local simulation space.
+fn view_in_effect_space(emitter: &GlobalTransform, camera: &GlobalTransform) -> (Vec3, Vec3) {
+    let world_to_effect = emitter.affine().inverse();
+    let origin = world_to_effect.transform_point3(camera.translation());
+    let forward = world_to_effect.transform_vector3(camera.forward().as_vec3()).normalize_or_zero();
+    (origin, forward)
 }
 
 fn despawn_finished_effects(
@@ -413,6 +424,27 @@ fn despawn_finished_effects(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn view_is_converted_to_quake_space() {
+        // Like `worldspawn`'s transform from bevy_trenchbroom: Z-up to Y-up, scaled down.
+        let quake_to_bevy = Mat3::from_cols(Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y) / 39.37;
+        let worldspawn = Transform::from_matrix(Mat4::from_mat3(quake_to_bevy));
+        let emitter_origin = Vec3::new(100., -50., 20.);
+        let emitter =
+            GlobalTransform::from(worldspawn) * GlobalTransform::from_translation(emitter_origin);
+
+        // A camera 64 units above the emitter, in Quake space, looking straight down.
+        let camera_quake = emitter_origin + Vec3::Z * 64.;
+        let camera = GlobalTransform::from(
+            Transform::from_translation(quake_to_bevy * camera_quake)
+                .looking_to(quake_to_bevy * Vec3::NEG_Z, quake_to_bevy * Vec3::X),
+        );
+
+        let (origin, forward) = view_in_effect_space(&emitter, &camera);
+        assert!(origin.abs_diff_eq(Vec3::Z * 64., 1e-3), "{origin}");
+        assert!(forward.abs_diff_eq(Vec3::NEG_Z, 1e-5), "{forward}");
+    }
 
     #[test]
     fn particle_cmd_full_count_is_an_explosion() {
