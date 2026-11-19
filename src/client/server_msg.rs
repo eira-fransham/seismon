@@ -6,6 +6,7 @@ use seismon_utils::QString;
 
 use crate::client::{
     hud::MakeHud,
+    lightstyle::LightStyle,
     particles::ParticleEvent,
     state::PrecacheModel,
     systems::frame::{ViewEntities, ViewFor},
@@ -302,6 +303,24 @@ impl ServerMsgCtx<'_, '_> {
         }
 
         self.conn.last_msg_time = Duration::from_secs_f32(time);
+    }
+
+    /// Replaces a lightstyle, like `svc_lightstyle`.
+    pub fn lightstyle(&mut self, id: u8, value: QString) -> Result<(), ClientError> {
+        let Some(state) = self.conn.client_state.as_mut() else {
+            return Ok(());
+        };
+
+        let num_styles = state.lightstyles.len();
+        state.lightstyles.resize(num_styles.max(id as usize + 1), Default::default());
+        let style = &mut state.lightstyles[id as usize];
+
+        if style.source != value {
+            *style = LightStyle::parse(value);
+            state.lightstyles_changed = true;
+        }
+
+        Ok(())
     }
 
     pub fn update_stat(&mut self, stat: net::ClientStat, value: i32) {

@@ -8,8 +8,8 @@ use bevy_mod_scripting_qcvm::{
     QCFunction, QCString, QCVmContext,
     qcvm::{self, Address as _, Type},
 };
-use qcvm_defs_quake1::GlobalAddr;
 use hashbrown::HashMap;
+use qcvm_defs_quake1::GlobalAddr;
 
 use crate::server::{
     limit_vec3,

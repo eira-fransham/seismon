@@ -1271,7 +1271,7 @@ mod tests {
     }
 
     #[test]
-    fn test_server_cmd_light_style_read_write_eq() {
+    fn test_server_cmd_lightstyle_read_write_eq() {
         let src = ServerCmd::LightStyle {
             id: 11,
             value: QString::from("aaaaabcddeefgghjjjkaaaazzzzyxwaaaba"),

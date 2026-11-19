@@ -570,8 +570,8 @@ pub struct QcTables {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qcvm_defs_quake1::FieldAddr;
     use bevy_mod_scripting_qcvm::qcvm::strum::VariantArray as _;
+    use qcvm_defs_quake1::FieldAddr;
 
     #[test]
     fn every_progdefs_field_has_an_accessor() {

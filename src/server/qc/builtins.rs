@@ -20,7 +20,7 @@ use seismon_utils::QString;
 use crate::{
     common::net::{ServerCmd, write_angle_byte},
     server::{
-        MAX_LIGHTSTYLES, MsgDest, ServerCtx, ServerVars,
+        MsgDest, ServerCtx, ServerVars,
         error::ServerError,
         ftos,
         math::{AngleVectors, angle_vectors, vec_to_angles},
@@ -281,7 +281,7 @@ pub fn register(world: &mut World) {
             })
         })
         .register("lightstyle", |style: f32, value: S| {
-            with_ctx(|ctx| builtin_light_style(ctx, style, value.map(|v| v.0).unwrap_or_default()))
+            with_ctx(|ctx| builtin_lightstyle(ctx, style, value.map(|v| v.0).unwrap_or_default()))
         })
         .register("rint", |f: f32| f.round())
         .register("floor", |f: f32| f.floor())
@@ -651,7 +651,7 @@ fn builtin_find_radius(
     Ok(chain_end)
 }
 
-fn builtin_light_style(
+fn builtin_lightstyle(
     ctx: &mut ServerCtx<'_>,
     style: f32,
     value: QCString,
@@ -660,18 +660,24 @@ fn builtin_light_style(
         i if i < 0 => return Err(ServerError::with_msg("negative lightstyle ID")),
         i => i as usize,
     };
-    if index >= MAX_LIGHTSTYLES {
-        return Err(ServerError::with_msg(format!("lightstyle {index} out of range")));
-    }
 
     let mut level = ctx.level_mut();
+    let id = u8::try_from(index)
+        .map_err(|_| ServerError::with_msg(format!("lightstyle {index} out of range")))?;
+    let num_styles = level.lightstyles.len();
+    level.lightstyles.resize(num_styles.max(index + 1), QCString::null());
+
+    if level.lightstyles[index] == value {
+        return Ok(());
+    }
+
     level.lightstyles[index] = value.clone();
 
     // Clients are sent all of the light styles when they connect, so this only needs to send
     // changes. Anything written before the level is active is cleared by `init_frame`, which
     // matches Quake only sending changes once the server is active.
     // TODO: This should be reliable (Quake sends it to each client's reliable message).
-    ServerCmd::LightStyle { id: index as _, value: value.as_bytes().to_vec().into() }
+    ServerCmd::LightStyle { id, value: value.as_bytes().to_vec().into() }
         .serialize(&mut level.broadcast)?;
 
     Ok(())

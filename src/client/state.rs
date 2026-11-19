@@ -7,6 +7,7 @@ use crate::{
         hud::HudIntermission,
         interpolation::{Next, NoInterpolation},
         inventory::{Armor, CurrentAmmo, Health},
+        lightstyle::LightStyle,
         post_process::{ColorShift, Powerup},
         systems::frame::{ViewEntities, ViewFor},
         view::{ViewEffects, capture_view_base},
@@ -122,6 +123,14 @@ pub struct ClientState {
     _cached_sounds: Box<[Handle<AudioSample>]>,
 
     pub server_entity_to_client_entity: HashMap<u16, Entity>,
+
+    /// The current lightstyles, i.e. `cl_lightstyle`. Sized by [`max_lightstyles`] when the
+    /// level starts; use its length rather than a constant as the limit.
+    pub lightstyles: Vec<LightStyle>,
+
+    /// Set when [`Self::lightstyles`] changes, so `sync_lightstyles` rebuilds the lightmap
+    /// animators.
+    pub lightstyles_changed: bool,
 }
 
 #[derive(Component, Default, Debug)]
@@ -204,6 +213,9 @@ impl ClientState {
             sounds: sounds.collect(),
             _cached_sounds: cached_sounds,
             server_entity_to_client_entity: Default::default(),
+            // A new level clears every style, like `CL_ClearState`. The server resends them.
+            lightstyles: Default::default(),
+            lightstyles_changed: true,
         })
     }
 

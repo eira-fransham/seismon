@@ -6,6 +6,7 @@ mod hud;
 pub mod input;
 mod interpolation;
 mod inventory;
+mod lightstyle;
 mod loading_screen;
 pub mod menu;
 pub mod particles;
@@ -298,6 +299,11 @@ where
                                 .or_else(in_state(ClientGameState::InGame)),
                         ),
                     ),
+            )
+            .add_systems(
+                // After server messages (in `Update`) so a style change shows up the same frame.
+                PostUpdate,
+                lightstyle::sync_lightstyles,
             )
             .add_systems(
                 Update,
@@ -1429,7 +1435,7 @@ mod systems {
                         ctx.stop_sound(entity_id, channel)
                     }
 
-                    ServerCmd::LightStyle { .. } => msg_todo!("lightstyle"),
+                    ServerCmd::LightStyle { id, value } => ctx.lightstyle(id, value)?,
                     ServerCmd::Particle { origin, direction, count, color } => {
                         ctx.particle(origin, direction, count, color)
                     }

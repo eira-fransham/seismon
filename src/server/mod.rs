@@ -65,7 +65,6 @@ use anyhow::bail;
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use bevy_trenchbroom::bsp::Bsp;
-use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::{QString, duration_to_f32};
 use serde::Deserialize;
@@ -106,7 +105,6 @@ impl TryFrom<usize> for MsgDest {
     }
 }
 
-use crate::common::MAX_LIGHTSTYLES;
 /// Tick rate for the server.
 ///
 /// > TODO: Make this a cvar
@@ -198,6 +196,8 @@ pub enum ClientSlotState {
     Active(ClientActive),
 }
 
+type BitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_256bit>;
+
 #[derive(Debug)]
 pub struct ClientActive {
     /// If true, client may execute any command.
@@ -208,7 +208,7 @@ pub struct ClientActive {
     /// The entity controlled by this client.
     entity: Entity,
 
-    sent_baseline: BitVec,
+    sent_baseline: BitSet,
 
     /// The most-recent movement command received from this client (see [`LevelState::client_think`]).
     cmd: MoveCmd,
@@ -608,7 +608,8 @@ pub struct LevelState {
 
     sound_precache: Precache,
     model_precache: Precache,
-    lightstyles: [QCString; MAX_LIGHTSTYLES],
+    /// One entry per lightstyle, sized by [`max_lightstyles`] when the level is created.
+    lightstyles: Vec<QCString>,
 
     /// Amount of time the current level has been active.
     time: Duration,
@@ -665,7 +666,7 @@ impl LevelState {
             sound_precache,
             model_precache,
             frame_client_messages: default(),
-            lightstyles: std::array::from_fn(|_| QCString::null()),
+            lightstyles: Vec::new(),
             time: Duration::from_secs(1),
             broadcast: default(),
             init: default(),
@@ -1092,7 +1093,7 @@ impl ServerCtx<'_> {
             client.state = ClientSlotState::Active(ClientActive {
                 _privileged: true,
                 entity: client_entity,
-                sent_baseline: BitVec::repeat(false, qc::edict::MAX_ENTITIES),
+                sent_baseline: Default::default(),
                 cmd: MoveCmd::default(),
             });
 
@@ -1571,9 +1572,10 @@ pub mod systems {
         }
         .serialize(&mut packet)?;
 
-        for (id, style) in level.lightstyles.iter().enumerate() {
+        // Style IDs are a `u8` on the wire, so styles past 255 can never be sent.
+        for (id, style) in (0..=u8::MAX).zip(level.lightstyles.iter()) {
             if !style.as_bytes().is_empty() {
-                ServerCmd::LightStyle { id: id as _, value: style.as_bytes().to_vec().into() }
+                ServerCmd::LightStyle { id, value: style.as_bytes().to_vec().into() }
                     .serialize(&mut packet)?;
             }
         }
@@ -1631,7 +1633,7 @@ pub mod systems {
             let mut session = world.resource_mut::<Session>();
             for edict in recycled {
                 for (_, client) in session.persist.client_slots.active_clients_mut() {
-                    client.sent_baseline.set(edict as usize, false);
+                    client.sent_baseline.remove(edict as usize);
                 }
             }
         }
@@ -1667,8 +1669,9 @@ pub mod systems {
 
             ServerCmd::Time { time: duration_to_f32(ctx.time()) }.serialize(&mut packet).unwrap();
 
-            unsent_entity_cache
-                .extend(ctx.edicts().iter().filter(|(edict, _)| !sent_baseline[*edict as usize]));
+            unsent_entity_cache.extend(
+                ctx.edicts().iter().filter(|(edict, _)| !sent_baseline.contains(*edict as usize)),
+            );
 
             // Only mark a baseline as sent once it has actually been written, so entities
             // which aren't networked yet (no model) get one when they become
@@ -1683,14 +1686,14 @@ pub mod systems {
                     if let Some(mut baseline) = ctx.world.get_mut::<qc::fields::Baseline>(entity) {
                         baseline.0 = state;
                     }
-                    sent_baseline.set(edict as usize, true);
+                    sent_baseline.insert(edict as usize);
                 }
             }
 
             // Skip world entity
             for (edict, entity) in ctx.edicts().range(1..).collect::<Vec<_>>() {
                 // Never send an update for an entity the client has no baseline for.
-                if !sent_baseline[edict as usize] {
+                if !sent_baseline.contains(edict as usize) {
                     continue;
                 }
 
