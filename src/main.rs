@@ -245,11 +245,14 @@ fn main() -> ExitCode {
         default_plugins.disable::<AudioPlugin>().add_group(bevy_seedling::SeedlingPlugins);
 
     let games = [Some("id1"), opt.game.as_deref()].into_iter().flatten().map(|game| {
-        opt.base_dir
+        let dir = opt
+            .base_dir
             .as_ref()
             .map(PathBuf::from)
             .unwrap_or_else(|| std::env::current_dir().unwrap())
-            .join(game)
+            .join(game);
+
+        dir.canonicalize().unwrap_or(dir)
     });
 
     #[derive(Parser)]
