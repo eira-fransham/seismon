@@ -4,7 +4,7 @@
 
 #### Click here for a preview video:
 
-[![Preview video](https://img.youtube.com/vi/Hy5QStHHv8A/0.jpg)](https://www.youtube.com/watch?v=Hy5QStHHv8A)
+[![Preview video](https://img.youtube.com/vi/mBE5v9SwUV0/0.jpg)](https://youtu.be/mBE5v9SwUV0)
 
 Seismon is a Quake engine written in Rust, based on the [Bevy](https://bevyengine.org/) framework. It is extensible,
 written in a modern ECS style, has a modern deferred and pipelined rendering system, and includes a modern audio
@@ -12,8 +12,6 @@ framework. The engine is built as a set of plugins, and much of the work could b
 
 To my knowledge, this is the first full from-scratch rewrite of Quake 1, i.e. not forked from the Quake 1 source code
 release.
-
-![Preview of demo playback](content/preview.gif)
 
 ### Installation
 
@@ -58,10 +56,6 @@ as the intermission screen at the end of levels, is fully implemented. I have ye
 full playthrough of the game, but I've played far enough to feel reasonably confident that
 a full playthrough could be possible.
 
-#### Click here for a preview video:
-
-[![Preview of running server](https://img.youtube.com/vi/cYRXDSovfwI/0.jpg)](https://www.youtube.com/watch?v=cYRXDSovfwI)
-
 The console works much the same as the original game. You can run commands such as `map`,
 explicitly invoke actions such as `+mlook`, set cvars like `sensitivity 2`, and bind
 keys like `bind space +jump`. You can see the documentation for a command, action or
@@ -82,19 +76,17 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-u
 - Server
   - [x] Initialisation routines
   - [x] All opcodes implemented
-  - [x] Basic physics
-  - [x] Complete physics
   - [x] All builtins implemented
   - [x] Input handling
   - [x] Basic client connection handling
   - [x] Full client connection
-  - [x] Single-player clients
+  - [x] Single-player
   - [ ] External clients
+  - [ ] Extended QuakeC builtins, supporting mods built for engines like FTEQW, QSS, DarkPlaces etc
 - Rendering
   - [x] Deferred dynamic lighting
   - [x] Particle effects
   - [x] Pipelined rendering
-  - [x] Customizable UI
   - Brush model (`.bsp`) rendering
     - Textures
       - [x] Static textures
@@ -109,7 +101,7 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-u
       - [x] Static keyframes
       - [x] Animated keyframes
     - [ ] Keyframe interpolation
-    - [ ] Ambient lighting
+    - [x] Ambient lighting
     - [x] Viewmodel rendering
   - UI
     - [x] Console
@@ -117,6 +109,7 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-u
     - [x] Level intermissions
     - [x] On-screen messages
     - [x] Menus
+    - [ ] CSQC (client-side QuakeC)
 - Use Bevy libraries instead of hand-rolling code
   - [x] Use `bevy_seedling` for audio
   - [x] Use `bevy_hanabi` for particles
