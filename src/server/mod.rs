@@ -208,7 +208,9 @@ pub struct ClientActive {
     /// The entity controlled by this client.
     entity: Entity,
 
-    sent_baseline: BitSet,
+    /// The set of entities for which we've sent a baseline. Boxed so we don't blow up
+    /// the size of `ClientSlotState` (level 0 is stored inline).
+    sent_baseline: Box<BitSet>,
 
     /// The most-recent movement command received from this client (see [`LevelState::client_think`]).
     cmd: MoveCmd,

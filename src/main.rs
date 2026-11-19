@@ -157,7 +157,7 @@ fn startup(
           mut game_settings: ResMut<SeismonGameSettings>,
           mut console_cmds| {
         let quake_camera_bundle =
-            (Hdr, Tonemapping::TonyMcMapface, Exposure::BLENDER, Msaa::Sample2, Bloom::default());
+            (Hdr, Tonemapping::TonyMcMapface, Exposure::BLENDER, Bloom::default());
 
         let world_camera_bundle =
             (default_world_camera(), SpatialListener3D, quake_camera_bundle.clone());

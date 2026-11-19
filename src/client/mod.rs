@@ -89,14 +89,6 @@ const MAX_CONNECT_ATTEMPTS: usize = 3;
 const DEFAULT_SOUND_PACKET_VOLUME: u8 = 255;
 const DEFAULT_SOUND_PACKET_ATTENUATION: f32 = 1.0;
 
-const CONSOLE_DIVIDER: &str = "\
-\n\n\
-\x1D\x1E\x1E\x1E\x1E\x1E\x1E\x1E\
-\x1E\x1E\x1E\x1E\x1E\x1E\x1E\x1E\
-\x1E\x1E\x1E\x1E\x1E\x1E\x1E\x1E\
-\x1E\x1E\x1E\x1E\x1E\x1E\x1E\x1F\
-\n\n";
-
 #[derive(Default)]
 pub struct SeismonClientPlugin<
     F = Box<dyn Fn(MenuBuilder) -> anyhow::Result<Menu> + Send + Sync + 'static>,

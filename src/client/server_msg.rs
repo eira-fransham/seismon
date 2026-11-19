@@ -49,9 +49,7 @@ impl ServerMsgCtx<'_, '_> {
         self.intermission.0 = None;
 
         if !message.raw.is_empty() {
-            self.console_output.println_alert(CONSOLE_DIVIDER, &self.wall_time);
             self.console_output.println_alert(message.raw, &self.wall_time);
-            self.console_output.println_alert(CONSOLE_DIVIDER, &self.wall_time);
         }
 
         if let Some(state) = self.conn.client_state.as_ref() {
