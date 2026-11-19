@@ -71,7 +71,7 @@ cvar with `help somecommand`.
 
 See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-up-to-date list of what needs help implementing.
 
-#### Feature checklist
+### Feature checklist
 
 - Networking
   - [x] NetQuake network protocol implementation (`sv_protocol 15`)
@@ -119,8 +119,8 @@ See [issues](https://github.com/eira-fransham/seismon/issues) for a reasonably-u
     - [x] Menus
 - Use Bevy libraries instead of hand-rolling code
   - [x] Use `bevy_seedling` for audio
-  - [ ] Use `hanabi` for particles
-  - [x] Use `bevy-ui` for UI
+  - [x] Use `bevy_hanabi` for particles
+  - [x] Use `bevy_ui` for UI
   - [x] Use standard Bevy rendering for the world/models
   - [x] Use `bevy_mod_scripting` for the QuakeC
   - [ ] Support for rollback netcode using `matchbox`

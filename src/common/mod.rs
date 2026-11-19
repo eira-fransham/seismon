@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub mod bitset;
 pub mod console;
 pub mod math;
 pub mod net;
@@ -39,5 +38,3 @@ pub fn default_base_dir() -> std::path::PathBuf {
         }
     }
 }
-
-pub const MAX_LIGHTSTYLES: usize = 64;

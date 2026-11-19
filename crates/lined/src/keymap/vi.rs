@@ -3,9 +3,8 @@
 //! This module implements the Vi-style editing for `lined`.
 
 use std::{cmp, io, mem};
-use termion::event::Key;
 
-use crate::{Editor, EditorContext, Highlighter, KeyMap, buffer::Buffer};
+use crate::{Editor, EditorContext, Highlighter, Key, KeyMap, buffer::Buffer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharMovement {
@@ -1123,8 +1122,8 @@ mod tests {
     use std::borrow::Cow;
 
     use super::*;
+    use crate::Key::*;
     use crate::{Buffer, Completer, Context, Editor, KeyMap, editor::Prompt};
-    use termion::event::{Key, Key::*};
 
     fn simulate_keys<'a, C: EditorContext, M: KeyMap, I>(
         keymap: &mut M,

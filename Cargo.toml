@@ -11,6 +11,7 @@ resolver = "2"
 [workspace]
 members = [
     "crates/seismon-utils",
+    "crates/seismon-net",
     "crates/lined",
     "crates/bevy_mod_mdl",
     "crates/bevy_mod_pakfile",
@@ -26,6 +27,7 @@ repository = "https://github.com/eira-fransham/seismon"
 
 [workspace.dependencies]
 seismon-utils = { path = "crates/seismon-utils" }
+seismon-net = { path = "crates/seismon-net" }
 bevy_mod_mdl = { path = "crates/bevy_mod_mdl" }
 bevy_mod_spr = { path = "crates/bevy_mod_spr" }
 bevy_mod_pakfile = { path = "crates/bevy_mod_pakfile" }
@@ -55,6 +57,7 @@ bevy_shape = { version = "0.20" }
 
 anyhow = "1.0"
 beef = "0.5"
+bevy_hanabi = { version = "0.20", default-features = false, features = ["3d"] }
 bevy_materialize = "0.12"
 bevy_mod_scripting = { version = "0.24", default-features = false }
 bevy_mod_billboard = { git = "https://github.com/eira-fransham/bevy_mod_billboard.git", branch = "bevy-0.20" }
@@ -82,6 +85,7 @@ qbsp = { version = "0.17", features = ["bevy_reflect", "serde"] }
 [dependencies]
 anyhow.workspace = true
 seismon-utils.workspace = true
+seismon-net.workspace = true
 bevy_mod_mdl.workspace = true
 bevy_mod_spr.workspace = true
 bevy_mod_pakfile.workspace = true
@@ -91,6 +95,7 @@ lined.workspace = true
 bevy_dev_tools = { workspace = true, optional = true }
 bevy.workspace = true
 bevy_mod_billboard.workspace = true
+bevy_hanabi.workspace = true
 beef.workspace = true
 bitflags.workspace = true
 byteorder.workspace = true
@@ -117,6 +122,7 @@ bevy-inspector-egui = { version = "0.38", optional = true }
 bitvec = "1.0"
 bumpalo = "3.4"
 bytemuck = "1.14"
+hi_sparse_bitset = { version = "0.10", features = ["simd"] }
 image = "0.25"
 imstr = "0.2"
 indexmap = "2.9"
@@ -141,8 +147,6 @@ default-features = false
 features = ["client", "bsp"]
 
 [features]
-# Feels a bit backwards to do this, but otherwise we pull in tracing even
-# when we don't need to specify any features.
 default = []
 fast-compile = ["bevy/dynamic_linking"]
 # `FullscreenMaterialPlugin` seems to cause _massive_ slowdown on macOS.
@@ -158,8 +162,6 @@ tracing-disabled = ["dep:tracing", "tracing/max_level_off"]
 [profile.release]
 strip = "symbols"
 panic = "abort"
-incremental = false
-codegen-units = 1
 
 [profile.debug-fast]
 inherits = "dev"

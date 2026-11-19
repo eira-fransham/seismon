@@ -182,8 +182,9 @@ impl<T> Actions<T> {
         impl<'a, T> Iterator for ActionsUndoIter<'a, T> {
             type Item = &'a T;
 
+            /// Yields actions newest-first, so they can be inverted in order.
             fn next(&mut self) -> Option<Self::Item> {
-                self.iter.next()
+                self.iter.next_back()
             }
         }
 

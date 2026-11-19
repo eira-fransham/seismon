@@ -15,11 +15,24 @@ license = "MIT"
 exclude = ["CONTRIBUTING.md", ".travis.yml"]
 edition = "2024"
 
+[features]
+# The stdin/stdout terminal (`DefaultTty`, `Context::new`). Not needed when embedding the
+# editor, e.g. in a game console.
+terminal = ["dep:termion"]
+
 [dependencies]
-termion.workspace = true
+termion = { workspace = true, optional = true }
 unicode-width.workspace = true
 itertools.workspace = true
 strip-ansi-escapes.workspace = true
 
 [dev-dependencies]
 regex = "1.10"
+
+[[example]]
+name = "comments"
+required-features = ["terminal"]
+
+[[example]]
+name = "nocomments"
+required-features = ["terminal"]

@@ -10,7 +10,6 @@ use clap::Parser;
 use crate::{
     client::NewConnection,
     common::{console::TextAsset, net::SignOnStage},
-    server::{PendingLevel, Session},
 };
 
 use super::{
@@ -18,6 +17,14 @@ use super::{
     input::InputFocus,
     sound::{MixerMessage, MusicSource},
 };
+
+/// Reports whether a local server is running, so `startdemos` doesn't interrupt it.
+///
+/// The client doesn't know about the server, so whatever runs one (e.g.
+/// [`SeismonListenServerPlugin`](crate::listen::SeismonListenServerPlugin)) installs this. If it
+/// isn't present, no local server is assumed.
+#[derive(Resource, Clone, Copy)]
+pub struct LocalServerActive(pub fn(&World) -> bool);
 
 pub fn register_commands(app: &mut App) {
     app.action("forward")
@@ -187,35 +194,40 @@ pub fn register_commands(app: &mut App) {
         demos: Vec<String>,
     }
 
-    app.command(
-        |In(StartDemos { demos }),
-         mut commands: Commands,
-         assets: Res<AssetServer>,
-         mut time: ResMut<Time<Virtual>>,
-         mut demo_queue: ResMut<DemoQueue>,
-         server: Option<Res<Session>>,
-         pending_level: Option<Res<PendingLevel>>| {
-            if demos.is_empty() {
-                demo_queue.reset();
-            } else {
-                *demo_queue = DemoQueue::new(demos);
-            }
+    fn start_demos(
+        In((demos, local_server_active)): In<(Vec<String>, bool)>,
+        mut commands: Commands,
+        assets: Res<AssetServer>,
+        mut time: ResMut<Time<Virtual>>,
+        mut demo_queue: ResMut<DemoQueue>,
+    ) {
+        if demos.is_empty() {
+            demo_queue.reset();
+        } else {
+            *demo_queue = DemoQueue::new(demos);
+        }
 
-            *time = Time::default();
+        *time = Time::default();
 
-            // Only actually start playing the demos if we aren't already running a server
-            // (this appears to be Quake's expected behaviour?)
-            if server.is_none()
-                && pending_level.is_none()
-                && let Some(demo) = demo_queue.next_demo()
-            {
-                // TODO: This should look for demos in root or `/demos`
-                commands.write_message(NewConnection::Demo(assets.load(format!("{demo}.dem"))));
-            }
+        // Only actually start playing the demos if we aren't already running a server
+        // (this appears to be Quake's expected behaviour?)
+        if !local_server_active && let Some(demo) = demo_queue.next_demo() {
+            // TODO: This should look for demos in root or `/demos`
+            commands.write_message(NewConnection::Demo(assets.load(format!("{demo}.dem"))));
+        }
+    }
 
-            ExecResult::default()
-        },
-    );
+    app.command(|In(StartDemos { demos }), world: &mut World| {
+        // Checked synchronously, so that e.g. `map start; startdemos demo1` doesn't start a demo.
+        let local_server_active =
+            world.get_resource::<LocalServerActive>().is_some_and(|active| (active.0)(world));
+
+        if let Err(e) = world.run_system_cached_with(start_demos, (demos, local_server_active)) {
+            error!("startdemos: {e}");
+        }
+
+        ExecResult::default()
+    });
 
     #[derive(Parser)]
     #[command(name = "music", about = "Play a named music track")]

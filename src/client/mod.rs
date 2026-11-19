@@ -1,14 +1,17 @@
 pub mod commands;
+pub mod console;
 mod cvars;
 pub mod demo;
-pub mod entity;
 mod hud;
 pub mod input;
 mod interpolation;
 mod inventory;
+mod lightstyle;
 mod loading_screen;
 pub mod menu;
+pub mod particles;
 mod post_process;
+mod server_msg;
 pub mod sound;
 pub mod state;
 pub mod text;
@@ -32,8 +35,8 @@ use std::{
 
 use crate::{
     client::{
+        console::SeismonConsoleRenderPlugin,
         demo::{Demo, DemoError, DemoLoader, DemoServer},
-        entity::ClientEntity,
         hud::{HudIntermission, HudPlugin, IntermissionState, LevelStats},
         interpolation::InterpolateApp,
         inventory::InventoryPlugin,
@@ -44,7 +47,7 @@ use crate::{
     },
     common::{
         self, Template,
-        console::{ConsoleOutput, SeismonConsoleRenderPlugin, TextAsset, TextLoader},
+        console::{ConsoleOutput, TextAsset, TextLoader},
         net::{
             self, BlockingMode, ClientCmd, ClientMessage, EntityState, EntityUpdate, NetError,
             QSocket, ServerCmd, ServerMessage, SignOnStage,
@@ -298,6 +301,11 @@ where
                     ),
             )
             .add_systems(
+                // After server messages (in `Update`) so a style change shows up the same frame.
+                PostUpdate,
+                lightstyle::sync_lightstyles,
+            )
+            .add_systems(
                 Update,
                 systems::lock_cursor.run_if(
                     state_changed::<InputFocus>
@@ -340,6 +348,7 @@ where
             .add_plugins(SeismonSoundPlugin)
             .add_plugins(SeismonInputPlugin)
             .add_plugins(InventoryPlugin::default())
+            .add_plugins(particles::ParticlesPlugin)
             .add_plugins(
                 TrenchBroomPlugins(Default::default())
                     .build()
@@ -1212,7 +1221,7 @@ mod systems {
 
         use bevy::ecs::entity_disabling::Disabled;
 
-        use crate::client::{hud::MakeHud, state::PrecacheModel};
+        use crate::client::server_msg::ServerMsgCtx;
 
         use super::*;
 
@@ -1271,22 +1280,11 @@ mod systems {
             Ok(ConnectionStatus::Maintain)
         }
 
-        // TODO: Should we split server messages into separate pieces? Many (e.g. `StartSound`, `StuffText`)
-        // don't actually affect one another and it'd be nice to make the argument list smaller.
-        #[expect(clippy::too_many_arguments)]
         pub fn execute_server_msg(
             In(status): In<Result<ConnectionStatus, ClientError>>,
             mut pending_messages: Local<VecDeque<ServerCmd>>,
-            mut commands: Commands,
-            mut conn: ResMut<Connection>,
             mut server_cmds: MessageReader<ServerCmd>,
-            mut console_output: ResMut<ConsoleOutput>,
-            settings: Res<SeismonGameSettings>,
-            wall_time: Res<Time<Real>>,
-            asset_server: Res<AssetServer>,
-            transforms: Query<&Transform>,
-            mut level_stats: ResMut<LevelStats>,
-            mut intermission: ResMut<HudIntermission>,
+            mut ctx: ServerMsgCtx,
         ) -> Result<ConnectionStatus, ClientError> {
             use ConnectionStatus as S;
 
@@ -1316,12 +1314,12 @@ mod systems {
                 }
 
                 if let Some(ent_id) = cmd.entity()
-                    && let Some(state) = &mut conn.client_state
+                    && let Some(state) = &mut ctx.conn.client_state
                 {
                     state.mark_entity_alive(ent_id);
                     // TODO: This seems wrong.
                     if let Some(entity) = state.server_entity_to_client_entity.get(&ent_id) {
-                        commands.entity(*entity).remove_recursive::<Children, Disabled>();
+                        ctx.commands.entity(*entity).remove_recursive::<Children, Disabled>();
                     }
                 }
 
@@ -1334,394 +1332,16 @@ mod systems {
                         model_precache,
                         sound_precache,
                     } => {
-                        // check protocol version
-                        if protocol_version != net::PROTOCOL_VERSION as i32 {
-                            UnrecognizedProtocolSnafu { version: protocol_version }.fail()?;
-                        }
-
-                        // New level: reset the level stats (`cl.levelname` is the server's
-                        // message) and leave any intermission.
-                        *level_stats = LevelStats { level_name: message.clone(), ..default() };
-                        intermission.0 = None;
-
-                        if !message.raw.is_empty() {
-                            console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
-                            console_output.println_alert(message.raw, &wall_time);
-                            console_output.println_alert(CONSOLE_DIVIDER, &wall_time);
-                        }
-
-                        if let Some(state) = conn.client_state.as_ref() {
-                            commands.entity(state.worldspawn).despawn();
-                        }
-
-                        let mut new_worldspawn = commands.spawn(Visibility::Hidden);
-
-                        conn.client_state = Some(ClientState::from_server_info(
-                            &mut new_worldspawn,
-                            &asset_server,
-                            model_precache,
-                            sound_precache,
-                        )?);
-
-                        commands.set_state_if_different(ClientGameState::Loading);
+                        ctx.server_info(protocol_version, message, model_precache, sound_precache)?;
+                        // Stop here so the new level can load before any further messages.
                         break S::Maintain;
                     }
 
-                    ServerCmd::Bad => {
-                        warn!("Invalid command from server")
-                    }
-
-                    ServerCmd::NoOp => {}
-
-                    ServerCmd::CdTrack { track, .. } => {
-                        commands.write_message(MixerMessage::StartMusic(Some(
-                            sound::MusicSource::TrackId(track as usize),
-                        )));
-                    }
-
-                    ServerCmd::CenterPrint { text } => {
-                        console_output.set_center_print(text, &wall_time);
-                    }
-
-                    ServerCmd::PlayerData(player_data) => {
-                        commands.run_system_cached_with(ClientState::update_player, player_data);
-                    }
-
-                    ServerCmd::Cutscene { text } => {
-                        // TODO: Typewriter reveal of the text (`SCR_DrawCenterString` in finale
-                        // mode)
-                        console_output.set_center_print(text.clone(), &wall_time);
-                        intermission.0 = Some(IntermissionState {
-                            kind: IntermissionKind::Cutscene { text },
-                            completed_secs: conn.last_msg_time.as_secs_f32(),
-                        });
-                    }
-
-                    ServerCmd::Damage { armor, blood, source } => {
-                        commands
-                            .run_system_cached_with(view::handle_damage, (armor, blood, source));
-                    }
-
                     ServerCmd::Disconnect => {
-                        return Ok(match &conn.target {
+                        return Ok(match &ctx.conn.target {
                             ConnectionTarget::Demo(_) => S::NextDemo,
                             ConnectionTarget::Server { .. } => S::Disconnect,
                         });
-                    }
-
-                    ServerCmd::FastUpdate(ent_update) => {
-                        // first update signals the last sign-on stage
-                        commands.set_state_if_different(SignOn(SignOnStage::Done));
-
-                        commands.run_system_cached_with(
-                            ClientState::update_entity,
-                            (ent_update, conn.last_msg_time.as_secs_f64()),
-                        );
-                    }
-
-                    ServerCmd::Finale { text } => {
-                        // TODO: Typewriter reveal of the text (`SCR_DrawCenterString` in finale
-                        // mode)
-                        console_output.set_center_print(text.clone(), &wall_time);
-                        intermission.0 = Some(IntermissionState {
-                            kind: IntermissionKind::Finale { text },
-                            completed_secs: conn.last_msg_time.as_secs_f32(),
-                        });
-                    }
-                    ServerCmd::FoundSecret => level_stats.secrets += 1,
-                    ServerCmd::Intermission => {
-                        intermission.0 = Some(IntermissionState {
-                            kind: IntermissionKind::Intermission,
-                            completed_secs: conn.last_msg_time.as_secs_f32(),
-                        });
-                    }
-                    ServerCmd::KilledMonster => level_stats.monsters += 1,
-
-                    ServerCmd::LightStyle { .. } => {
-                        msg_todo!("lightstyle")
-                    }
-
-                    ServerCmd::Particle { .. } => {
-                        msg_todo!("particle")
-                    }
-
-                    ServerCmd::Print { text } => console_output.print_alert(text.raw, &wall_time),
-
-                    ServerCmd::SetAngle { angles } => {
-                        let is_demo = matches!(conn.target, ConnectionTarget::Demo(_));
-
-                        // Applied to the view entity's `Transform` by `apply_local_view_angles`.
-                        if let Some(state) = conn.client_state.as_mut() {
-                            // TODO: This feels a bit hacky, but ensures that view angles are interpolated in demos
-                            if is_demo && state.view.is_some() {
-                                commands.run_system_cached_with(
-                                    ClientState::set_view_angles,
-                                    (angles, conn.last_msg_time.as_secs_f64()),
-                                );
-                            } else {
-                                state.look_angles = angles;
-                            }
-                        }
-                    }
-
-                    ServerCmd::SetView { ent_id } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            if let Some(prev_view) = state.view.take()
-                                && let Some(prev_view) =
-                                    state.server_entity_to_client_entity.get(&prev_view)
-                            {
-                                commands.entity(*prev_view).despawn_related::<ViewEntities>();
-                            }
-
-                            state.view = Some(ent_id);
-
-                            let mut view_entity = match state
-                                .server_entity_to_client_entity
-                                .get(&ent_id)
-                            {
-                                Some(ent) => commands.entity(*ent),
-                                None => {
-                                    warn!(
-                                        "Server tried to set view on non-existent entity {ent_id}"
-                                    );
-                                    let entity = commands
-                                        .spawn((Transform::default(), ChildOf(state.worldspawn)));
-                                    state
-                                        .server_entity_to_client_entity
-                                        .insert(ent_id, entity.id());
-                                    entity
-                                }
-                            };
-
-                            // Viewing entity should be invisible (e.g. do not show player model)
-                            view_entity
-                                .insert(Visibility::Hidden)
-                                .insert_if_new(view::ViewEffects::default());
-
-                            let view_entity = view_entity.id();
-
-                            let mut world_camera_entity = match settings
-                                .camera_templates
-                                .world
-                                .and_then(|cam| commands.get_entity(cam).ok())
-                            {
-                                Some(ent) => ent,
-                                None => {
-                                    if let Ok(ent) =
-                                        commands.get_entity(settings.default_world_camera_template)
-                                    {
-                                        ent
-                                    } else {
-                                        warn!("No world camera template");
-                                        continue;
-                                    }
-                                }
-                            };
-
-                            world_camera_entity
-                                .clone_and_spawn_with_opt_out(|builder| {
-                                    builder.deny::<Template>();
-                                })
-                                .insert((ViewFor(view_entity), ChildOf(view_entity)))
-                                .queue(view::capture_view_base);
-
-                            let mut overlay_camera_entity = match settings
-                                .camera_templates
-                                .overlay
-                                .and_then(|cam| commands.get_entity(cam).ok())
-                            {
-                                Some(ent) => ent,
-                                None => {
-                                    if let Ok(ent) = commands
-                                        .get_entity(settings.default_overlay_camera_template)
-                                    {
-                                        ent
-                                    } else {
-                                        warn!("No overlay camera template");
-                                        continue;
-                                    }
-                                }
-                            };
-
-                            overlay_camera_entity
-                                .clone_and_spawn_with_opt_out(|builder| {
-                                    builder.deny::<Template>();
-                                })
-                                .insert((ViewFor(view_entity), ChildOf(state.worldspawn)));
-
-                            commands.queue(MakeHud {
-                                owner: view_entity,
-                                components: ViewFor(view_entity),
-                            });
-                        }
-                    }
-
-                    ServerCmd::SignOnStage { stage } => {
-                        commands.set_state_if_different(SignOn(stage));
-                    }
-
-                    ServerCmd::Sound {
-                        volume,
-                        attenuation,
-                        entity_id,
-                        channel,
-                        sound_id,
-                        position,
-                    } => {
-                        if let Some(state) = conn.client_state.as_ref() {
-                            trace!(
-                                "starting sound with id {} on entity {} channel {}",
-                                sound_id, entity_id, channel
-                            );
-
-                            let entity = state
-                                .server_entity_to_client_entity
-                                .get(&entity_id)
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    warn!(
-                                        "server tried to start sound on nonexistent entity {}",
-                                        entity_id
-                                    );
-
-                                    state.worldspawn
-                                });
-                            let entity_origin = transforms
-                                .get(entity)
-                                .map(|trans| trans.translation)
-                                .unwrap_or_default();
-
-                            let origin = position - entity_origin;
-                            let volume = volume.unwrap_or(DEFAULT_SOUND_PACKET_VOLUME);
-                            let attenuation =
-                                attenuation.unwrap_or(DEFAULT_SOUND_PACKET_ATTENUATION);
-                            if let Some(sound) = state.sounds.get(sound_id as usize) {
-                                commands.write_message(MixerMessage::StartSound(StartSound {
-                                    entity,
-                                    src: sound.clone(),
-                                    ent_channel: channel,
-                                    volume: volume as f32 / 255.0,
-                                    attenuation,
-                                    origin,
-                                }));
-                            }
-                        }
-                    }
-
-                    ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
-                        if let Some(state) = conn.client_state.as_ref()
-                            && let Some(sound) = state.sounds.get(sound_id as usize)
-                        {
-                            commands.write_message(MixerMessage::StartStaticSound(
-                                StartStaticSound {
-                                    world: state.worldspawn,
-                                    src: sound.clone(),
-                                    origin,
-                                    volume: volume as f32 / 255.,
-                                    attenuation: attenuation as f32 / 64.,
-                                },
-                            ));
-                        }
-                    }
-
-                    ServerCmd::SpawnBaseline {
-                        ent_id,
-                        model_id,
-                        frame_id,
-                        colormap,
-                        skin_id,
-                        origin,
-                        angles,
-                    } => {
-                        let msg_time = conn.last_msg_time.as_secs_f64();
-                        if let Some(state) = conn.client_state.as_mut() {
-                            state.spawn_entities(
-                                commands.reborrow(),
-                                ent_id,
-                                EntityState {
-                                    origin,
-                                    angles,
-                                    model_id,
-                                    frame_id,
-                                    colormap,
-                                    skin_id,
-                                    // TODO
-                                    effects: Default::default(),
-                                },
-                                msg_time,
-                            );
-                        }
-                    }
-
-                    ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
-                        if let Some(state) = conn.client_state.as_mut() {
-                            let mut ent = commands.spawn((
-                                // Same conversion as dynamic entities: `angles` is a Quake
-                                // pitch/yaw/roll vector in degrees.
-                                Transform::from_translation(origin)
-                                    .with_rotation(QAngles::from(angles.to_array()).into()),
-                                // TODO: Handle the other fields
-                                Visibility::Inherited,
-                                ChildOf(state.worldspawn),
-                            ));
-
-                            if let Some(PrecacheModel::Loaded(model)) =
-                                state.models.get(model_id as usize).cloned()
-                            {
-                                ent.insert(WorldAssetRoot(model));
-                            }
-                        }
-                    }
-
-                    ServerCmd::TempEntity { temp_entity: _ } => {
-                        msg_todo!("temp entity");
-                    }
-
-                    ServerCmd::StuffText { text } => {
-                        match text.to_str().parse::<RunCmd<'static>>() {
-                            Ok(parsed) => {
-                                commands.write_message(parsed);
-                            }
-                            Err(err) => console_output.println(format!("{err}"), &wall_time),
-                        }
-                    }
-
-                    ServerCmd::Time { time } => {
-                        let last_msg_time = conn.last_msg_time;
-                        if conn.is_connected()
-                            && let Some(state) = &mut conn.client_state
-                            && !last_msg_time.is_zero()
-                        {
-                            for entity in state.drain_dead_entities() {
-                                commands.entity(entity).insert_recursive::<Children>(Disabled);
-                            }
-                        }
-
-                        conn.last_msg_time = Duration::from_secs_f32(time);
-                    }
-
-                    ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
-                        msg_todo!("update colors");
-                    }
-
-                    ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
-                        msg_todo!("update frags");
-                    }
-                    ServerCmd::UpdateName { player_id: _, new_name: _ } => {
-                        msg_todo!("update name");
-                    }
-
-                    ServerCmd::UpdateStat { stat, value } => {
-                        use net::ClientStat as Stat;
-
-                        match stat {
-                            Stat::TotalSecrets => level_stats.total_secrets = value,
-                            Stat::TotalMonsters => level_stats.total_monsters = value,
-                            Stat::FoundSecrets => level_stats.secrets = value,
-                            Stat::KilledMonsters => level_stats.monsters = value,
-                            // The rest are sent in `PlayerData` by Quake servers.
-                            stat => msg_todo!(format!("Update stat {stat:?}")),
-                        }
                     }
 
                     ServerCmd::Version { version } => {
@@ -1730,23 +1350,106 @@ mod systems {
                         }
                     }
 
-                    ServerCmd::SetPause { .. } => {}
+                    ServerCmd::Bad => warn!("Invalid command from server"),
+                    ServerCmd::NoOp | ServerCmd::SetPause { .. } => {}
 
+                    ServerCmd::CdTrack { track, .. } => {
+                        ctx.commands.write_message(MixerMessage::StartMusic(Some(
+                            sound::MusicSource::TrackId(track as usize),
+                        )));
+                    }
+                    ServerCmd::CenterPrint { text } => {
+                        ctx.console_output.set_center_print(text, &ctx.wall_time);
+                    }
+                    ServerCmd::Print { text } => {
+                        ctx.console_output.print_alert(text.raw, &ctx.wall_time)
+                    }
+                    ServerCmd::StuffText { text } => ctx.stuff_text(text),
+
+                    ServerCmd::PlayerData(player_data) => {
+                        ctx.commands
+                            .run_system_cached_with(ClientState::update_player, player_data);
+                    }
+                    ServerCmd::Damage { armor, blood, source } => {
+                        ctx.commands
+                            .run_system_cached_with(view::handle_damage, (armor, blood, source));
+                    }
+
+                    ServerCmd::Cutscene { text } => {
+                        ctx.start_intermission(IntermissionKind::Cutscene { text })
+                    }
+                    ServerCmd::Finale { text } => {
+                        ctx.start_intermission(IntermissionKind::Finale { text })
+                    }
+                    ServerCmd::Intermission => {
+                        ctx.start_intermission(IntermissionKind::Intermission)
+                    }
+                    ServerCmd::FoundSecret => ctx.level_stats.secrets += 1,
+                    ServerCmd::KilledMonster => ctx.level_stats.monsters += 1,
+                    ServerCmd::UpdateStat { stat, value } => ctx.update_stat(stat, value),
+
+                    ServerCmd::FastUpdate(ent_update) => ctx.fast_update(ent_update),
+                    ServerCmd::SpawnBaseline {
+                        ent_id,
+                        model_id,
+                        frame_id,
+                        colormap,
+                        skin_id,
+                        origin,
+                        angles,
+                    } => ctx.spawn_baseline(
+                        ent_id,
+                        EntityState {
+                            origin,
+                            angles,
+                            model_id,
+                            frame_id,
+                            colormap,
+                            skin_id,
+                            // TODO
+                            effects: Default::default(),
+                        },
+                    ),
+                    ServerCmd::SpawnStatic { model_id, origin, angles, .. } => {
+                        ctx.spawn_static(model_id, origin, angles)
+                    }
+                    ServerCmd::SetAngle { angles } => ctx.set_angle(angles),
+                    ServerCmd::SetView { ent_id } => ctx.set_view(ent_id),
+                    ServerCmd::SignOnStage { stage } => {
+                        ctx.commands.set_state_if_different(SignOn(stage));
+                    }
+                    ServerCmd::Time { time } => ctx.time(time),
+
+                    ServerCmd::Sound {
+                        volume,
+                        attenuation,
+                        entity_id,
+                        channel,
+                        sound_id,
+                        position,
+                    } => ctx.sound(volume, attenuation, entity_id, channel, sound_id, position),
+                    ServerCmd::StaticSound { origin, sound_id, volume, attenuation } => {
+                        ctx.static_sound(origin, sound_id, volume, attenuation)
+                    }
                     ServerCmd::StopSound { entity_id, channel } => {
-                        if let Some(state) = conn.client_state.as_ref() {
-                            commands.write_message(MixerMessage::StopSound(StopSound {
-                                entity: state
-                                    .server_entity_to_client_entity
-                                    .get(&entity_id)
-                                    .cloned()
-                                    .unwrap_or(state.worldspawn),
-                                ent_channel: channel,
-                            }));
-                        }
+                        ctx.stop_sound(entity_id, channel)
                     }
-                    ServerCmd::SellScreen => {
-                        msg_todo!("Display upsell screen");
+
+                    ServerCmd::LightStyle { id, value } => ctx.lightstyle(id, value)?,
+                    ServerCmd::Particle { origin, direction, count, color } => {
+                        ctx.particle(origin, direction, count, color)
                     }
+                    ServerCmd::TempEntity { temp_entity } => ctx.temp_entity(&temp_entity),
+                    ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
+                        msg_todo!("update colors")
+                    }
+                    ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
+                        msg_todo!("update frags")
+                    }
+                    ServerCmd::UpdateName { player_id: _, new_name: _ } => {
+                        msg_todo!("update name")
+                    }
+                    ServerCmd::SellScreen => msg_todo!("Display upsell screen"),
                 }
             };
 

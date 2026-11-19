@@ -15,6 +15,7 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+mod ai;
 mod commands;
 mod cvars;
 pub mod error;
@@ -64,13 +65,11 @@ use anyhow::bail;
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use bevy_trenchbroom::bsp::Bsp;
-use bitvec::vec::BitVec;
 use hashbrown::HashMap;
 use seismon_utils::{QString, duration_to_f32};
 use serde::Deserialize;
 use snafu::{Backtrace, Report};
 
-use crate::client::{ConnectionStage, NewConnection};
 use crate::common::net::SignOnStage;
 
 /// The destination of a message in the `Write*` family of QuakeC fns
@@ -106,7 +105,6 @@ impl TryFrom<usize> for MsgDest {
     }
 }
 
-const MAX_LIGHTSTYLES: usize = 256;
 /// Tick rate for the server.
 ///
 /// > TODO: Make this a cvar
@@ -115,53 +113,9 @@ const TICK_RATE: f32 = 0.05;
 #[derive(Default, Copy, Clone)]
 pub struct SeismonServerPlugin;
 
-/// Enable running a listen server that the local client can connect to directly,
-/// e.g. for single-player games.
-#[derive(Default, Copy, Clone)]
-pub struct SeismonListenServerPlugin;
-
 /// Notify the local client that the server has initiated a level load.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct LocalLevelStarted;
-
-impl Plugin for SeismonListenServerPlugin {
-    fn build(&self, app: &mut App) {
-        /// Connect the local client to the level that the local server just started loading.
-        fn connect_to_local_server(
-            mut client_messages: ResMut<Messages<ClientMessage>>,
-            mut server_messages: ResMut<Messages<ServerMessage>>,
-            mut new_connection: MessageWriter<NewConnection>,
-        ) {
-            // Drop any messages that were sent to or from the previous level.
-            client_messages.clear();
-            server_messages.clear();
-
-            new_connection
-                .write(NewConnection::Server(None, ConnectionStage::SignOn(SignOnStage::Prespawn)));
-        }
-
-        fn shutdown_on_remote_connect(
-            mut commands: Commands,
-            mut new_connections: MessageReader<NewConnection>,
-        ) {
-            // If we connect to a remote server, i.e. `NewConnection::Server` with a `QSocket`,
-            // shut down the listen server session.
-            if new_connections.read().any(|conn| matches!(conn, NewConnection::Server(Some(_), _)))
-            {
-                commands.remove_resource::<Session>();
-                commands.remove_resource::<PendingLevel>();
-            }
-        }
-
-        app.add_plugins(SeismonServerPlugin).add_systems(
-            Last,
-            (
-                connect_to_local_server.run_if(on_message::<LocalLevelStarted>),
-                shutdown_on_remote_connect.run_if(on_message::<NewConnection>),
-            ),
-        );
-    }
-}
 
 impl Plugin for SeismonServerPlugin {
     fn build(&self, app: &mut App) {
@@ -208,7 +162,7 @@ pub struct Client {
     // TODO: Implement `color`.
     #[expect(dead_code)]
     color: u8,
-    state: ClientState,
+    state: ClientSlotState,
     spawn_params: [f32; NUM_SPAWN_PARAMS],
 }
 
@@ -217,7 +171,7 @@ impl Default for Client {
         Self {
             name: "player".into(),
             color: 0,
-            state: ClientState::Connecting,
+            state: ClientSlotState::Connecting,
             spawn_params: [0.; NUM_SPAWN_PARAMS],
         }
     }
@@ -226,7 +180,7 @@ impl Default for Client {
 impl Client {
     pub fn entity(&self) -> Option<Entity> {
         match &self.state {
-            ClientState::Active(active) => Some(active.entity),
+            ClientSlotState::Active(active) => Some(active.entity),
             _ => None,
         }
     }
@@ -234,13 +188,15 @@ impl Client {
 
 #[derive(Debug)]
 /// The state of a client's connection to the server.
-pub enum ClientState {
+pub enum ClientSlotState {
     /// The client is still connecting.
     Connecting,
 
     /// The client is active.
     Active(ClientActive),
 }
+
+type BitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_256bit>;
 
 #[derive(Debug)]
 pub struct ClientActive {
@@ -252,7 +208,7 @@ pub struct ClientActive {
     /// The entity controlled by this client.
     entity: Entity,
 
-    sent_baseline: BitVec,
+    sent_baseline: BitSet,
 
     /// The most-recent movement command received from this client (see [`LevelState::client_think`]).
     cmd: MoveCmd,
@@ -289,7 +245,7 @@ impl ClientSlots {
 
     pub fn active_clients(&self) -> impl Iterator<Item = (usize, &ClientActive)> + '_ {
         self.connected_clients().filter_map(|i| {
-            if let Some(ClientState::Active(active)) = self.get(i).map(|c| &c.state) {
+            if let Some(ClientSlotState::Active(active)) = self.get(i).map(|c| &c.state) {
                 Some((i, active))
             } else {
                 None
@@ -299,7 +255,7 @@ impl ClientSlots {
 
     pub fn active_clients_mut(&mut self) -> impl Iterator<Item = (usize, &mut ClientActive)> + '_ {
         self.slots.iter_mut().enumerate().filter_map(|(i, client)| {
-            if let Some(ClientState::Active(active)) = client.as_mut().map(|c| &mut c.state) {
+            if let Some(ClientSlotState::Active(active)) = client.as_mut().map(|c| &mut c.state) {
                 Some((i, active))
             } else {
                 None
@@ -624,56 +580,7 @@ fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
     (speed - dt * control * friction).max(0.) / speed
 }
 
-// TODO: Copied from Quake 1 source, can be done better.
-fn angle_mod(quake_angle: f32) -> f32 {
-    const PRECISION: f32 = 65536.;
-    let quake_angle = quake_angle.rem_euclid(360.);
-
-    (360f32 / PRECISION) * (quake_angle * PRECISION / 360.0).floor()
-}
-
-/// Return value of [`chase_dirs`].
-///
-/// The directions a monster can try to move in to chase its goal
-#[derive(Debug, PartialEq)]
-struct ChaseDirs {
-    /// The direction along the x axis, if the goal is far enough away along it.
-    x: Option<f32>,
-    /// The direction along the y axis, if the goal is far enough away along it.
-    y: Option<f32>,
-    /// The diagonal direction, if the goal is far enough away along both axes.
-    diagonal: Option<f32>,
-}
-
-/// Returns the directions to try for a monster chasing a goal `(delta_x, delta_y)` away.
-///
-/// Part of the implementation equivalent to `SV_NewChaseDir`.
-fn chase_dirs(delta_x: f32, delta_y: f32) -> ChaseDirs {
-    let x = if delta_x > 10. {
-        Some(0.)
-    } else if delta_x < -10. {
-        Some(180.)
-    } else {
-        None
-    };
-
-    let y = if delta_y < -10. {
-        Some(270.)
-    } else if delta_y > 10. {
-        Some(90.)
-    } else {
-        None
-    };
-
-    // Quake uses 215 rather than 225 here, so we do too.
-    let diagonal = match (x, y) {
-        (Some(0.), Some(y)) => Some(if y == 90. { 45. } else { 315. }),
-        (Some(_), Some(y)) => Some(if y == 90. { 135. } else { 215. }),
-        _ => None,
-    };
-
-    ChaseDirs { x, y, diagonal }
-}
+use seismon_utils::angle_mod;
 
 /// Formats a float in the format expected by QuakeC.
 ///
@@ -701,7 +608,8 @@ pub struct LevelState {
 
     sound_precache: Precache,
     model_precache: Precache,
-    lightstyles: [QCString; MAX_LIGHTSTYLES],
+    /// One entry per lightstyle, sized by [`max_lightstyles`] when the level is created.
+    lightstyles: Vec<QCString>,
 
     /// Amount of time the current level has been active.
     time: Duration,
@@ -758,7 +666,7 @@ impl LevelState {
             sound_precache,
             model_precache,
             frame_client_messages: default(),
-            lightstyles: std::array::from_fn(|_| QCString::null()),
+            lightstyles: Vec::new(),
             time: Duration::from_secs(1),
             broadcast: default(),
             init: default(),
@@ -1182,10 +1090,10 @@ impl ServerCtx<'_> {
             };
 
             // TODO: All players are currently privileged
-            client.state = ClientState::Active(ClientActive {
+            client.state = ClientSlotState::Active(ClientActive {
                 _privileged: true,
                 entity: client_entity,
-                sent_baseline: BitVec::repeat(false, qc::edict::MAX_ENTITIES),
+                sent_baseline: Default::default(),
                 cmd: MoveCmd::default(),
             });
 
@@ -1312,7 +1220,7 @@ impl ServerCtx<'_> {
 
         let entity = {
             let mut session = self.session_mut();
-            let Some(Client { state: ClientState::Active(active), .. }) =
+            let Some(Client { state: ClientSlotState::Active(active), .. }) =
                 session.persist.client_mut(client_id)
             else {
                 return Ok(());
@@ -1555,7 +1463,7 @@ pub mod systems {
         // Carried-over clients have to sign on again: their entities belonged to the old level.
         for slot in persist.client_slots.connected_clients().collect::<Vec<_>>() {
             if let Some(client) = persist.client_mut(slot) {
-                client.state = ClientState::Connecting;
+                client.state = ClientSlotState::Connecting;
             }
         }
 
@@ -1664,9 +1572,10 @@ pub mod systems {
         }
         .serialize(&mut packet)?;
 
-        for (id, style) in level.lightstyles.iter().enumerate() {
+        // Style IDs are a `u8` on the wire, so styles past 255 can never be sent.
+        for (id, style) in (0..=u8::MAX).zip(level.lightstyles.iter()) {
             if !style.as_bytes().is_empty() {
-                ServerCmd::LightStyle { id: id as _, value: style.as_bytes().to_vec().into() }
+                ServerCmd::LightStyle { id, value: style.as_bytes().to_vec().into() }
                     .serialize(&mut packet)?;
             }
         }
@@ -1724,7 +1633,7 @@ pub mod systems {
             let mut session = world.resource_mut::<Session>();
             for edict in recycled {
                 for (_, client) in session.persist.client_slots.active_clients_mut() {
-                    client.sent_baseline.set(edict as usize, false);
+                    client.sent_baseline.remove(edict as usize);
                 }
             }
         }
@@ -1743,7 +1652,7 @@ pub mod systems {
 
             let (client_entity, mut sent_baseline) = {
                 let mut session = world.resource_mut::<Session>();
-                let Some(Client { state: ClientState::Active(client), .. }) =
+                let Some(Client { state: ClientSlotState::Active(client), .. }) =
                     session.persist.client_mut(client_id)
                 else {
                     continue;
@@ -1760,8 +1669,9 @@ pub mod systems {
 
             ServerCmd::Time { time: duration_to_f32(ctx.time()) }.serialize(&mut packet).unwrap();
 
-            unsent_entity_cache
-                .extend(ctx.edicts().iter().filter(|(edict, _)| !sent_baseline[*edict as usize]));
+            unsent_entity_cache.extend(
+                ctx.edicts().iter().filter(|(edict, _)| !sent_baseline.contains(*edict as usize)),
+            );
 
             // Only mark a baseline as sent once it has actually been written, so entities
             // which aren't networked yet (no model) get one when they become
@@ -1776,14 +1686,14 @@ pub mod systems {
                     if let Some(mut baseline) = ctx.world.get_mut::<qc::fields::Baseline>(entity) {
                         baseline.0 = state;
                     }
-                    sent_baseline.set(edict as usize, true);
+                    sent_baseline.insert(edict as usize);
                 }
             }
 
             // Skip world entity
             for (edict, entity) in ctx.edicts().range(1..).collect::<Vec<_>>() {
                 // Never send an update for an entity the client has no baseline for.
-                if !sent_baseline[edict as usize] {
+                if !sent_baseline.contains(edict as usize) {
                     continue;
                 }
 
@@ -1819,7 +1729,7 @@ pub mod systems {
             // broadcasted events related to those entities
             packet.extend_from_slice(&ctx.level().broadcast);
 
-            if let Some(Client { state: ClientState::Active(client), .. }) =
+            if let Some(Client { state: ClientSlotState::Active(client), .. }) =
                 world.resource_mut::<Session>().persist.client_mut(client_id)
             {
                 client.sent_baseline = sent_baseline;
@@ -1939,30 +1849,5 @@ mod tests {
         assert_eq!(super::ftos(5.5), "  5.5");
         assert_eq!(super::ftos(-0.25), " -0.2");
         assert_eq!(super::vtos(Vec3::new(1., -2.5, 100.)), "'  1.0  -2.5 100.0'");
-    }
-
-    #[test]
-    fn chase_dirs_match_quake() {
-        use super::{ChaseDirs, chase_dirs};
-
-        assert_eq!(chase_dirs(100., 0.), ChaseDirs { x: Some(0.), y: None, diagonal: None });
-        assert_eq!(chase_dirs(-100., 0.), ChaseDirs { x: Some(180.), y: None, diagonal: None });
-        // Positive y is a yaw of 90.
-        assert_eq!(chase_dirs(0., 100.), ChaseDirs { x: None, y: Some(90.), diagonal: None });
-        assert_eq!(chase_dirs(0., -100.), ChaseDirs { x: None, y: Some(270.), diagonal: None });
-        // Within 10 units isn't far enough.
-        assert_eq!(chase_dirs(10., -10.), ChaseDirs { x: None, y: None, diagonal: None });
-
-        assert_eq!(chase_dirs(100., 100.).diagonal, Some(45.));
-        assert_eq!(chase_dirs(100., -100.).diagonal, Some(315.));
-        assert_eq!(chase_dirs(-100., 100.).diagonal, Some(135.));
-        assert_eq!(chase_dirs(-100., -100.).diagonal, Some(215.));
-
-        // The diagonal points the same way as the delta (apart from Quake's 215).
-        for (dx, dy) in [(100., 100.), (100., -100.), (-100., 100.)] {
-            let yaw = chase_dirs(dx, dy).diagonal.unwrap();
-            let dir = Vec2::from_angle(yaw.to_radians());
-            assert!(dir.dot(Vec2::new(dx, dy).normalize()) > 0.99, "{dx} {dy} -> {yaw}");
-        }
     }
 }

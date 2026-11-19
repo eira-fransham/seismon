@@ -1,10 +1,9 @@
-use std::{
-    borrow::Cow,
-    fmt,
-    io::{self, Stdin, Stdout},
-};
+#[cfg(feature = "terminal")]
+use std::io::{Stdin, Stdout};
+use std::{borrow::Cow, fmt, io};
+
+#[cfg(feature = "terminal")]
 use termion::{
-    event::Key,
     input::{Keys, TermRead},
     raw::{IntoRawMode, RawTerminal},
 };
@@ -89,11 +88,13 @@ pub enum KeyBindings {
 }
 
 /// [`Tty`] implementation that reads input from stdin and writes output to stdout.
+#[cfg(feature = "terminal")]
 pub struct DefaultTty {
     stdin: Keys<Stdin>,
     stdout: RawTerminal<Stdout>,
 }
 
+#[cfg(feature = "terminal")]
 impl DefaultTty {
     /// Create a new [`DefaultTty`] from the environment's stdin and stdout.
     pub fn new() -> io::Result<Self> {
@@ -104,27 +105,37 @@ impl DefaultTty {
     }
 }
 
-/// A trait to represent TTYs. [`DefaultTty`] implements this for STDIN/STDOUT, and for standard
-/// `redox_liner`-like functionality you should use that.
-// TODO: Maybe better to take `Stdin` out of this entirely and just have a `next_key` function
+/// The output side of a terminal: the editor writes its display to it.
+///
+/// With the `terminal` feature, `DefaultTty` implements this for stdout. When embedding the editor
+/// (e.g. in a game console), keys are fed to a [`KeyMap`](crate::KeyMap) directly, and the
+/// terminal only needs to report a width.
 pub trait Tty: io::Write {
-    /// Read the next key from the underlying TTY. For [`DefaultTty`], this is stdin, but for
-    /// an embedded terminal this might read keys from another input library.
-    fn next_key(&mut self) -> Option<io::Result<Key>>;
     /// Get the width of the TTY, used for line breaking and formatting.
     fn width(&self) -> io::Result<usize>;
 }
 
-impl Tty for DefaultTty {
-    fn next_key(&mut self) -> Option<io::Result<Key>> {
-        self.stdin.next()
-    }
+/// A [`Tty`] that can also produce key presses, as needed by [`EditorContext::read_line`].
+pub trait ReadKeys: Tty {
+    /// Read the next key from the underlying TTY. For `DefaultTty`, this is stdin.
+    fn next_key(&mut self) -> Option<io::Result<Key>>;
+}
 
+#[cfg(feature = "terminal")]
+impl Tty for DefaultTty {
     fn width(&self) -> io::Result<usize> {
         util::terminal_width()
     }
 }
 
+#[cfg(feature = "terminal")]
+impl ReadKeys for DefaultTty {
+    fn next_key(&mut self) -> Option<io::Result<Key>> {
+        self.stdin.next().map(|key| key.map(Key::from))
+    }
+}
+
+#[cfg(feature = "terminal")]
 impl io::Write for DefaultTty {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.stdout.write(buf)
@@ -150,7 +161,7 @@ impl io::Write for DefaultTty {
 /// The context for a `lined` session. Contains the history, configurable word dividers,
 /// keybindings, the underlying TTY, and the current line being edited.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Context<T = DefaultTty, W = DefaultWordDivider> {
+pub struct Context<T, W = DefaultWordDivider> {
     /// The history of previous commands (see [`History`]).
     pub history: History,
     /// The function that is used to divide words, for splitting lines at the terminal width.
@@ -192,6 +203,7 @@ pub trait EditorContext: fmt::Write {
     where
         C: Completer,
         Self: Sized,
+        Self::Terminal: ReadKeys,
     {
         self.read_line_with_highlighter(prompt, handler, NoHighlighting)
     }
@@ -206,6 +218,7 @@ pub trait EditorContext: fmt::Write {
     where
         C: Completer,
         Self: Sized,
+        Self::Terminal: ReadKeys,
         H: Highlighter,
     {
         self.read_line_with_init_buffer_and_highlighter(prompt, handler, highlighter, Buffer::new())
@@ -243,6 +256,7 @@ pub trait EditorContext: fmt::Write {
         B: Into<Buffer>,
         C: Completer,
         Self: Sized,
+        Self::Terminal: ReadKeys,
         H: Highlighter,
     {
         let keybindings = self.key_bindings();
@@ -263,6 +277,7 @@ pub trait EditorContext: fmt::Write {
     ) -> io::Result<String>
     where
         Self: Sized,
+        Self::Terminal: ReadKeys,
         M: KeyMap,
         C: Completer,
         H: Highlighter,
@@ -367,8 +382,9 @@ impl<T: Default> Default for Context<T> {
     }
 }
 
-impl Context {
-    /// Create a new [`Context`]
+#[cfg(feature = "terminal")]
+impl Context<DefaultTty> {
+    /// Create a new [`Context`] reading from stdin and writing to stdout.
     pub fn new() -> io::Result<Self> {
         Ok(Self::from_terminal(DefaultTty::new()?))
     }
