@@ -18,7 +18,10 @@
 pub mod commands;
 pub mod game;
 
-use bevy::{input::keyboard::KeyboardInput, prelude::*};
+use bevy::{
+    input::{keyboard::KeyboardInput, mouse::MouseButtonInput},
+    prelude::*,
+};
 
 use self::{game::GameInput, systems::InputMessageReader};
 
@@ -29,6 +32,7 @@ impl Plugin for SeismonInputPlugin {
         app.init_state::<InputFocus>()
             .init_resource::<GameInput>()
             .init_resource::<InputMessageReader<KeyboardInput>>()
+            .init_resource::<InputMessageReader<MouseButtonInput>>()
             .add_systems(
                 Update,
                 (
@@ -56,7 +60,11 @@ pub enum InputFocus {
 pub mod systems {
     use bevy::{
         ecs::message::MessageCursor,
-        input::{ButtonState, keyboard::KeyboardInput, mouse::MouseMotion},
+        input::{
+            ButtonState,
+            keyboard::KeyboardInput,
+            mouse::{MouseButtonInput, MouseMotion},
+        },
         prelude::*,
         window::PrimaryWindow,
     };
@@ -97,36 +105,69 @@ pub mod systems {
         run_cmds.write(RunCmd("mousedelta".into(), Box::new(["#(0 0)".into()])));
     }
 
+    /// The commands to run for `binding` when its input changes to `state`: the commands
+    /// themselves on press, and the inverted `+`/`-` commands on release.
+    fn binding_commands<'a>(
+        binding: &'a Binding<'static>,
+        state: ButtonState,
+    ) -> impl Iterator<Item = RunCmd<'static>> + 'a {
+        binding.commands.iter().filter_map(move |cmd| match (cmd.0.trigger, state) {
+            (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
+            (Some(Trigger::Positive) | None, ButtonState::Released) => cmd.clone().invert(),
+            (Some(Trigger::Negative), _) => {
+                unreachable!("Binding found to a negative edge! TODO: Do we want to support this?")
+            }
+        })
+    }
+
+    /// Run the `*`-prefixed (valid in any focus state) bindings for mouse button presses.
+    fn any_state_mouse_bindings(
+        reader: &mut InputMessageReader<MouseButtonInput>,
+        mouse_button_events: &Messages<MouseButtonInput>,
+        input: &GameInput,
+        run_cmds: &mut MessageWriter<RunCmd<'static>>,
+    ) {
+        for button in reader.reader.read(mouse_button_events) {
+            if let Ok(Some(binding @ Binding { valid: BindingValidState::Any, .. })) =
+                input.binding(button.button)
+            {
+                run_cmds.write_batch(binding_commands(binding, button.state));
+            }
+        }
+    }
+
+    #[expect(clippy::too_many_arguments)]
     pub fn game_input(
         mut reader: ResMut<InputMessageReader<KeyboardInput>>,
         keyboard_events: Res<Messages<KeyboardInput>>,
         keyboard_input: Res<ButtonInput<KeyCode>>,
+        mut mouse_button_reader: ResMut<InputMessageReader<MouseButtonInput>>,
+        mouse_button_events: Res<Messages<MouseButtonInput>>,
         mut mouse_events: MessageReader<MouseMotion>,
         mut run_cmds: MessageWriter<RunCmd<'static>>,
         input: Res<GameInput>,
     ) {
         for key in reader.reader.read(&keyboard_events) {
+            // Ignore key-repeat events.
+            let is_edge = match key.state {
+                ButtonState::Pressed => keyboard_input.just_pressed(key.key_code),
+                ButtonState::Released => keyboard_input.just_released(key.key_code),
+            };
+
+            if !is_edge {
+                continue;
+            }
+
             // TODO: Make this work better if we have arguments - currently we clone the arguments
             // every time TODO: Error handling
             if let Ok(Some(binding)) = input.binding(key.logical_key.clone()) {
-                run_cmds.write_batch(binding.commands.iter().filter_map(|cmd| {
-                    match (cmd.0.trigger, key.state) {
-                        (Some(Trigger::Positive) | None, ButtonState::Pressed)
-                            if keyboard_input.just_pressed(key.key_code) =>
-                        {
-                            Some(cmd.clone())
-                        }
-                        (Some(Trigger::Positive) | None, ButtonState::Released)
-                            if keyboard_input.just_released(key.key_code) =>
-                        {
-                            cmd.clone().invert()
-                        }
-                        (Some(Trigger::Negative), _) => unreachable!(
-                            "Binding found to a negative edge! TODO: Do we want to support this?"
-                        ),
-                        _ => None,
-                    }
-                }));
+                run_cmds.write_batch(binding_commands(binding, key.state));
+            }
+        }
+
+        for button in mouse_button_reader.reader.read(&mouse_button_events) {
+            if let Ok(Some(binding)) = input.binding(button.button) {
+                run_cmds.write_batch(binding_commands(binding, button.state));
             }
         }
 
@@ -148,6 +189,8 @@ pub mod systems {
         mut reader: ResMut<InputMessageReader<KeyboardInput>>,
         keyboard_events: Res<Messages<KeyboardInput>>,
         button_state: Res<ButtonInput<KeyCode>>,
+        mut mouse_button_reader: ResMut<InputMessageReader<MouseButtonInput>>,
+        mouse_button_events: Res<Messages<MouseButtonInput>>,
         mut run_cmds: MessageWriter<RunCmd<'static>>,
         input: Res<GameInput>,
         mut console_in: ResMut<ConsoleInput>,
@@ -155,6 +198,13 @@ pub mod systems {
         wall_time: Res<Time<Real>>,
         registry: Res<Registry>,
     ) {
+        any_state_mouse_bindings(
+            &mut mouse_button_reader,
+            &mouse_button_events,
+            &input,
+            &mut run_cmds,
+        );
+
         // TODO: Use a thread_local vector instead of reallocating
         let mut keys = Vec::new();
         for key in reader.reader.read(&keyboard_events) {
@@ -165,20 +215,10 @@ pub mod systems {
                 return;
             }
 
-            if let Ok(Some(Binding { commands, valid: BindingValidState::Any })) =
+            if let Ok(Some(binding @ Binding { valid: BindingValidState::Any, .. })) =
                 input.binding(logical_key.clone())
             {
-                run_cmds.write_batch(commands.iter().filter_map(|cmd| {
-                    match (cmd.0.trigger, state) {
-                        (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
-                        (Some(Trigger::Positive) | None, ButtonState::Released) => {
-                            cmd.clone().invert()
-                        }
-                        (Some(Trigger::Negative), _) => unreachable!(
-                            "Binding found to a negative edge! TODO: Do we want to support this?"
-                        ),
-                    }
-                }));
+                run_cmds.write_batch(binding_commands(binding, *state));
             } else {
                 keys.push(key);
             }
@@ -225,6 +265,8 @@ pub mod systems {
     pub fn menu_input(
         mut reader: ResMut<InputMessageReader<KeyboardInput>>,
         keyboard_events: Res<Messages<KeyboardInput>>,
+        mut mouse_button_reader: ResMut<InputMessageReader<MouseButtonInput>>,
+        mouse_button_events: Res<Messages<MouseButtonInput>>,
         mut commands: Commands,
         mut run_cmds: MessageWriter<RunCmd<'static>>,
         mut menu: ResMut<Menu>,
@@ -233,6 +275,13 @@ pub mod systems {
         sounds: Res<MenuSounds>,
         mut mixer: MessageWriter<MixerMessage>,
     ) {
+        any_state_mouse_bindings(
+            &mut mouse_button_reader,
+            &mouse_button_events,
+            &input,
+            &mut run_cmds,
+        );
+
         let mut play = |sound: &Handle<AudioSample>| {
             mixer.write(MixerMessage::StartLocalSound(sound.clone()));
         };
@@ -241,20 +290,10 @@ pub mod systems {
         for key in reader.reader.read(&keyboard_events) {
             let KeyboardInput { logical_key, state, .. } = key;
 
-            if let Ok(Some(Binding { commands, valid: BindingValidState::Any })) =
+            if let Ok(Some(binding @ Binding { valid: BindingValidState::Any, .. })) =
                 input.binding(logical_key.clone())
             {
-                run_cmds.write_batch(commands.iter().filter_map(|cmd| {
-                    match (cmd.0.trigger, state) {
-                        (Some(Trigger::Positive) | None, ButtonState::Pressed) => Some(cmd.clone()),
-                        (Some(Trigger::Positive) | None, ButtonState::Released) => {
-                            cmd.clone().invert()
-                        }
-                        (Some(Trigger::Negative), _) => unreachable!(
-                            "Binding found to a negative edge! TODO: Do we want to support this?"
-                        ),
-                    }
-                }));
+                run_cmds.write_batch(binding_commands(binding, *state));
 
                 continue;
             }

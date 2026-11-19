@@ -502,3 +502,23 @@ impl GameInput {
             .get(&input.try_into().map_err(|e| format_err!("Failed to parse input: {}", e))?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_buttons_bind_and_look_up() {
+        let mut input = GameInput::new();
+        input.bind("mouse1", "+attack").unwrap();
+        input.bind("MOUSE2", "+jump").unwrap();
+
+        let attack = input.binding(MouseButton::Left).unwrap().expect("mouse1 should be bound");
+        assert_eq!(attack.to_string(), "+attack");
+        let jump = input.binding(MouseButton::Right).unwrap().expect("mouse2 should be bound");
+        assert_eq!(jump.to_string(), "+jump");
+        assert!(input.binding(MouseButton::Middle).unwrap().is_none());
+
+        assert_eq!(AnyInput::Mouse(MouseButton::Left).to_string(), "MOUSE1");
+    }
+}
