@@ -1869,7 +1869,6 @@ dependencies = [
 [[package]]
 name = "bevy_mod_scripting_qcvm"
 version = "0.5.0"
-source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#790251e927716bc6cc653523c2ac08b10d6c7e2b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -3380,7 +3379,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11247e6c4f83c2b15748f4873805483deaa2bbc855e773817c07a9f987f55c62"
 dependencies = [
  "dispatch2",
- "nix 0.32.0",
+ "nix",
  "windows-sys 0.61.2",
 ]
 
@@ -3492,7 +3491,7 @@ dependencies = [
  "deluxe-core",
  "heck 0.4.1",
  "if_chain",
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -4328,7 +4327,7 @@ dependencies = [
  "libc",
  "libudev-sys",
  "log",
- "nix 0.31.4",
+ "nix",
  "objc2-core-foundation",
  "objc2-io-kit",
  "uuid",
@@ -5554,18 +5553,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77730ed34f01f4990cb2ea67fec715ecebc6fab9a6396cf83c5529b13f581bdc"
-dependencies = [
- "bitflags 2.13.2",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
-
-[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5748,7 +5735,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6524,15 +6511,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proc-macro-crate"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
-dependencies = [
- "toml_edit 0.25.19+spec-1.1.0",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6609,7 +6587,6 @@ dependencies = [
 [[package]]
 name = "qcvm"
 version = "0.5.0"
-source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#790251e927716bc6cc653523c2ac08b10d6c7e2b"
 dependencies = [
  "anyhow",
  "arc-slice",
@@ -6633,9 +6610,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qcvm-defs-csqc"
+version = "0.5.0"
+dependencies = [
+ "qcvm",
+ "qcvm-defs-quake1",
+ "strum 0.27.2",
+]
+
+[[package]]
 name = "qcvm-defs-quake1"
 version = "0.5.0"
-source = "git+https://github.com/eira-fransham/bevy_mod_scripting_qcvm.git#790251e927716bc6cc653523c2ac08b10d6c7e2b"
 dependencies = [
  "num",
  "qcvm",
@@ -7250,6 +7235,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "qbsp",
+ "qcvm-defs-csqc",
  "qcvm-defs-quake1",
  "rand 0.9.5",
  "seismon-net",

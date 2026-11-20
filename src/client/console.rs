@@ -10,9 +10,13 @@ use bevy_mod_commands::{CommandOutput, CommandsSystems, OutputType, Registry, Un
 use seismon_utils::{QStr, QString};
 
 use crate::{
-    client::{Disconnect, NewConnection, input::InputFocus},
-    common::console::{
-        ConsoleInput, ConsoleOutput, ConsoleText, SeismonConsoleCorePlugin, Timestamp, millis_i64,
+    client::{Disconnect, NewConnection, csqc::hooks::CsqcCommands, input::InputFocus},
+    common::{
+        console::{
+            ConsoleInput, ConsoleOutput, ConsoleText, SeismonConsoleCorePlugin, Timestamp,
+            millis_i64,
+        },
+        net::{ClientCmd, ClientMessage, MessageKind},
     },
 };
 

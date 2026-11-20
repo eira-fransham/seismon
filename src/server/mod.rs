@@ -33,7 +33,7 @@ use std::time::Duration;
 
 use bevy_mod_commands::{Registry, RunCmd};
 use bevy_mod_scripting::asset::ScriptAsset;
-use bevy_mod_scripting_qcvm::{QCFunction, QCString};
+use bevy_mod_scripting_qcvm::{QCFunction, QCOwnedBy, QCString};
 
 use crate::{
     common::{
