@@ -20,7 +20,7 @@ use crate::server::{
 };
 
 qc_components! {
-    progdefs_global_accessors;
+    PROGDEFS_GLOBAL_ACCESSORS;
 
     /// The globals defined by `progdefs.h`.
     QcGlobals {
@@ -133,7 +133,7 @@ pub struct QcGlobalTable {
 
 impl Default for QcGlobalTable {
     fn default() -> Self {
-        Self { by_name: progdefs_global_accessors().into_iter().collect() }
+        Self { by_name: PROGDEFS_GLOBAL_ACCESSORS.iter().copied().collect() }
     }
 }
 

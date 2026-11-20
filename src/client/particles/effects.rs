@@ -12,6 +12,8 @@
 //!
 //! Quake's `rand() & N` and `rand() % N` are expressed as `floor(rand() * K)`, which gives the
 //! same uniform distribution over `0..K`.
+//!
+//! > ## NOTE: THIS MODULE WAS VIBE CODED! DO NOT TRUST THE IMPLEMENTATION HERE!
 
 use bevy::math::Vec3;
 use bevy_hanabi::{expr::TextureLoadExpr, prelude::*};

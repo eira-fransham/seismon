@@ -5,15 +5,16 @@
 //! references to their `QCEntity` component, strings are `QCString` and field references are
 //! `QCField`.
 
-use std::{any::TypeId, io::Write as _, ops::Bound};
+use std::{any::TypeId, io::Write as _, ops::Bound, sync::LazyLock};
 
 use bevy::prelude::*;
-use bevy_mod_commands::{Registry, RunCmd};
+use bevy_mod_commands::{ConsoleError, Registry, RunCmd};
 use bevy_mod_scripting::bindings::{
     InteropError, NamespaceBuilder, ReflectBase, ReflectReference, ThreadWorldContainer, V,
 };
 use bevy_mod_scripting_qcvm::{QCEntity, QCField, QCString, QCWorldspawn};
 use byteorder::{LittleEndian, WriteBytesExt as _};
+use dashmap::DashSet;
 use num::FromPrimitive as _;
 use seismon_utils::QString;
 
@@ -112,6 +113,8 @@ macro_rules! todo_builtin {
 type S = Option<V<QCString>>;
 type Ent = ReflectReference;
 type Vec3Arg = [f32; 3];
+
+static CVARS_WARNED: LazyLock<DashSet<String>> = LazyLock::new(Default::default);
 
 /// Registers the builtins with `bevy_mod_scripting`.
 pub fn register(world: &mut World) {
@@ -304,18 +307,21 @@ pub fn register(world: &mut World) {
         })
         .register("cvar", |name: S| {
             with_ctx(|ctx| {
-                let name = String::from_utf8_lossy(string(&name)).into_owned();
-                let f: f32 = match ctx.registry().read_cvar(&name) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        error!("{}", e);
-                        default()
+            let name = String::from_utf8_lossy(string(&name)).into_owned();
+            let f: f32 = match ctx.world.resource::<Registry>().read_cvar(&name) {
+                Ok(f) => f,
+                Err(e) => {
+                    if !CVARS_WARNED.contains(&name) {
+                        CVARS_WARNED.insert(name.clone());
+                        warn!("get cvar: {}", e);
                     }
-                };
+                    default()
+                }
+            };
 
-                debug!("{} = {}", name, f);
-                Ok(f)
-            })
+            debug!("{} = {}", name, f);
+            Ok(f)
+        })
         })
         .register("localcmd", |s: S| with_ctx(|ctx| builtin_local_cmd(ctx, string(&s))))
         .register("nextent", |e: Ent| {
@@ -395,13 +401,26 @@ pub fn register(world: &mut World) {
         })
         .register("cvar_set", |var: S, val: S| {
             with_ctx(|ctx| {
-                let var = String::from_utf8_lossy(string(&var)).into_owned();
-                let val = String::from_utf8_lossy(string(&val)).into_owned();
+                let var = String::from_utf8_lossy(string(&var));
+                let val = String::from_utf8_lossy(string(&val));
 
-                if let Err(e) = ctx.world.resource_mut::<Registry>().set_cvar(&var, &val) {
-                    warn!("cvar_set: failed to set {var}: {e}");
-                    return Ok(());
+                let mut registry = ctx.world.resource_mut::<Registry>();
+
+                if let Err(e) = registry.set_cvar(&var, &val) {
+                    // Warn about missing cvars the first time, but other kinds of errors should
+                    // always be reported.
+                    if !matches!(e, ConsoleError::NoSuchCvar { .. }) || !CVARS_WARNED.contains(&*var) {
+                        CVARS_WARNED.insert(var.clone().into_owned());
+                        warn!("set cvar: {e}");
+                    }
+
+                    if let Err(e) = registry.insert_cvar(var.clone().into_owned(), &val) {
+                        warn!("set cvar: {e}");
+
+                        return Ok(());
+                    }
                 }
+
                 debug!("{} = {}", var, val);
 
                 Ok(())

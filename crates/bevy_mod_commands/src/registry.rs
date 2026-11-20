@@ -164,6 +164,26 @@ impl Registry {
         }
     }
 
+    /// Write a cvar with a value. Should only be used if the cvar does not already exist,
+    /// otherwise it'll overwrite the previous cvar.
+    // TODO: We can probably have a `set_or_insert_cvar` to avoid the invariant.
+    pub fn insert_cvar<N, V>(&mut self, name: N, value: V) -> Result<(), ConsoleError>
+    where
+        N: Into<CName>,
+        V: AsRef<str>,
+    {
+        let value = Value::from_str(value.as_ref())
+            .map_err(|_| ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() })?;
+        self.cvar(
+            name,
+            Cvar { value: None, archive: false, notify: false, default: value },
+            None,
+            "",
+        );
+
+        Ok(())
+    }
+
     /// Removes the alias with the given name.
     ///
     /// Returns an error if there was no command with that name.

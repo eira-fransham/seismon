@@ -108,12 +108,12 @@ macro_rules! qc_components {
         )*
 
         /// Accessors for every field, by QuakeC name.
-        pub fn $accessors() -> Vec<(&'static str, Accessor)> {
+        pub const $accessors: std::sync::LazyLock<Box<[(&'static str, Accessor)]>> = std::sync::LazyLock::new(|| {
             #[allow(unused_mut)]
             let mut out = Vec::new();
             $($(qc_components!(@accessor out, $component, $field, $kind, $name);)*)*
-            out
-        }
+            out.into()
+        });
     };
 
     (@type F) => { f32 };
@@ -217,7 +217,7 @@ macro_rules! qc_components {
 pub(crate) use qc_components;
 
 qc_components! {
-    progdefs_field_accessors;
+    PROGDEFS_FIELD_ACCESSORS;
 
     /// Fields used for movement and collision.
     EntPhysics {
@@ -393,10 +393,10 @@ pub struct QcFieldTable {
 impl QcFieldTable {
     /// Builds the table for the fields defined by a `progs.dat`.
     pub fn new(field_defs: &[FieldDef], world: Entity) -> Self {
-        let mut by_name = progdefs_field_accessors()
-            .into_iter()
-            .map(|(name, accessor)| (name.to_owned(), FieldAccess::Component(accessor)))
-            .collect::<HashMap<_, _>>();
+        let mut by_name = PROGDEFS_FIELD_ACCESSORS
+            .iter()
+            .map(|&(name, accessor)| (name.to_owned(), FieldAccess::Component(accessor)))
+            .collect::<HashMap<String, _>>();
         let mut by_offset = HashMap::new();
         let mut extra_zero = Vec::new();
         let mut fields = Vec::new();
@@ -575,15 +575,14 @@ mod tests {
 
     #[test]
     fn every_progdefs_field_has_an_accessor() {
-        let accessors = progdefs_field_accessors();
         for field in FieldAddr::VARIANTS {
             use bevy_mod_scripting_qcvm::qcvm::Address as _;
             assert!(
-                accessors.iter().any(|(name, _)| *name == field.name()),
+                PROGDEFS_FIELD_ACCESSORS.iter().any(|(name, _)| *name == field.name()),
                 "No accessor for {}",
                 field.name()
             );
         }
-        assert_eq!(accessors.len(), FieldAddr::VARIANTS.len());
+        assert_eq!(PROGDEFS_FIELD_ACCESSORS.len(), FieldAddr::VARIANTS.len());
     }
 }

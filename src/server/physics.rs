@@ -80,21 +80,25 @@ impl ServerCtx<'_> {
         /// to all alias models (i.e. models loaded from `.mdl` files).
         const ALIAS_MODEL_HALF_SIZE: f32 = 16.;
 
-        let model_id = self.level().model_index(&model_name)?;
+        let model_id = self.level().model_index(&model_name).unwrap_or_else(|e| {
+            warn!("{e}");
+            usize::MAX
+        });
 
         let mut render = self.render_mut(ent_id)?;
         render.model = model_name;
         render.modelindex = model_id as _;
 
         // Brush models (which the server has loaded) use their actual size, and the null model has
-        // no size.
+        // no size. Likewise for non-precached models.
         // TODO: Quake uses the frame size for sprites, we should actually load those.
-        let is_brush = self.world.resource_scope(
+        // TODO: Feels brittle, maybe we can clean this up.
+        let no_default_collision = self.world.resource_scope(
             |world, collision: Mut<crate::server::world::LevelCollision>| {
                 collision.set_entity_model(world, ent_id, model_id)
             },
         )?;
-        if !is_brush {
+        if !no_default_collision {
             self.phys_mut(ent_id)?.set_min_max_size(
                 Vec3::splat(-ALIAS_MODEL_HALF_SIZE),
                 Vec3::splat(ALIAS_MODEL_HALF_SIZE),
