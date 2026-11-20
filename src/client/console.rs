@@ -146,10 +146,7 @@ struct ConsoleTextCenterPrintUi;
 struct ConsoleTextInputUi;
 
 mod systems {
-    use crate::{
-        client::text::AtlasText,
-        common::net::{ClientCmd, ClientMessage, MessageKind},
-    };
+    use crate::client::text::AtlasText;
 
     use super::*;
 
@@ -289,20 +286,26 @@ mod systems {
     }
 
     pub fn send_unhandled_commands_to_server(
+        mut commands: Commands,
         mut unhandled: MessageReader<UnhandledCmd>,
         mut to_server: MessageWriter<ClientMessage>,
         mut console_out: ResMut<ConsoleOutput>,
         time: Res<Time<Real>>,
+        csqc_commands: Res<CsqcCommands>,
     ) {
-        to_server.write_batch(unhandled.read().map(|UnhandledCmd(e)| {
+        for UnhandledCmd(e) in unhandled.read() {
+            // Commands registered by CSQC go to CSQC, which sends them to the server if it
+            // doesn't handle them.
+            if csqc_commands.0.contains(e.0.name.as_ref()) {
+                commands.queue(crate::client::csqc::hooks::ConsoleCommand(e.to_string()));
+                continue;
+            }
+
             // TODO: Receive cmd output from server(?)
             console_out.println(format!("Sending \"{}\" to server...", e.0.name), &time);
 
-            let mut bytes = vec![];
-            let _ = ClientCmd::StringCmd { cmd: e.to_string().into() }.serialize(&mut bytes);
-
-            ClientMessage { client_id: 0, packet: bytes.into(), kind: MessageKind::Reliable }
-        }));
+            to_server.write(string_cmd_message(&e.to_string()));
+        }
     }
 
     pub fn write_command_output(
@@ -450,4 +453,12 @@ mod systems {
             }
         }
     }
+}
+
+/// A message sending a console command to the server.
+pub fn string_cmd_message(cmd: &str) -> ClientMessage {
+    let mut bytes = vec![];
+    let _ = ClientCmd::StringCmd { cmd: cmd.to_owned().into() }.serialize(&mut bytes);
+
+    ClientMessage { client_id: 0, packet: bytes.into(), kind: MessageKind::Reliable }
 }

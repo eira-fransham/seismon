@@ -589,7 +589,7 @@ use seismon_utils::angle_mod;
 /// Whole numbers are printed as integers, anything else with one decimal place.
 ///
 /// Equivalent to `PF_ftos`.
-fn ftos(f: f32) -> String {
+pub(crate) fn ftos(f: f32) -> String {
     // TODO: Check the formatting docs to see if there's a single format invocation
     // that does this.
     if f == (f as i32) as f32 { format!("{}", f as i32) } else { format!("{f:5.1}") }
@@ -598,7 +598,7 @@ fn ftos(f: f32) -> String {
 /// Formats a vector in the format expected by QuakeC.
 ///
 /// Equivalent to `PF_vtos`.
-fn vtos(v: Vec3) -> String {
+pub(crate) fn vtos(v: Vec3) -> String {
     format!("'{:5.1} {:5.1} {:5.1}'", v.x, v.y, v.z)
 }
 
@@ -874,7 +874,8 @@ impl<'w> ServerCtx<'w> {
 
     fn spawn_in_slot(&mut self, edict: u16) -> Entity {
         let worldspawn = self.worldspawn();
-        let entity = self.world.spawn(qc_entity_bundle(worldspawn, edict)).id();
+        let entity =
+            self.world.spawn((qc_entity_bundle(worldspawn, edict), QCOwnedBy(worldspawn))).id();
         assert_ne!(entity.to_bits(), 0, "Entities with all-zero bits can't be passed to QuakeC");
         self.world.resource_mut::<EdictTable>().occupy(edict, entity);
         entity
@@ -1366,22 +1367,22 @@ pub mod systems {
             DetachScript::<QCScriptingPlugin>::new(attachment).apply(world);
         }
 
-        let entities =
-            world.query_filtered::<Entity, With<QCEntity>>().iter(world).collect::<Vec<_>>();
-        for entity in entities.into_iter().chain(worldspawns_left(world)) {
-            world.despawn(entity);
+        // Only despawn this level's VM: other VMs (e.g. the client's CSQC on a listen server)
+        // share the world. Despawning worldspawn despawns every entity that it owns.
+        if let Some(LevelVm(vm)) = world.remove_resource::<LevelVm>() {
+            world.despawn(vm.worldspawn);
+        }
+        if let Some(pending) = world.get_resource::<PendingLevel>()
+            && let Some(worldspawn) = pending.worldspawn
+        {
+            world.despawn(worldspawn);
         }
 
-        world.remove_resource::<LevelVm>();
         world.remove_resource::<QcTables>();
         world.remove_resource::<EdictTable>();
         world.remove_resource::<LevelState>();
         world.remove_resource::<LevelCollision>();
         world.remove_resource::<ServerRng>();
-    }
-
-    fn worldspawns_left(world: &mut World) -> Vec<Entity> {
-        world.query_filtered::<Entity, With<QCWorldspawn>>().iter(world).collect()
     }
 
     fn try_advance_pending_level(world: &mut World) -> anyhow::Result<()> {
@@ -1411,7 +1412,8 @@ pub mod systems {
             None => {
                 despawn_level(world);
 
-                let worldspawn = world.spawn(QCWorldspawn).id();
+                let worldspawn =
+                    world.spawn((QCWorldspawn, qc::vm_config(), qc::server_storage())).id();
                 assert_ne!(worldspawn.to_bits(), 0);
                 AttachScript::<QCScriptingPlugin>::new(ScriptAttachment::EntityScript(
                     worldspawn,

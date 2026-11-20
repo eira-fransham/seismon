@@ -146,8 +146,14 @@ pub mod systems {
         mut mouse_events: MessageReader<MouseMotion>,
         mut run_cmds: MessageWriter<RunCmd<'static>>,
         input: Res<GameInput>,
+        csqc_consumed: Res<crate::client::csqc::hooks::ConsumedInput>,
     ) {
-        for key in reader.reader.read(&keyboard_events) {
+        for (key, id) in reader.reader.read_with_id(&keyboard_events) {
+            // Handled by CSQC.
+            if csqc_consumed.keys.contains(&id) {
+                continue;
+            }
+
             // Ignore key-repeat events.
             let is_edge = match key.state {
                 ButtonState::Pressed => keyboard_input.just_pressed(key.key_code),
@@ -165,13 +171,19 @@ pub mod systems {
             }
         }
 
-        for button in mouse_button_reader.reader.read(&mouse_button_events) {
+        for (button, id) in mouse_button_reader.reader.read_with_id(&mouse_button_events) {
+            if csqc_consumed.buttons.contains(&id) {
+                continue;
+            }
             if let Ok(Some(binding)) = input.binding(button.button) {
                 run_cmds.write_batch(binding_commands(binding, button.state));
             }
         }
 
-        let mouse_total: Vec2 = mouse_events.read().map(|motion| motion.delta).sum();
+        let mut mouse_total: Vec2 = mouse_events.read().map(|motion| motion.delta).sum();
+        if csqc_consumed.mouse_motion {
+            mouse_total = Vec2::ZERO;
+        }
         let mouse_x = mouse_total.x;
         let mouse_y = mouse_total.y;
 

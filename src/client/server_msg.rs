@@ -26,6 +26,8 @@ pub struct ServerMsgCtx<'w, 's> {
     pub transforms: Query<'w, 's, &'static Transform>,
     pub level_stats: ResMut<'w, LevelStats>,
     pub intermission: ResMut<'w, HudIntermission>,
+    /// The loaded CSQC, which may handle some messages instead of the engine.
+    pub csqc: Option<Res<'w, crate::client::csqc::Csqc>>,
 }
 
 impl ServerMsgCtx<'_, '_> {
@@ -66,6 +68,8 @@ impl ServerMsgCtx<'_, '_> {
         )?);
 
         self.commands.set_state_if_different(ClientGameState::Loading);
+        // CSQC is loaded with each level.
+        self.commands.queue(crate::client::csqc::BeginLoad);
 
         Ok(())
     }

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod console;
+pub mod csqc;
 mod cvars;
 pub mod demo;
 mod hud;
@@ -341,6 +342,7 @@ where
             .add_plugins(SeismonInputPlugin)
             .add_plugins(InventoryPlugin::default())
             .add_plugins(particles::ParticlesPlugin)
+            .add_plugins(csqc::CsqcPlugin)
             .add_plugins(
                 TrenchBroomPlugins(Default::default())
                     .build()
@@ -1156,7 +1158,13 @@ mod systems {
         mut conn: ResMut<Connection>,
         bsp_assets: Res<Assets<Bsp>>,
         worldspawn: Query<&Worldspawn>,
+        csqc_load: Option<Res<csqc::CsqcLoad>>,
     ) {
+        // Keep showing the loading screen until CSQC has loaded (or failed to).
+        if csqc::csqc_loading(csqc_load.as_deref()) {
+            return;
+        }
+
         let Some(client_state) = &mut conn.client_state else {
             commands.set_state_if_different(ClientGameState::Disconnected);
             return;
@@ -1176,6 +1184,8 @@ mod systems {
     }
 
     pub fn disconnect(mut commands: Commands, conn: Res<Connection>) {
+        commands.queue(csqc::Shutdown);
+
         if let Some(state) = &conn.client_state
             && let Ok(mut worldspawn) = commands.get_entity(state.worldspawn)
         {
@@ -1350,8 +1360,14 @@ mod systems {
                             sound::MusicSource::TrackId(track as usize),
                         )));
                     }
+                    ServerCmd::CenterPrint { text } if ctx.csqc.is_some() => {
+                        ctx.commands.queue(csqc::hooks::CenterPrint(text));
+                    }
                     ServerCmd::CenterPrint { text } => {
                         ctx.console_output.set_center_print(text, &ctx.wall_time);
+                    }
+                    ServerCmd::Print { text } if ctx.csqc.is_some() => {
+                        ctx.commands.queue(csqc::hooks::Print(text));
                     }
                     ServerCmd::Print { text } => {
                         ctx.console_output.print_alert(text.raw, &ctx.wall_time)
@@ -1361,6 +1377,9 @@ mod systems {
                     ServerCmd::PlayerData(player_data) => {
                         ctx.commands
                             .run_system_cached_with(ClientState::update_player, player_data);
+                    }
+                    ServerCmd::Damage { armor, blood, source } if ctx.csqc.is_some() => {
+                        ctx.commands.queue(csqc::hooks::Damage { armor, blood, source });
                     }
                     ServerCmd::Damage { armor, blood, source } => {
                         ctx.commands

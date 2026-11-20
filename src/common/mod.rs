@@ -22,6 +22,7 @@ pub mod console;
 pub mod math;
 pub mod net;
 pub mod parse;
+pub mod qc;
 pub mod wad;
 
 use bevy::prelude::*;

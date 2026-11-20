@@ -88,7 +88,14 @@ impl Plugin for HudPlugin {
                     systems::update_hud_numbers,
                 )
                     .chain()
+                    .run_if(bevy::ecs::schedule::common_conditions::not(
+                        crate::client::csqc::csqc_draws_hud,
+                    ))
                     .before(crate::client::text::systems::update_atlas_text),
+            )
+            .add_systems(
+                PostUpdate,
+                systems::hide_hud_for_csqc.run_if(crate::client::csqc::csqc_draws_hud),
             );
     }
 }
@@ -1006,6 +1013,16 @@ mod systems {
                 let display =
                     if player.items.contains(*flag) { Display::Flex } else { Display::None };
                 write_if_neq!(node.display, display);
+            }
+        }
+    }
+
+    /// Hides the engine's HUD (including the scoreboard and crosshair) while CSQC draws it.
+    /// [`update_layout`] shows it again once CSQC is unloaded.
+    pub fn hide_hud_for_csqc(huds: Query<&HasHud>, mut visibilities: Query<&mut Visibility>) {
+        for hud in &huds {
+            if let Ok(mut visibility) = visibilities.get_mut(hud.0) {
+                write_if_neq!(*visibility, Visibility::Hidden);
             }
         }
     }
