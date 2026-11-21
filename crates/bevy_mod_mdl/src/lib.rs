@@ -15,7 +15,7 @@ use bevy_materialize::{
     animation::{MaterialAnimations, NextAnimation},
     prelude::{GenericMaterial, GenericMaterial3d},
 };
-use bevy_math::{Rect, UVec2};
+use bevy_math::{Rect, UVec2, Vec3};
 use bevy_mesh::{Mesh, Mesh3d, PrimitiveTopology};
 use bevy_pbr::{Lightmap, StandardMaterial};
 use bevy_reflect::Reflect;
@@ -162,15 +162,43 @@ impl EntityCommand for MdlFlag {
     }
 }
 
+/// A frame of an MDL (a single pose, or a group of poses that animate on their own).
+#[derive(Reflect, Clone, Debug, PartialEq)]
+pub struct MdlFrameInfo {
+    /// The name of the frame (for a group, of its first pose).
+    pub name: String,
+    /// How long the frame lasts: the sum of a group's pose intervals, or 0 for a single pose.
+    pub duration_secs: f32,
+    /// The bounds of the frame, relative to the model's origin.
+    pub min: Vec3,
+    pub max: Vec3,
+}
+
 #[derive(Asset, Reflect)]
 pub struct Mdl {
     radius: f32,
+    frames: Vec<MdlFrameInfo>,
     transform: Transform,
     lightmap: Handle<Image>,
     textures: Vec<Handle<GenericMaterial>>,
     animations: Vec<Handle<AnimMeshes>>,
     flags: HashSet<MdlFlag>,
     default_mesh: Handle<Mesh>,
+}
+
+impl Mdl {
+    /// The frames of the model, by frame number (`.frame`).
+    pub fn frames(&self) -> &[MdlFrameInfo] {
+        &self.frames
+    }
+
+    /// The bounds of every frame of the model, relative to its origin.
+    pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
+        self.frames
+            .iter()
+            .map(|frame| (frame.min, frame.max))
+            .reduce(|(a_min, a_max), (b_min, b_max)| (a_min.min(b_min), a_max.max(b_max)))
+    }
 }
 
 #[derive(Reflect, Default)]
@@ -376,6 +404,25 @@ async fn load_mdl(
 
     let mut default_mesh = OnceCell::<Handle<Mesh>>::new();
 
+    let frame_info = raw
+        .animations()
+        .iter()
+        .map(|anim| match anim {
+            Animation::Static(mesh) => MdlFrameInfo {
+                name: mesh.name().to_owned(),
+                duration_secs: 0.,
+                min: mesh.min(),
+                max: mesh.max(),
+            },
+            Animation::Animated(group) => MdlFrameInfo {
+                name: group.frames().first().map(|f| f.name().to_owned()).unwrap_or_default(),
+                duration_secs: group.frames().iter().map(|f| f.duration().as_secs_f32()).sum(),
+                min: group.min(),
+                max: group.max(),
+            },
+        })
+        .collect();
+
     let animations = raw
         .animations()
         .iter()
@@ -494,6 +541,7 @@ async fn load_mdl(
         ),
         transform: raw.transform(),
         radius: raw.radius(),
+        frames: frame_info,
         default_mesh: default_mesh.take().context(NoMeshesSnafu)?,
         textures,
         animations,

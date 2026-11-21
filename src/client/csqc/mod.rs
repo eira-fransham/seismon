@@ -20,8 +20,11 @@
 //!
 //! [`QCOwnedBy`]: bevy_mod_scripting_qcvm::QCOwnedBy
 
+pub mod builtins;
 pub mod draw;
 pub mod hooks;
+pub mod models;
+pub mod physics;
 pub mod storage;
 pub mod stubs;
 
@@ -49,7 +52,10 @@ use self::{
     hooks::{ConsumedInput, CsqcCommands, CsqcInputCursors},
 };
 use crate::{
-    client::{ClientGameState, input::InputFocus, ui::UI_SCALE},
+    client::{
+        ClientGameState, Connection, InputHistory, IntermissionKind, hud::HudIntermission,
+        input::InputFocus, ui::UI_SCALE,
+    },
     common::qc::{CsqcBuiltins, QcStorage, QcValue, add_core_plugin, core_builtins::core_builtins},
 };
 
@@ -130,6 +136,8 @@ pub fn csqc_draws_scene(csqc: Option<Res<Csqc>>) -> bool {
 pub fn register_builtins(world: &mut World) {
     let mut ns = NamespaceBuilder::<CsqcBuiltins>::new_unregistered(world);
     core_builtins(&mut ns);
+    crate::common::qc::ext::ext_builtins(&mut ns);
+    builtins::register(&mut ns);
     stubs::engine_builtins(&mut ns);
     stubs::extension_builtins(&mut ns);
     stubs::csqc_only_builtins(&mut ns);
@@ -314,8 +322,39 @@ pub fn advance_csqc_load(world: &mut World) {
                 }
             };
 
+            // CSQC can trace against the map as soon as it starts, so wait for it to load.
+            if map_handle(world).is_some_and(|handle| {
+                !world.resource::<Assets<bevy_trenchbroom::bsp::Bsp>>().contains(&handle)
+            }) {
+                return;
+            }
+
             start(world, vm, worldspawn, attachment);
         }
+    }
+}
+
+/// The client's map, if it is connected to a level.
+fn map_handle(world: &World) -> Option<Handle<bevy_trenchbroom::bsp::Bsp>> {
+    let state = world.get_resource::<Connection>()?.client_state()?;
+    Some(world.get::<crate::client::state::Worldspawn>(state.worldspawn)?.bsp.clone())
+}
+
+/// Sets up CSQC's collision with the client's map, if it has one.
+fn init_collision(world: &mut World, worldspawn: Entity) {
+    let Some(handle) = map_handle(world) else {
+        return;
+    };
+    let collision = world
+        .resource::<Assets<bevy_trenchbroom::bsp::Bsp>>()
+        .get(&handle)
+        .map(physics::collision_for_bsp);
+    match collision {
+        Some(Ok(collision)) => {
+            world.entity_mut(worldspawn).insert(physics::CsqcCollision(collision));
+        }
+        Some(Err(e)) => error!("CSQC can't collide with the map: {e}"),
+        None => {}
     }
 }
 
@@ -341,6 +380,7 @@ fn start(world: &mut World, vm: QCVmContext, worldspawn: Entity, attachment: Scr
     info!("Using {mode:?} CSQC");
     vm.vm.reset_globals();
     storage::init_storage(world, &vm);
+    init_collision(world, worldspawn);
     world.insert_resource(Csqc { vm, worldspawn, attachment, mode });
 
     set_frame_globals(world);
@@ -355,23 +395,90 @@ fn start(world: &mut World, vm: QCVmContext, worldspawn: Entity, attachment: Scr
     );
 }
 
-/// Sets the `time` and `frametime` globals before calling CSQC.
+/// Sets a CSQC global if the `csprogs.dat` defines it (most of the globals that the engine sets
+/// are extensions that the `csprogs.dat` may not use).
+pub fn set_global_if_defined(world: &mut World, storage: &QcStorage, name: &str, value: QcValue) {
+    if storage.0.global_kind(world, name).is_none() {
+        return;
+    }
+    if let Err(e) = storage.0.set_global(world, name, value) {
+        error!("Failed to set CSQC global {name}: {e}");
+    }
+}
+
+/// Sets the globals that describe the current frame before calling CSQC: the time, the local
+/// player, the intermission and the view angles.
 fn set_frame_globals(world: &mut World) {
     let Some(csqc) = world.get_resource::<Csqc>() else {
         return;
     };
     let worldspawn = csqc.worldspawn;
-    let Some(QcStorage(storage)) = world.get::<QcStorage>(worldspawn).cloned() else {
+    let Some(storage) = world.get::<QcStorage>(worldspawn).cloned() else {
         return;
     };
 
     let time = world.resource::<Time<Virtual>>();
     let (elapsed, delta) = (time.elapsed_secs(), time.delta_secs());
-    for (name, value) in [("time", elapsed), ("frametime", delta)] {
-        if let Err(e) = storage.set_global(world, name, QcValue::Float(value)) {
-            error!("Failed to set CSQC global {name}: {e}");
-        }
+    let real_time = world.resource::<Time<Real>>().elapsed_secs();
+
+    macro_rules! set_globals {
+        ($(($name:expr, $value:expr$(,)?),)*) => {
+            $(
+                set_global_if_defined(world, &storage, $name, $value);
+            )*
+        };
     }
+
+    set_globals![
+        ("time", QcValue::Float(elapsed)),
+        ("frametime", QcValue::Float(delta)),
+        ("cltime", QcValue::Float(real_time)),
+    ];
+
+    if let Some(state) = world.get_resource::<Connection>().and_then(Connection::client_state) {
+        let view = state.view.map_or(0., f32::from);
+        let max_clients = state.max_clients;
+        let look_angles = state.look_angles;
+
+        set_globals![
+            ("player_localentnum", QcValue::Float(view)),
+            // Players are entities 1..=maxclients.
+            ("player_localnum", QcValue::Float((view - 1.).max(0.))),
+            ("maxclients", QcValue::Float(f32::from(max_clients))),
+            (
+                "view_angles",
+                QcValue::Vector(Vec3::new(
+                    look_angles.pitch_deg,
+                    look_angles.yaw_deg,
+                    look_angles.roll_deg,
+                )),
+            ),
+        ];
+    }
+
+    let intermission = world.resource::<HudIntermission>().0.as_ref().map(|intermission| {
+        // FTEQW's values of `intermission`: 1 for the end of a level, 2 for a finale and 3 for a
+        // cutscene.
+        let kind = match intermission.kind {
+            IntermissionKind::Intermission => 1.,
+            IntermissionKind::Finale { .. } => 2.,
+            IntermissionKind::Cutscene { .. } => 3.,
+        };
+        (kind, intermission.completed_secs)
+    });
+    let (intermission, intermission_time) = intermission.unwrap_or_default();
+    set_globals![
+        ("intermission", QcValue::Float(intermission)),
+        ("intermission_time", QcValue::Float(intermission_time)),
+    ];
+
+    // Quake servers don't acknowledge move commands, so there are none to predict: the server's
+    // frame is always the client's latest.
+    let sequence = world.resource::<InputHistory>().last_sequence() as f32;
+    set_globals![
+        ("clientcommandframe", QcValue::Float(sequence)),
+        ("servercommandframe", QcValue::Float(sequence)),
+    ];
 }
 
 /// The size of the screen in virtual (Quake) pixels, as passed to CSQC.
@@ -445,6 +552,8 @@ impl Plugin for CsqcPlugin {
             .init_resource::<CsqcCommands>()
             .init_resource::<ConsumedInput>()
             .init_resource::<CsqcInputCursors>()
+            .init_resource::<hooks::CsqcCursor>()
+            .init_resource::<hooks::CsqcSensitivity>()
             .add_systems(Startup, draw::init_csqc_hud)
             .add_systems(PreUpdate, advance_csqc_load.run_if(resource_exists::<CsqcLoad>))
             .add_systems(
@@ -475,7 +584,7 @@ impl Plugin for CsqcPlugin {
 
 #[cfg(test)]
 mod tests {
-    use std::{any::TypeId, collections::HashSet};
+    use std::any::TypeId;
 
     use bevy_mod_scripting::bindings::AppScriptFunctionRegistry;
     use bevy_mod_scripting_qcvm::qcvm::{BuiltinAddress as _, strum::VariantArray as _};
@@ -526,12 +635,17 @@ mod tests {
         register_builtins(&mut world);
         crate::server::qc::builtins::register(&mut world);
 
-        let stubs = stubs::STUB_BUILTINS.iter().copied().collect::<HashSet<_>>();
-        assert_eq!(stubs.len(), stubs::STUB_BUILTINS.len(), "a builtin is stubbed twice");
-        assert_eq!(stubs.len() + CORE_BUILTINS.len(), 289);
+        let ext = crate::common::qc::ext::ext_builtin_names();
+        let shared = CORE_BUILTINS.iter().copied().chain(ext.iter().map(String::as_str));
+        // Every builtin is registered once: there are exactly as many as in the core set.
+        let csqc_count = world
+            .resource::<AppScriptFunctionRegistry>()
+            .read()
+            .iter_type(TypeId::of::<CsqcBuiltins>())
+            .count();
+        assert_eq!(csqc_count, 289);
 
-        for name in CORE_BUILTINS {
-            assert!(!stubs.contains(name), "{name} is both a core builtin and a stub");
+        for name in shared {
             assert!(registered(&world, TypeId::of::<SsqcBuiltins>(), name), "{name}");
             assert!(registered(&world, TypeId::of::<CsqcBuiltins>(), name), "{name}");
         }

@@ -162,6 +162,16 @@ impl PlayerColor {
     pub fn bits(&self) -> u8 {
         self.top << 4 | (self.bottom & 0x0F)
     }
+
+    /// The "top" colour.
+    pub fn top(&self) -> u8 {
+        self.top
+    }
+
+    /// The "bottom" colour.
+    pub fn bottom(&self) -> u8 {
+        self.bottom
+    }
 }
 
 impl ::std::convert::From<u8> for PlayerColor {

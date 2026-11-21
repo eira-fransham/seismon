@@ -16,7 +16,7 @@ use snafu::prelude::*;
 
 use crate::{
     common::math::{Hyperplane, HyperplaneSide, LinePlaneIntersect},
-    server::world::phys::{Trace, TraceEnd, TraceEndBoundary, TraceEndKind},
+    common::world::phys::{Trace, TraceEnd, TraceEndBoundary, TraceEndKind},
 };
 
 /// This is 4 in the original source, but the 4th hull is never used.
@@ -213,11 +213,11 @@ impl BspCollisionHull {
         })
     }
 
-    pub fn min(&self) -> Vec3 {
+    pub fn mins(&self) -> Vec3 {
         self.mins
     }
 
-    pub fn max(&self) -> Vec3 {
+    pub fn maxs(&self) -> Vec3 {
         self.maxs
     }
 

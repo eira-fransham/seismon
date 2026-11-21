@@ -56,6 +56,7 @@ bevy_world_serialization = { version = "0.20" }
 bevy_shape = { version = "0.20" }
 
 anyhow = "1.0"
+arrayvec = "0.7"
 beef = "0.5"
 bevy_hanabi = { version = "0.20", default-features = false, features = ["3d"] }
 bevy_materialize = "0.12"
@@ -113,7 +114,14 @@ serde.workspace = true
 snafu.workspace = true
 qbsp = { workspace = true, features = ["bevy_reflect", "serde"] }
 
-arrayvec = "0.7"
+arrayvec.workspace = true
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+md4 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
 bevy_seedling = { git = "https://github.com/eswartz/bevy_seedling-fork.git", branch = "migrate-to-bevy-0.20", features = [
     "effects",
 ] }

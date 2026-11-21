@@ -22,7 +22,10 @@ use super::{
     stub::{Ent, Fld, S, Vec3Arg, string, todo_builtin, var_string},
     with_vm_ctx,
 };
-use crate::server::math::{AngleVectors, angle_vectors, vec_to_angles};
+use crate::{
+    common::qc::QC_CREATED_HELP,
+    server::math::{AngleVectors, angle_vectors, vec_to_angles},
+};
 
 /// The names of the builtins registered by [`core_builtins`].
 pub const CORE_BUILTINS: &[&str] = &[
@@ -58,7 +61,7 @@ pub const CORE_BUILTINS: &[&str] = &[
     "vectoangles",
 ];
 
-static CVARS_WARNED: LazyLock<DashSet<String>> = LazyLock::new(|| DashSet::new());
+static CVARS_WARNED: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
 
 /// Registers the builtins shared by every QuakeC VM in `ns`.
 pub fn core_builtins<N: 'static>(ns: &mut NamespaceBuilder<'_, N>) {
@@ -171,7 +174,9 @@ pub fn core_builtins<N: 'static>(ns: &mut NamespaceBuilder<'_, N>) {
                     warn!("set cvar: {e}");
                 }
 
-                if let Err(e) = registry.insert_cvar(var.clone().into_owned(), &val) {
+                if let Err(e) =
+                    registry.insert_cvar(var.clone().into_owned(), &val, QC_CREATED_HELP)
+                {
                     warn!("set cvar: {e}");
 
                     return Ok(());

@@ -26,54 +26,9 @@ use bevy::{
     prelude::*,
 };
 use hashbrown::HashMap;
+use seismon_utils::UppercaseStr;
 use smol_str::SmolStr;
 use strum_macros::EnumIter;
-
-#[derive(Debug, Copy, Clone, Eq)]
-#[repr(transparent)]
-struct UppercaseStr<'a>(&'a str);
-
-impl Display for UppercaseStr<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const BLOCKS: usize = 128;
-
-        let mut buf = arrayvec::ArrayVec::<u8, BLOCKS>::new();
-
-        let chars = self.0.as_bytes();
-
-        for block in chars.chunks(BLOCKS) {
-            buf.clear();
-            buf.extend(block.iter().copied());
-            buf.make_ascii_uppercase();
-            write!(f, "{}", std::str::from_utf8(&buf).unwrap())?;
-        }
-
-        Ok(())
-    }
-}
-
-impl Hash for UppercaseStr<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        const BLOCKS: usize = 128;
-
-        let mut buf = arrayvec::ArrayVec::<u8, BLOCKS>::new();
-
-        let chars = self.0.as_bytes();
-
-        for block in chars.chunks(BLOCKS) {
-            buf.clear();
-            buf.extend(block.iter().copied());
-            buf.make_ascii_uppercase();
-            std::str::from_utf8(&buf).unwrap().hash(state);
-        }
-    }
-}
-
-impl PartialEq for UppercaseStr<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq_ignore_ascii_case(other.0)
-    }
-}
 
 static KEYMAP: LazyLock<HashMap<UppercaseStr<'static>, AnyInput>> = LazyLock::new(|| {
     KEYBOARD_NAMES.iter().chain(MOUSE_NAMES).map(|(n, i)| (UppercaseStr(n), i.clone())).collect()
@@ -202,6 +157,11 @@ const MOUSE_NAMES: &[(&str, AnyInput)] = &mouse![
     // TODO: "MWHEELDOWN"
     // TODO: "MWHEELUP"
 ];
+
+/// Every input that can be bound, with its name.
+pub fn named_inputs() -> impl Iterator<Item = (&'static str, AnyInput)> {
+    KEYBOARD_NAMES.iter().chain(MOUSE_NAMES).map(|(name, input)| (*name, input.clone()))
+}
 
 /// A unique identifier for an in-game action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, EnumIter)]

@@ -5,7 +5,7 @@
 //! the magic `get`/`set` functions find the VM that the referenced entity belongs to (see
 //! [`vm_root`]) and use the [`QcStorage`] on that VM's worldspawn.
 
-use std::{collections::VecDeque, fmt, sync::Arc};
+use std::{any::Any, collections::VecDeque, fmt, sync::Arc};
 
 use bevy::{ecs::component::ComponentId, prelude::*};
 use bevy_mod_scripting::bindings::{
@@ -21,7 +21,7 @@ use super::{QcValue, qc_error};
 /// Every method is given the world, and implementations find the VM's state from it (e.g. from
 /// resources for the server, or components of the VM's worldspawn). Methods that take an entity
 /// are only called with entities that belong to the VM.
-pub trait QcStorageImpl: Send + Sync + 'static {
+pub trait QcStorageImpl: Any + Send + Sync + 'static {
     /// The type of the entity field named `name`, if there is one.
     fn field_kind(&self, world: &World, name: &str) -> Option<Type>;
 

@@ -164,13 +164,15 @@ impl Registry {
         }
     }
 
-    /// Write a cvar with a value. Should only be used if the cvar does not already exist,
+    /// Inserts a cvar with the default value `value` and the description `help`, like
+    /// [`Registry::insert_cvar`]. Should only be used if the cvar does not already exist,
     /// otherwise it'll overwrite the previous cvar.
     // TODO: We can probably have a `set_or_insert_cvar` to avoid the invariant.
-    pub fn insert_cvar<N, V>(&mut self, name: N, value: V) -> Result<(), ConsoleError>
+    pub fn insert_cvar<N, V, H>(&mut self, name: N, value: V, help: H) -> Result<(), ConsoleError>
     where
         N: Into<CName>,
         V: AsRef<str>,
+        H: Into<CName>,
     {
         let value = Value::from_str(value.as_ref())
             .map_err(|_| ConsoleError::CvarParseInvalid { backtrace: Backtrace::capture() })?;
@@ -178,7 +180,7 @@ impl Registry {
             name,
             Cvar { value: None, archive: false, notify: false, default: value },
             None,
-            "",
+            help,
         );
 
         Ok(())

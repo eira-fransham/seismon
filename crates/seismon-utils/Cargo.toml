@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+arrayvec.workspace = true
 beef.workspace = true
 bitflags.workspace = true
 bevy_reflect.workspace = true

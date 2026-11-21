@@ -1,5 +1,6 @@
 use std::{
-    fmt,
+    fmt::{self, Display},
+    hash::Hash,
     io::{self, BufRead},
     mem,
     ops::{Add, Deref, Mul, Not},
@@ -15,6 +16,52 @@ use futures_byteorder::AsyncReadBytes;
 use nom::AsBytes;
 
 pub mod model;
+
+#[derive(Debug, Copy, Clone, Eq)]
+#[repr(transparent)]
+pub struct UppercaseStr<'a>(pub &'a str);
+
+impl Display for UppercaseStr<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const BLOCKS: usize = 128;
+
+        let mut buf = arrayvec::ArrayVec::<u8, BLOCKS>::new();
+
+        let chars = self.0.as_bytes();
+
+        for block in chars.chunks(BLOCKS) {
+            buf.clear();
+            buf.extend(block.iter().copied());
+            buf.make_ascii_uppercase();
+            write!(f, "{}", std::str::from_utf8(&buf).unwrap())?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Hash for UppercaseStr<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        const BLOCKS: usize = 128;
+
+        let mut buf = arrayvec::ArrayVec::<u8, BLOCKS>::new();
+
+        let chars = self.0.as_bytes();
+
+        for block in chars.chunks(BLOCKS) {
+            buf.clear();
+            buf.extend(block.iter().copied());
+            buf.make_ascii_uppercase();
+            std::str::from_utf8(&buf).unwrap().hash(state);
+        }
+    }
+}
+
+impl PartialEq for UppercaseStr<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq_ignore_ascii_case(other.0)
+    }
+}
 
 #[macro_export]
 macro_rules! write_if_neq {

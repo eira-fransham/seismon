@@ -3,10 +3,14 @@
 //! CSQC entities only have the components here (never the server's), and belong to the CSQC VM
 //! through [`QCOwnedBy`], so the server can't see them even on a listen server.
 //!
-//! For now, fields and globals are stored untyped, by offset: [`CsqcGlobals`] on the CSQC
-//! worldspawn and [`CsqcFields`] on each entity. Vectors are stored as three floats, so that
-//! vectors and their `_x` etc. components alias like they do in Quake. Typed accessors for the
-//! fields and globals that the engine needs can be added as builtins are implemented.
+//! Fields and globals are stored by offset: [`CsqcGlobals`] on the CSQC worldspawn and
+//! [`CsqcFields`] on each entity. Vectors are stored as three floats, so that vectors and their
+//! `_x` etc. components alias like they do in Quake. The engine reads the fields it needs through
+//! [`CsqcHotFields`].
+//!
+//! Only the globals in the defs (`progdefs.q1`) are stored here. The `csprogs.dat`'s other globals,
+//! including the engine extension globals that FTEQW defines for CSQC (e.g. `player_localentnum`),
+//! are stored in the VM, and the engine sets them through the same [`QcStorageImpl`] methods.
 
 use std::sync::Arc;
 
@@ -21,7 +25,7 @@ use qcvm_defs_csqc::GlobalAddr;
 
 use crate::{
     common::qc::{
-        QcStorage, QcStorageImpl, QcValue, is_storable, qc_error, storage::no_such_field,
+        QcStorage, QcStorageImpl, QcValue, QcVm, is_storable, qc_error, storage::no_such_field,
     },
     server::qc::format_value,
 };
@@ -45,6 +49,137 @@ pub struct CsqcEdicts {
     slots: Vec<Option<Entity>>,
     /// The edict numbers that removed entities had (see [`QcStorageImpl::freed_edict`]).
     freed: HashMap<Entity, usize>,
+}
+
+/// Where a field is stored in [`CsqcFields`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Slot {
+    index: usize,
+    kind: Type,
+}
+
+impl Slot {
+    pub fn kind(self) -> Type {
+        self.kind
+    }
+}
+
+impl CsqcFields {
+    /// A float field, which is 0 if the field doesn't exist (`slot` is `None`).
+    pub fn float(&self, slot: Option<Slot>) -> f32 {
+        let Some(slot) = slot else { return 0. };
+        match self.0.get(slot.index) {
+            Some(QcValue::Float(f)) => *f,
+            _ => 0.,
+        }
+    }
+
+    /// A vector field, which is zero if the field doesn't exist.
+    pub fn vec3(&self, slot: Option<Slot>) -> Vec3 {
+        let Some(slot) = slot.filter(|slot| slot.kind == Type::Vector) else {
+            return Vec3::ZERO;
+        };
+        let float = |i: usize| match self.0.get(i) {
+            Some(QcValue::Float(f)) => *f,
+            _ => 0.,
+        };
+        Vec3::new(float(slot.index), float(slot.index + 1), float(slot.index + 2))
+    }
+
+    /// A string field, which is null if the field doesn't exist.
+    pub fn string(&self, slot: Option<Slot>) -> QCString {
+        match slot.and_then(|slot| self.0.get(slot.index)) {
+            Some(QcValue::String(s)) => s.clone(),
+            _ => QCString::null(),
+        }
+    }
+
+    /// An entity field, which is `None` if it is `world` or the field doesn't exist.
+    pub fn entity(&self, slot: Option<Slot>, world: Entity) -> Option<Entity> {
+        match slot.and_then(|slot| self.0.get(slot.index)) {
+            Some(QcValue::Entity(e)) if *e != world => Some(*e),
+            _ => None,
+        }
+    }
+
+    /// A function field, which is `None` if it is null or the field doesn't exist.
+    pub fn function(&self, slot: Option<Slot>) -> Option<QCFunction> {
+        match slot.and_then(|slot| self.0.get(slot.index)) {
+            Some(QcValue::Function(f)) if *f != QCFunction::NULL => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// Sets a float field, if it exists.
+    pub fn set_float(&mut self, slot: Option<Slot>, value: f32) {
+        if let Some(slot) = slot.filter(|slot| slot.kind == Type::Float)
+            && let Some(out) = self.0.get_mut(slot.index)
+        {
+            *out = QcValue::Float(value);
+        }
+    }
+
+    /// Sets a vector field, if it exists.
+    pub fn set_vec3(&mut self, slot: Option<Slot>, value: Vec3) {
+        if let Some(slot) = slot.filter(|slot| slot.kind == Type::Vector)
+            && let Some(out) = self.0.get_mut(slot.index..slot.index + 3)
+        {
+            for (out, value) in out.iter_mut().zip(value.to_array()) {
+                *out = QcValue::Float(value);
+            }
+        }
+    }
+
+    /// Sets an entity field, if it exists. `None` is `world`.
+    pub fn set_entity(&mut self, slot: Option<Slot>, value: Option<Entity>, world: Entity) {
+        if let Some(slot) = slot.filter(|slot| slot.kind == Type::Entity)
+            && let Some(out) = self.0.get_mut(slot.index)
+        {
+            *out = QcValue::Entity(value.unwrap_or(world));
+        }
+    }
+
+    /// Sets a string field, if it exists.
+    pub fn set_string(&mut self, slot: Option<Slot>, value: QCString) {
+        if let Some(slot) = slot.filter(|slot| slot.kind == Type::String)
+            && let Some(out) = self.0.get_mut(slot.index)
+        {
+            *out = QcValue::String(value);
+        }
+    }
+}
+
+macro_rules! hot_fields {
+    ($($name:ident),* $(,)?) => {
+        /// The slots of the fields that the engine reads and writes directly, each `None` if the
+        /// `csprogs.dat` doesn't define it.
+        #[derive(Debug, Clone, Default)]
+        pub struct CsqcHotFields {
+            $(pub $name: Option<Slot>,)*
+        }
+
+        impl CsqcHotFields {
+            fn new(fields: &SlotTable) -> Self {
+                Self { $($name: fields.slot(stringify!($name)),)* }
+            }
+        }
+    };
+}
+
+hot_fields!(
+    origin, angles, velocity, avelocity, mins, maxs, absmin, absmax, size, model, modelindex,
+    frame, frame2, lerpfrac, skin, effects, alpha, scale, colormap, renderflags, drawmask,
+    predraw, solid, movetype, flags, owner, chain, think, nextthink, touch, groundentity,
+    ideal_yaw, yaw_speed, goalentity, enemy, waterlevel, watertype, view_ofs, health, classname,
+    tag_entity, tag_index, forward, right, up, v_angle, punchangle, button0, button2, impulse,
+    teleport_time, oldorigin, gravity, pmove_flags, entnum,
+);
+
+impl CsqcEdicts {
+    /// The entity with edict number `edict`, if it is in use.
+    pub fn get(&self, edict: usize) -> Option<Entity> {
+        self.slots.get(edict).copied().flatten()
+    }
 }
 
 /// A table of named values stored by offset.
@@ -99,6 +234,10 @@ impl SlotTable {
         self.by_name.get(name).map(|&(_, kind)| kind)
     }
 
+    fn slot(&self, name: &str) -> Option<Slot> {
+        self.by_name.get(name).map(|&(index, kind)| Slot { index, kind })
+    }
+
     fn get(&self, values: &[QcValue], name: &str, world: Entity) -> Result<QcValue, InteropError> {
         let &(slot, kind) = self.by_name.get(name).ok_or_else(|| no_such_field(name))?;
         let float = |i: usize| match values.get(i) {
@@ -145,8 +284,45 @@ impl SlotTable {
 #[derive(Debug)]
 pub struct CsqcStorage {
     worldspawn: Entity,
+    vm: QCVmContext,
     fields: SlotTable,
     globals: SlotTable,
+    hot: CsqcHotFields,
+}
+
+impl CsqcStorage {
+    /// The slots of the fields that the engine uses.
+    pub fn hot(&self) -> &CsqcHotFields {
+        &self.hot
+    }
+
+    /// The slot of the field called `name`.
+    pub fn field_slot(&self, name: &str) -> Option<Slot> {
+        self.fields.slot(name)
+    }
+
+    /// The worldspawn (QuakeC's `world`).
+    pub fn worldspawn(&self) -> Entity {
+        self.worldspawn
+    }
+
+    /// Every field's name, in offset order.
+    pub fn field_names(&self) -> &[String] {
+        &self.fields.names
+    }
+
+    /// The type of a global stored in the VM rather than in [`CsqcGlobals`].
+    fn vm_global_kind(&self, name: &str) -> Option<Type> {
+        let def = self.vm.vm_global_def(name)?;
+        Type::try_from(def.type_).ok().filter(|kind| is_storable(*kind))
+    }
+}
+
+/// The CSQC storage on a CSQC worldspawn.
+pub fn csqc_storage(world: &World, worldspawn: Entity) -> Option<Arc<CsqcStorage>> {
+    let storage = world.get::<QcStorage>(worldspawn)?.0.clone();
+    let any: Arc<dyn std::any::Any + Send + Sync> = storage;
+    any.downcast().ok()
 }
 
 /// Sets up the storage of the CSQC VM `vm` on its worldspawn, initialising the globals from the
@@ -183,13 +359,15 @@ pub fn init_storage(world: &mut World, vm: &QCVmContext) {
     edicts.slots.push(Some(worldspawn));
 
     let field_values = CsqcFields(fields.zero.clone());
-    let storage = CsqcStorage { worldspawn, fields, globals };
+    let hot = CsqcHotFields::new(&fields);
+    let storage = CsqcStorage { worldspawn, vm: vm.clone(), fields, globals, hot };
     world.entity_mut(worldspawn).insert((
         CsqcGlobals(global_values),
         field_values,
         CsqcEdict(0),
         edicts,
         QcStorage(Arc::new(storage)),
+        QcVm(vm.clone()),
     ));
 }
 
@@ -230,7 +408,7 @@ impl QcStorageImpl for CsqcStorage {
     }
 
     fn global_kind(&self, _world: &World, name: &str) -> Option<Type> {
-        self.globals.kind(name)
+        self.globals.kind(name).or_else(|| self.vm_global_kind(name))
     }
 
     fn field_name(&self, _world: &World, offset: u16) -> Option<String> {
@@ -263,6 +441,17 @@ impl QcStorageImpl for CsqcStorage {
     }
 
     fn get_global(&self, world: &World, name: &str) -> Result<QcValue, InteropError> {
+        if self.globals.kind(name).is_none()
+            && let Some(kind) = self.vm_global_kind(name)
+        {
+            let value = self
+                .vm
+                .vm_global(name)
+                .ok_or_else(|| no_such_field(name))?
+                .map_err(|e| qc_error(format!("{e:#}")))?;
+            return QcValue::from_vm(value, kind, &self.vm).ok_or_else(|| no_such_field(name));
+        }
+
         let globals = world
             .get::<CsqcGlobals>(self.worldspawn)
             .ok_or_else(|| qc_error("The CSQC worldspawn has no globals"))?;
@@ -275,6 +464,21 @@ impl QcStorageImpl for CsqcStorage {
         name: &str,
         value: QcValue,
     ) -> Result<(), InteropError> {
+        if self.globals.kind(name).is_none()
+            && let Some(kind) = self.vm_global_kind(name)
+        {
+            if value.kind() != kind {
+                return Err(qc_error(format!(
+                    "type mismatch for {name}: expected {kind}, found {}",
+                    value.kind()
+                )));
+            }
+            self.vm
+                .set_vm_global(name, value.to_vm(&self.vm))
+                .map_err(|e| qc_error(format!("{e:#}")))?;
+            return Ok(());
+        }
+
         let mut globals = world
             .get_mut::<CsqcGlobals>(self.worldspawn)
             .ok_or_else(|| qc_error("The CSQC worldspawn has no globals"))?;
@@ -318,6 +522,7 @@ impl QcStorageImpl for CsqcStorage {
                 QCOwnedBy(self.worldspawn),
                 CsqcEdict(edict),
                 CsqcFields(self.fields.zero.clone()),
+                super::physics::CsqcAreaLink::default(),
             ))
             .id();
 
@@ -341,6 +546,10 @@ impl QcStorageImpl for CsqcStorage {
             return Ok(());
         };
 
+        // Removed entities can't be collided with.
+        if let Ok(mut ctx) = super::physics::CsqcMoveCtx::new(world, self.worldspawn) {
+            ctx.with_collision(|collision, ents, world| collision.unlink_entity(ents, world, entity))?;
+        }
         world.despawn(entity);
         if let Some(mut edicts) = world.get_mut::<CsqcEdicts>(self.worldspawn) {
             if let Some(slot) = edicts.slots.get_mut(edict) {

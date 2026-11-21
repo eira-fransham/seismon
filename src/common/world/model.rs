@@ -3,7 +3,7 @@ use bevy_mod_mdl::MdlFileError;
 use seismon_utils::model::{ModelFlags, SyncType};
 use snafu::Snafu;
 
-use crate::server::world::hull::BrushModel;
+use crate::common::world::hull::BrushModel;
 
 #[derive(Snafu, Debug)]
 pub enum ModelError {

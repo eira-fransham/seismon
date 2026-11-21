@@ -23,6 +23,7 @@ pub mod math;
 pub mod net;
 pub mod parse;
 pub mod qc;
+pub mod world;
 pub mod wad;
 
 use bevy::prelude::*;

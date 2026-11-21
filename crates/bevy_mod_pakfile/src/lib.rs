@@ -201,10 +201,8 @@ impl PakfilePlugin {
         Self {
             sources: paths
                 .into_iter()
-                .map(|path| {
-                    let path = path.into();
-                    Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>
-                })
+                .map(Into::into)
+                .map(|path| Arc::new(move || PakSource::from(path.clone())) as Arc<MakeSource>)
                 .collect(),
             source_id: AssetSourceId::Default,
         }

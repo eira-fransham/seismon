@@ -84,6 +84,7 @@ fn entity_ref(ctx: &ServerCtx<'_>, entity: Entity) -> ReflectReference {
 pub fn register(world: &mut World) {
     let mut ns = NamespaceBuilder::<SsqcBuiltins>::new_unregistered(world);
     core_builtins(&mut ns);
+    crate::common::qc::ext::ext_builtins(&mut ns);
     ns.register("setorigin", |e: Ent, origin: Vec3Arg| {
         with_ctx(|ctx| ctx.set_entity_origin(entity(&e)?, origin.into()))
     })
@@ -430,15 +431,7 @@ fn builtin_lightstyle(
 
 fn builtin_walk_move(ctx: &mut ServerCtx<'_>, yaw: f32, dist: f32) -> Result<f32, ServerError> {
     let this_id = ctx.globals().self_;
-    let ent_flags = ctx.phys(this_id)?.flags();
-
-    if !ent_flags.intersects(EntityFlags::ON_GROUND | EntityFlags::SWIM | EntityFlags::FLY) {
-        return Ok(0.);
-    }
-
-    let move_dir = Vec2::from_angle(yaw.to_radians()).extend(0.) * dist;
-
-    let did_move = ctx.move_step(this_id, move_dir, true)?;
+    let did_move = crate::common::world::movement::walk_move(ctx, this_id, yaw, dist)?;
 
     // Restore after `move_step`, which can run touch functions.
     let worldspawn = ctx.worldspawn();
@@ -545,28 +538,7 @@ fn builtin_make_static(ctx: &mut ServerCtx<'_>, ent: Entity) -> Result<(), Serve
 
 fn builtin_move_to_goal(ctx: &mut ServerCtx<'_>, dist: f32) -> Result<f32, ServerError> {
     let this_id = ctx.globals().self_;
-    let goal_id = ctx.ai(this_id)?.goalentity;
-
-    let flags = ctx.phys(this_id)?.flags();
-
-    if !flags.intersects(EntityFlags::ON_GROUND | EntityFlags::FLY | EntityFlags::SWIM) {
-        return Ok(0.);
-    }
-
-    // If the next step hits the enemy, return immediately.
-    let enemy = ctx.ai(this_id)?.enemy;
-    if !ctx.is_world(enemy) && ctx.close_enough(this_id, goal_id, dist)? {
-        return Ok(1.);
-    }
-
-    // Try a few random directions to try to get unstuck.
-    let ideal_yaw = ctx.ai(this_id)?.ideal_yaw;
-    let did_move = !ctx.rng().random_ratio(1, 4) && ctx.step_direction(this_id, ideal_yaw, dist)?;
-
-    if !did_move {
-        ctx.new_chase_dir(this_id, goal_id, dist)?;
-    }
-
     // TODO: `movetogoal` seemingly doesn't return anything in Quake should we remove this?
+    let did_move = crate::common::world::movement::move_to_goal(ctx, this_id, dist)?;
     Ok(if did_move { 1. } else { 0. })
 }

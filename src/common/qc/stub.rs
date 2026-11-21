@@ -64,6 +64,11 @@ macro_rules! unimplemented_builtin {
             concat!("unimplemented builtin `", $name, "` (#", $number, ")").into(),
         ))
     };
+    ($name:literal) => {
+        Err(bevy_mod_scripting::bindings::InteropError::external_boxed(
+            concat!("unimplemented unnumbered builtin `", $name, "`").into(),
+        ))
+    };
 }
 #[allow(unused_imports)]
 pub(crate) use unimplemented_builtin;

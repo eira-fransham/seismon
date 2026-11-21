@@ -14,8 +14,10 @@
 //! [`QCOwnedBy`]: bevy_mod_scripting_qcvm::QCOwnedBy
 
 pub mod core_builtins;
+pub mod ext;
 pub mod storage;
 pub mod stub;
+pub mod text;
 mod value;
 
 use std::{fmt, sync::Arc};
@@ -25,13 +27,22 @@ use bevy_mod_scripting::bindings::{
     AppScriptFunctionRegistry, InteropError, MagicFunctions, ReflectReference, ThreadWorldContainer,
 };
 use bevy_mod_scripting_qcvm::{
-    QCField, QCFunction, QCScriptingPlugin, QCString, current_vm, qcvm::Type,
+    QCField, QCFunction, QCScriptingPlugin, QCString, QCVmContext, current_vm, qcvm::Type,
 };
 
 pub use self::{
     storage::{QcComponentIds, QcStorage, QcStorageImpl},
     value::QcValue,
 };
+
+/// The description of cvars created by QuakeC, like FTEQW's. This is how cvars that the engine
+/// created are told apart from QuakeC's.
+pub const QC_CREATED_HELP: &str = "cvar created by QuakeC";
+
+/// The VM of a worldspawn, for builtins that need the `progs.dat` itself (e.g. to look up
+/// functions or field definitions). This is on every VM's worldspawn.
+#[derive(Component, Clone, Debug)]
+pub struct QcVm(pub QCVmContext);
 
 /// The namespace that the server's builtins are registered in.
 pub struct SsqcBuiltins;
@@ -112,6 +123,14 @@ impl QcVmCtx<'_> {
         value: QcValue,
     ) -> Result<(), InteropError> {
         self.storage.set_field(self.world, entity, name, value)
+    }
+
+    /// The calling VM.
+    pub fn vm(&self) -> Result<QCVmContext, InteropError> {
+        self.world
+            .get::<QcVm>(self.root)
+            .map(|vm| vm.0.clone())
+            .ok_or_else(|| qc_error(format!("{} isn't a QuakeC VM", self.root)))
     }
 
     /// The entity in the global named `name`.

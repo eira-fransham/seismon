@@ -23,7 +23,11 @@ use seismon_utils::QString;
 
 use super::{Csqc, call_entry};
 use crate::{
-    client::{console::string_cmd_message, view},
+    client::{
+        console::string_cmd_message,
+        input::game::{AnyInput, named_inputs},
+        view,
+    },
     common::console::ConsoleOutput,
 };
 
@@ -32,6 +36,25 @@ pub mod input_event {
     pub const KEY_DOWN: f32 = 0.;
     pub const KEY_UP: f32 = 1.;
     pub const MOUSE_DELTA: f32 = 2.;
+    pub const MOUSE_ABS: f32 = 3.;
+}
+
+/// Whether CSQC has asked for a mouse cursor (`setcursormode`). While it has, the cursor is free
+/// and mouse movement is passed to CSQC as the cursor's position (`IE_MOUSEABS`) rather than as
+/// movement.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct CsqcCursor {
+    pub enabled: bool,
+}
+
+/// A multiplier for the mouse sensitivity that CSQC has set (`setsensitivityscaler`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct CsqcSensitivity(pub f32);
+
+impl Default for CsqcSensitivity {
+    fn default() -> Self {
+        Self(1.)
+    }
 }
 
 /// A QuakeC string value.
@@ -240,7 +263,22 @@ pub fn csqc_input_events(world: &mut World) {
         }
     }
 
-    if motion != Vec2::ZERO && input_event(world, input_event::MOUSE_DELTA, motion.x, motion.y) {
+    let cursor_enabled = world.get_resource::<CsqcCursor>().is_some_and(|c| c.enabled);
+    if cursor_enabled {
+        // The cursor's position in virtual pixels, as CSQC draws in.
+        let mut windows = world.query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
+        let position = windows.iter(world).next().and_then(Window::cursor_position);
+        if motion != Vec2::ZERO
+            && let Some(position) = position
+        {
+            let position = position / crate::client::ui::UI_SCALE;
+            if input_event(world, input_event::MOUSE_ABS, position.x, position.y) {
+                world.resource_mut::<ConsumedInput>().mouse_motion = true;
+            }
+        }
+    } else if motion != Vec2::ZERO
+        && input_event(world, input_event::MOUSE_DELTA, motion.x, motion.y)
+    {
         world.resource_mut::<ConsumedInput>().mouse_motion = true;
     }
 }
@@ -299,4 +337,25 @@ pub fn mouse_button_number(button: MouseButton) -> Option<u32> {
         MouseButton::Middle => 514,
         _ => return None,
     })
+}
+
+/// Quake's key number for an input that can be bound.
+pub fn input_number(input: &AnyInput) -> Option<u32> {
+    match input {
+        AnyInput::Keyboard(key) => key_number(key),
+        AnyInput::Mouse(button) => mouse_button_number(*button),
+        _ => None,
+    }
+}
+
+/// The input with Quake's key number `number`.
+pub fn number_input(number: u32) -> Option<AnyInput> {
+    named_inputs().map(|(_, input)| input).find(|input| input_number(input) == Some(number))
+}
+
+/// The name of the key with Quake's key number `number`, as `keynumtostring` gives it: the
+/// character for printable keys, and the binding name otherwise.
+pub fn key_name(number: u32) -> Option<String> {
+    let (name, _) = named_inputs().find(|(_, input)| input_number(input) == Some(number))?;
+    Some(if name.len() == 1 { name.to_ascii_lowercase() } else { name.to_owned() })
 }

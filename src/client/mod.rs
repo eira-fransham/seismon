@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod console;
+// TODO: Put this behind a feature flag
 pub mod csqc;
 mod cvars;
 pub mod demo;
@@ -27,6 +28,7 @@ use self::{
 };
 
 use std::{
+    collections::VecDeque,
     iter,
     net::ToSocketAddrs,
     ops::Range,
@@ -228,6 +230,7 @@ where
             .init_state::<ClientGameState>()
             .init_state::<SignOn>()
             .init_resource::<Conchars>()
+            .init_resource::<InputHistory>()
             .init_resource::<MusicPlayer>()
             .init_resource::<DemoQueue>()
             .init_asset::<Demo>()
@@ -602,6 +605,59 @@ impl ConnectionTarget {
     }
 }
 
+/// A move command that was sent to the server, as CSQC's `input_*` globals see it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InputFrame {
+    /// The number of this command, counting from 1 (`clientcommandframe`).
+    pub sequence: u32,
+    /// How long the command is for, in seconds (`input_timelength`).
+    pub timelength: f32,
+    /// The view angles in degrees (`input_angles`: pitch, yaw, roll).
+    pub angles: Vec3,
+    /// The forward, side and up movement (`input_movevalues`).
+    pub movevalues: Vec3,
+    /// The buttons (`input_buttons`): 1 is attack, 2 is jump and 4 is use.
+    pub buttons: u32,
+    /// The impulse (`input_impulse`).
+    pub impulse: u8,
+}
+
+/// The move commands that have been sent to the server, most recent last, for CSQC's
+/// `getinputstate`.
+#[derive(Resource, Debug, Default)]
+pub struct InputHistory {
+    frames: VecDeque<InputFrame>,
+    /// The sequence number of the last command (0 before any are sent).
+    last_sequence: u32,
+}
+
+impl InputHistory {
+    /// How many commands are kept.
+    pub const LEN: usize = 128;
+
+    /// Records a command that is being sent, returning its sequence number.
+    pub fn push(&mut self, mut frame: InputFrame) -> u32 {
+        self.last_sequence += 1;
+        frame.sequence = self.last_sequence;
+        if self.frames.len() == Self::LEN {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(frame);
+        self.last_sequence
+    }
+
+    /// The sequence number of the last command sent.
+    pub fn last_sequence(&self) -> u32 {
+        self.last_sequence
+    }
+
+    /// The command with sequence number `sequence`, if it is still kept.
+    pub fn get(&self, sequence: u32) -> Option<&InputFrame> {
+        let first = self.frames.front()?.sequence;
+        self.frames.get(sequence.checked_sub(first)? as usize)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ClientVars<'a> {
     pub name: &'a str,
@@ -663,6 +719,16 @@ impl From<&NewConnection> for Connection {
 impl Connection {
     pub fn is_connected(&self) -> bool {
         self.connected
+    }
+
+    /// Whether this is a demo being played back rather than a server.
+    pub fn is_demo(&self) -> bool {
+        matches!(self.target, ConnectionTarget::Demo(_))
+    }
+
+    /// The state of the current level, if there is one.
+    pub fn client_state(&self) -> Option<&ClientState> {
+        self.client_state.as_ref()
     }
 
     fn handle_signon(
@@ -945,8 +1011,12 @@ mod systems {
         mut cursor_options: Single<&mut CursorOptions, (With<Window>, With<PrimaryWindow>)>,
         registry: Res<Registry>,
         focus: Res<State<InputFocus>>,
+        csqc_cursor: Option<Res<csqc::hooks::CsqcCursor>>,
+        csqc: Option<Res<csqc::Csqc>>,
     ) {
-        if *focus == InputFocus::Game && registry.is_pressed("mlook") {
+        // CSQC can ask for the cursor to be free, e.g. for its own menus.
+        let csqc_cursor = csqc.is_some() && csqc_cursor.is_some_and(|cursor| cursor.enabled);
+        if *focus == InputFocus::Game && registry.is_pressed("mlook") && !csqc_cursor {
             cursor_options.grab_mode = CursorGrabMode::Locked;
             cursor_options.visible = false;
         } else {
@@ -955,6 +1025,7 @@ mod systems {
         }
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Bevy system parameters")]
     pub fn send_input_to_server(
         registry: ResMut<Registry>,
         mut conn: ResMut<Connection>,
@@ -962,6 +1033,8 @@ mod systems {
         mut client_events: MessageWriter<ClientMessage>,
         mut impulses: MessageReader<Impulse>,
         intermission: Res<HudIntermission>,
+        mut history: ResMut<InputHistory>,
+        csqc_sensitivity: Option<Res<csqc::hooks::CsqcSensitivity>>,
     ) -> Result<(), ClientError> {
         fn handle_input(
             registry: &Registry,
@@ -1053,11 +1126,12 @@ mod systems {
 
         // TODO: Error handling
         let move_vars: MoveVars = registry.read_cvars().unwrap();
-        let mouse_vars: MouseVars = registry.read_cvars().unwrap();
+        let mut mouse_vars: MouseVars = registry.read_cvars().unwrap();
+        if let Some(scale) = csqc_sensitivity {
+            mouse_vars.sensitivity *= scale.0;
+        }
 
-        // TODO: Unclear fromm the bevy documentation if this drops all other events for the frame,
-        //       but in this case it's almost certainly fine
-        let impulse = impulses.read().next().map(|i| i.0);
+        let impulse = impulses.read().map(|i| i.0).reduce(|a, b| a | b);
 
         let mut dummy_look_angles = QAngles::default();
 
@@ -1079,6 +1153,34 @@ mod systems {
         ) else {
             return Ok(());
         };
+
+        if let ClientCmd::Move {
+            delta_time,
+            angles,
+            fwd_move,
+            side_move,
+            up_move,
+            button_flags,
+            impulse,
+        } = &move_cmd
+        {
+            let buttons = [(ButtonFlags::ATTACK, 1), (ButtonFlags::JUMP, 2), (ButtonFlags::USE, 4)]
+                .into_iter()
+                .filter(|(flag, _)| button_flags.contains(*flag))
+                .fold(0, |bits, (_, bit)| bits | bit);
+            history.push(InputFrame {
+                sequence: 0,
+                timelength: delta_time.as_secs_f32(),
+                angles: Vec3::new(angles.pitch_deg, angles.yaw_deg, angles.roll_deg),
+                movevalues: Vec3::new(
+                    f32::from(*fwd_move),
+                    f32::from(*side_move),
+                    f32::from(*up_move),
+                ),
+                buttons,
+                impulse: *impulse,
+            });
+        }
 
         let mut msg = Vec::new();
         move_cmd.serialize(&mut msg)?;
@@ -1177,7 +1279,7 @@ mod systems {
 
         if let Some(bsp) = bsp_assets.get(&worldspawn.bsp) {
             commands.entity(client_state.worldspawn).insert(bsp.transform);
-            client_state.populate_precache(bsp);
+            client_state.populate_model_precache(bsp);
 
             commands.set_state_if_different(ClientGameState::WaitForServer);
         }
@@ -1328,13 +1430,20 @@ mod systems {
                 match cmd {
                     ServerCmd::ServerInfo {
                         protocol_version,
-                        max_clients: _,
-                        game_type: _,
+                        max_clients,
+                        game_type,
                         message,
                         model_precache,
                         sound_precache,
                     } => {
-                        ctx.server_info(protocol_version, message, model_precache, sound_precache)?;
+                        ctx.server_info(
+                            protocol_version,
+                            max_clients,
+                            game_type,
+                            message,
+                            model_precache,
+                            sound_precache,
+                        )?;
                         // Stop here so the new level can load before any further messages.
                         break S::Maintain;
                     }
@@ -1451,14 +1560,15 @@ mod systems {
                         ctx.particle(origin, direction, count, color)
                     }
                     ServerCmd::TempEntity { temp_entity } => ctx.temp_entity(&temp_entity),
-                    ServerCmd::UpdateColors { player_id: _, new_colors: _ } => {
-                        msg_todo!("update colors")
+                    ServerCmd::UpdateColors { player_id, new_colors } => {
+                        ctx.update_player_info(player_id, |player| player.colors = new_colors)
                     }
-                    ServerCmd::UpdateFrags { player_id: _, new_frags: _ } => {
-                        msg_todo!("update frags")
-                    }
-                    ServerCmd::UpdateName { player_id: _, new_name: _ } => {
-                        msg_todo!("update name")
+                    ServerCmd::UpdateFrags { player_id, new_frags } => ctx
+                        .update_player_info(player_id, |player| {
+                            player.frags = i32::from(new_frags)
+                        }),
+                    ServerCmd::UpdateName { player_id, new_name } => {
+                        ctx.update_player_info(player_id, |player| player.name = new_name)
                     }
                     ServerCmd::SellScreen => msg_todo!("Display upsell screen"),
                 }

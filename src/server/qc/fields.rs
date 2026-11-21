@@ -74,7 +74,7 @@ macro_rules! qc_components {
         )*
 
         /// Accessors for every field, by QuakeC name.
-        pub const $accessors: std::sync::LazyLock<Box<[(&'static str, Accessor)]>> = std::sync::LazyLock::new(|| {
+        pub static $accessors: std::sync::LazyLock<Box<[(&'static str, Accessor)]>> = std::sync::LazyLock::new(|| {
             #[allow(unused_mut)]
             let mut out = Vec::new();
             $($(qc_components!(@accessor out, $component, $field, $kind, $name);)*)*

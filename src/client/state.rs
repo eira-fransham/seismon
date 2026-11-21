@@ -72,18 +72,68 @@ fn entity_state_transform(state: &EntityState) -> Transform {
         .with_rotation(QAngles { roll_deg: roll, pitch_deg: pitch, yaw_deg: yaw }.into())
 }
 
-#[derive(Clone)]
+/// A player slot on the scoreboard (`scoreboard_t`), as sent by `svc_updatename`,
+/// `svc_updatefrags` and `svc_updatecolors`. A slot is empty while its name is empty.
+#[derive(Clone, Debug)]
 pub struct PlayerInfo {
     pub name: QString,
     pub frags: i32,
     pub colors: PlayerColor,
 }
 
+impl Default for PlayerInfo {
+    fn default() -> Self {
+        Self { name: QString::default(), frags: 0, colors: PlayerColor::new(0, 0) }
+    }
+}
+
+/// The number of stats (`cl.stats`). Quake only uses the first 32, but FTEQW's CSQC can read up
+/// to 256.
+pub const MAX_CL_STATS: usize = 256;
+
+/// Stat numbers (`STAT_*`), as CSQC sees them. Quake servers send most of these in
+/// `svc_clientdata` rather than `svc_updatestat`.
+pub mod stat {
+    pub const HEALTH: usize = 0;
+    pub const FRAGS: usize = 1;
+    pub const WEAPON: usize = 2;
+    pub const AMMO: usize = 3;
+    pub const ARMOR: usize = 4;
+    pub const WEAPONFRAME: usize = 5;
+    pub const SHELLS: usize = 6;
+    pub const NAILS: usize = 7;
+    pub const ROCKETS: usize = 8;
+    pub const CELLS: usize = 9;
+    pub const ACTIVEWEAPON: usize = 10;
+    pub const TOTALSECRETS: usize = 11;
+    pub const TOTALMONSTERS: usize = 12;
+    pub const SECRETS: usize = 13;
+    pub const MONSTERS: usize = 14;
+    pub const ITEMS: usize = 15;
+    pub const VIEWHEIGHT: usize = 16;
+}
+
 #[derive(Clone)]
-pub enum PrecacheModel {
+pub struct PrecacheModel {
+    pub name: Option<String>,
+    pub state: PrecacheModelState,
+}
+
+#[derive(Clone)]
+pub enum PrecacheModelState {
     Invalid,
+    // TODO: This is here to work around a bug in Bevy 0.18 where simultaneously loading
+    // `foo.bsp#Model0` at the same time as `foo.bsp#Model1` would cause a race condition
+    // and break some internal state. If that bug is fixed on Bevy 0.20, we can remove
+    // this special-case and the code that handles it (`populate_model_precache`).
     WaitingOnWorldspawn(usize),
     Loaded(Handle<WorldAsset>),
+}
+
+#[derive(Clone)]
+pub struct PrecacheSound {
+    pub name: String,
+    pub sample: Handle<AudioSample>,
 }
 
 #[derive(Component, Reflect)]
@@ -115,7 +165,7 @@ pub struct ClientState {
     pub models: Box<[PrecacheModel]>,
 
     /// Sound precache.
-    pub sounds: Box<[Handle<AudioSample>]>,
+    pub sounds: Box<[PrecacheSound]>,
 
     /// Sounds that are always needed, even if not in precache.
     /// This does not need to be read, it's just to ensure that
@@ -126,11 +176,29 @@ pub struct ClientState {
 
     /// The current lightstyles, i.e. `cl_lightstyle`. Sized by [`max_lightstyles`] when the
     /// level starts; use its length rather than a constant as the limit.
+    // TODO: Store this on a component on the worldspawn entity instead of globally.
     pub lightstyles: Vec<LightStyle>,
 
     /// Set when [`Self::lightstyles`] changes, so `sync_lightstyles` rebuilds the lightmap
     /// animators.
+    // TODO: Use a marker component on the worldspawn entity rather than storing this globally.
     pub lightstyles_changed: bool,
+
+    /// The number of player slots on the server.
+    // TODO: Delegate to cvar
+    pub max_clients: u8,
+
+    /// Whether the server is running deathmatch (rather than coop).
+    // TODO: Delegate to cvar
+    pub deathmatch: bool,
+
+    /// The scoreboard, one entry per player slot.
+    // TODO: This should be stored on the `PlayerState` component rather than globally.
+    pub players: Vec<PlayerInfo>,
+
+    /// The stats of this client's player (`cl.stats`), indexed by the numbers in [`stat`].
+    // TODO: This should be stored on the `PlayerState` component rather than globally.
+    pub stats: Box<[i32; MAX_CL_STATS]>,
 }
 
 #[derive(Component, Default, Debug)]
@@ -139,28 +207,28 @@ pub struct PlayerState {
 }
 
 impl ClientState {
-    pub fn populate_precache(&mut self, bsp: &Bsp) {
+    pub fn populate_model_precache(&mut self, bsp: &Bsp) {
         for model in &mut self.models {
-            if let PrecacheModel::WaitingOnWorldspawn(idx) = *model {
-                *model = PrecacheModel::Loaded(bsp.models[idx].clone());
+            if let PrecacheModelState::WaitingOnWorldspawn(idx) = model.state {
+                model.state = PrecacheModelState::Loaded(bsp.models[idx].clone());
             }
         }
     }
 
-    pub fn from_server_info<SName: AsRef<str>>(
+    pub fn from_server_info(
         worldspawn: &mut EntityCommands,
         asset_server: &AssetServer,
         model_precache: Vec<String>,
-        sound_precache: Vec<SName>,
+        sound_precache: Vec<String>,
     ) -> Result<ClientState, ClientError> {
         trace!("Model precache: {model_precache:?}");
 
         let mut model_precache = model_precache.into_iter();
 
         // TODO: Better error
-        let worldspawn_path = model_precache.next().context(InvalidConnectResponseSnafu)?;
+        let worldspawn_path_string = model_precache.next().context(InvalidConnectResponseSnafu)?;
 
-        let worldspawn_path = AssetPath::parse(&worldspawn_path).into_owned();
+        let worldspawn_path = AssetPath::parse(&worldspawn_path_string).into_owned();
 
         worldspawn.insert((
             Name::new("worldspawn"),
@@ -168,35 +236,44 @@ impl ClientState {
         ));
 
         // TODO: validate submodel names
-        let models = [PrecacheModel::Invalid, PrecacheModel::WaitingOnWorldspawn(0)]
-            .into_iter()
-            .chain(model_precache.map(|model_name| {
-                if model_name.ends_with(".bsp") {
-                    // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
-                    // models
+        let models = [
+            PrecacheModel { name: None, state: PrecacheModelState::Invalid },
+            PrecacheModel {
+                name: Some(worldspawn_path_string),
+                state: PrecacheModelState::WaitingOnWorldspawn(0),
+            },
+        ]
+        .into_iter()
+        .chain(model_precache.map(|model_name| {
+            let model_kind = if model_name.ends_with(".bsp") {
+                // TODO: We want the worldspawn to be `Model0` but other BSPs to be all
+                // models
 
-                    PrecacheModel::Loaded(
-                        asset_server
-                            .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
-                    )
-                } else if let Some(model_idx) = model_name.strip_prefix('*') {
-                    PrecacheModel::WaitingOnWorldspawn(
-                        model_idx.parse().expect("TODO: Handle this error"),
-                    )
-                } else {
-                    PrecacheModel::Loaded(asset_server.load(model_name))
-                }
-            }))
-            .collect();
+                PrecacheModelState::Loaded(
+                    asset_server
+                        .load(AssetPath::parse(&model_name).into_owned().with_label("Model0")),
+                )
+            } else if let Some(model_idx) = model_name.strip_prefix('*') {
+                PrecacheModelState::WaitingOnWorldspawn(
+                    model_idx.parse().expect("TODO: Handle this error"),
+                )
+            } else {
+                PrecacheModelState::Loaded(asset_server.load(&model_name))
+            };
 
-        let sounds = iter::once("misc/null.wav")
-            .chain(sound_precache.iter().map(AsRef::as_ref))
-            .enumerate()
-            .map(|(i, snd_name)| {
+            PrecacheModel { name: Some(model_name), state: model_kind }
+        }))
+        .collect();
+
+        let sounds = iter::once("misc/null.wav".to_owned()).chain(sound_precache).enumerate().map(
+            |(i, snd_name)| {
                 debug!("Loading sound {}: {}", i, snd_name);
-                asset_server.load(format!("sound/{snd_name}"))
+                let sample = asset_server.load(format!("sound/{snd_name}"));
+
                 // TODO: send keepalive message?
-            });
+                PrecacheSound { name: snd_name, sample }
+            },
+        );
 
         let cached_sounds = TEMP_ENTITY_BUILTIN_SOUNDS
             .iter()
@@ -216,6 +293,10 @@ impl ClientState {
             // A new level clears every style, like `CL_ClearState`. The server resends them.
             lightstyles: Default::default(),
             lightstyles_changed: true,
+            max_clients: 0,
+            deathmatch: false,
+            players: Vec::new(),
+            stats: Box::new([0; MAX_CL_STATS]),
         })
     }
 
@@ -324,7 +405,7 @@ impl ClientState {
             }
         };
 
-        if let Some(PrecacheModel::Loaded(model)) = model {
+        if let Some(PrecacheModel { state: PrecacheModelState::Loaded(model), .. }) = model {
             ent.insert((WorldAssetRoot(model), MdlSettings { frame, skin }));
         } else {
             error!("Tried to insert model but it wasn't loaded yet");
@@ -335,7 +416,7 @@ impl ClientState {
     #[expect(clippy::too_many_arguments)]
     pub fn update_player(
         In(player_data): In<PlayerData>,
-        conn: Res<Connection>,
+        mut conn: ResMut<Connection>,
         mut existing_data: Query<(&mut PlayerState, &mut Health, &mut Armor, &mut CurrentAmmo)>,
         // TODO: We should just add a single `IsPlayer` component (or similar) that adds `PlayerState`,
         // `Health` and `ViewEntities`
@@ -354,9 +435,30 @@ impl ClientState {
             Sigil3, Sigil4, SuperNailgun, SuperShotgun, UpdateAmmoCount,
         };
 
-        let Some(state) = conn.client_state.as_ref() else {
+        let Some(state) = conn.client_state.as_mut() else {
             return;
         };
+
+        // `CL_ParseClientdata` stores these in `cl.stats` (and the items in `cl.items`, which
+        // CSQC sees as `STAT_ITEMS`).
+        let view_height = player_data.view_height.unwrap_or(DEFAULT_VIEWHEIGHT);
+        for (stat, value) in [
+            (stat::HEALTH, i32::from(player_data.health)),
+            (stat::WEAPON, player_data.weapon_model_id.map_or(0, i32::from)),
+            (stat::AMMO, i32::from(player_data.ammo)),
+            (stat::ARMOR, player_data.armor.map_or(0, i32::from)),
+            (stat::WEAPONFRAME, player_data.weapon_frame.map_or(0, i32::from)),
+            (stat::SHELLS, i32::from(player_data.ammo_shells)),
+            (stat::NAILS, i32::from(player_data.ammo_nails)),
+            (stat::ROCKETS, i32::from(player_data.ammo_rockets)),
+            (stat::CELLS, i32::from(player_data.ammo_cells)),
+            (stat::ACTIVEWEAPON, i32::from(player_data.active_weapon)),
+            (stat::ITEMS, player_data.items.bits() as i32),
+            (stat::VIEWHEIGHT, view_height as i32),
+        ] {
+            state.stats[stat] = value;
+        }
+        let state = &*state;
 
         let Some(ent) = state
             .view
@@ -377,8 +479,8 @@ impl ClientState {
             player_data.velocity_y.unwrap_or_default(),
             player_data.velocity_z.unwrap_or_default(),
         );
-        // Missing fields have their defaults, as in `CL_ParseClientdata`.
-        let view_height = player_data.view_height.unwrap_or(DEFAULT_VIEWHEIGHT);
+        // Missing fields have their defaults, as in `CL_ParseClientdata` (see `view_height`
+        // above).
 
         if let Ok(mut effects) = view_effects.get_mut(ent) {
             write_if_neq!(effects.view_height, view_height);
@@ -400,7 +502,9 @@ impl ClientState {
         // (`V_CalcIntermissionRefdef`).
         let weapon_model = player_data.weapon_model_id.filter(|&id| id != 0).and_then(|id| {
             match state.models.get(id as usize) {
-                Some(PrecacheModel::Loaded(model)) => Some(model.clone()),
+                Some(PrecacheModel { state: PrecacheModelState::Loaded(model), .. }) => {
+                    Some(model.clone())
+                }
                 _ => None,
             }
         });
@@ -623,7 +727,7 @@ impl ClientState {
                 ent.remove::<NoInterpolation>();
             }
 
-            if let Some(PrecacheModel::Loaded(model)) =
+            if let Some(PrecacheModel { state: PrecacheModelState::Loaded(model), .. }) =
                 state.models.get(full.model_id as usize).cloned()
                 && scene.map(|s| &s.0) != Some(&model)
             {
@@ -663,7 +767,7 @@ impl ClientState {
                 ChildOf(state.worldspawn),
             ));
 
-            if let Some(PrecacheModel::Loaded(model)) =
+            if let Some(PrecacheModel { state: PrecacheModelState::Loaded(model), .. }) =
                 state.models.get(full.model_id as usize).cloned()
             {
                 ent.insert((

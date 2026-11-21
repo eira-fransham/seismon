@@ -8,7 +8,7 @@ use crate::client::{
     hud::MakeHud,
     lightstyle::LightStyle,
     particles::ParticleEvent,
-    state::PrecacheModel,
+    state::{PrecacheModel, PrecacheModelState},
     systems::frame::{ViewEntities, ViewFor},
 };
 
@@ -36,6 +36,8 @@ impl ServerMsgCtx<'_, '_> {
     pub fn server_info(
         &mut self,
         protocol_version: i32,
+        max_clients: u8,
+        game_type: net::GameType,
         message: QString,
         model_precache: Vec<String>,
         sound_precache: Vec<String>,
@@ -60,12 +62,16 @@ impl ServerMsgCtx<'_, '_> {
 
         let mut new_worldspawn = self.commands.spawn(Visibility::Hidden);
 
-        self.conn.client_state = Some(ClientState::from_server_info(
+        let mut state = ClientState::from_server_info(
             &mut new_worldspawn,
             &self.asset_server,
             model_precache,
             sound_precache,
-        )?);
+        )?;
+        state.max_clients = max_clients;
+        state.deathmatch = game_type == net::GameType::Deathmatch;
+        state.players = vec![default(); usize::from(max_clients)];
+        self.conn.client_state = Some(state);
 
         self.commands.set_state_if_different(ClientGameState::Loading);
         // CSQC is loaded with each level.
@@ -208,7 +214,7 @@ impl ServerMsgCtx<'_, '_> {
         if let Some(sound) = state.sounds.get(sound_id as usize) {
             self.commands.write_message(MixerMessage::StartSound(StartSound {
                 entity,
-                src: sound.clone(),
+                src: sound.sample.clone(),
                 ent_channel: channel,
                 volume: volume as f32 / 255.0,
                 attenuation,
@@ -223,7 +229,7 @@ impl ServerMsgCtx<'_, '_> {
         {
             self.commands.write_message(MixerMessage::StartStaticSound(StartStaticSound {
                 world: state.worldspawn,
-                src: sound.clone(),
+                src: sound.sample.clone(),
                 origin,
                 volume: volume as f32 / 255.,
                 attenuation: attenuation as f32 / 64.,
@@ -266,7 +272,9 @@ impl ServerMsgCtx<'_, '_> {
             ChildOf(state.worldspawn),
         ));
 
-        if let Some(PrecacheModel::Loaded(model)) = state.models.get(model_id as usize).cloned() {
+        if let Some(PrecacheModel { state: PrecacheModelState::Loaded(model), .. }) =
+            state.models.get(model_id as usize).cloned()
+        {
             ent.insert(WorldAssetRoot(model));
         }
     }
@@ -328,13 +336,37 @@ impl ServerMsgCtx<'_, '_> {
     pub fn update_stat(&mut self, stat: net::ClientStat, value: i32) {
         use net::ClientStat as Stat;
 
+        if let Some(state) = self.conn.client_state.as_mut()
+            && let Some(slot) = state.stats.get_mut(stat as usize)
+        {
+            *slot = value;
+        }
+
         match stat {
             Stat::TotalSecrets => self.level_stats.total_secrets = value,
             Stat::TotalMonsters => self.level_stats.total_monsters = value,
             Stat::FoundSecrets => self.level_stats.secrets = value,
             Stat::KilledMonsters => self.level_stats.monsters = value,
-            // The rest are sent in `PlayerData` by Quake servers.
-            stat => debug!("TODO: Update stat {stat:?}"),
+            // The rest are only in the stats, as they're sent in `PlayerData` by Quake servers.
+            _ => {}
+        }
+    }
+
+    /// Updates a player slot on the scoreboard with `update`, like `svc_updatename` etc.
+    pub fn update_player_info(
+        &mut self,
+        player_id: u8,
+        update: impl FnOnce(&mut crate::client::state::PlayerInfo),
+    ) {
+        let Some(state) = self.conn.client_state.as_mut() else {
+            return;
+        };
+        match state.players.get_mut(usize::from(player_id)) {
+            Some(player) => update(player),
+            None => warn!(
+                "Update for player {player_id}, but there are only {} slots",
+                state.players.len()
+            ),
         }
     }
 }

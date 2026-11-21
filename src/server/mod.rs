@@ -497,7 +497,7 @@ pub fn water_move(
 /// Calculates how far to roll the player model during a strafe.
 ///
 /// Equivalent to `V_CalcRoll`
-fn calc_roll(angles: Vec3, velocity: Vec3) -> f32 {
+pub(crate) fn calc_roll(angles: Vec3, velocity: Vec3) -> f32 {
     /// Equivalent to `cl_rollangle`
     // TODO: Make this a cvar
     const ROLL_ANGLE: f32 = 2.;
@@ -517,7 +517,7 @@ fn calc_roll(angles: Vec3, velocity: Vec3) -> f32 {
 /// `overbounce`.
 ///
 /// Equivalent to `ClipVelocity`
-fn clip_velocity(velocity: Vec3, normal: Vec3, overbounce: f32) -> Vec3 {
+pub(crate) fn clip_velocity(velocity: Vec3, normal: Vec3, overbounce: f32) -> Vec3 {
     const STOP_EPSILON: f32 = 0.1;
 
     let backoff = velocity.dot(normal) * overbounce;
@@ -528,44 +528,44 @@ fn clip_velocity(velocity: Vec3, normal: Vec3, overbounce: f32) -> Vec3 {
 }
 
 /// Converts leaf contents to the values QuakeC expects.
-const fn quake_contents(contents: BspLeafContents) -> f32 {
+pub(crate) const fn quake_contents(contents: BspLeafContents) -> f32 {
     -(contents as i32 as f32)
 }
 
 /// Returns whether `contents` counts as being in liquid.
 ///
 /// **NOTE**: Sky is counted as a liquid, a quirk inherited from Quake.
-fn is_liquid(contents: BspLeafContents) -> bool {
+pub(crate) fn is_liquid(contents: BspLeafContents) -> bool {
     contents as i32 >= BspLeafContents::Water as i32
 }
 
 #[derive(Copy, Clone, PartialEq, Deserialize)]
 pub struct ServerVars {
     #[serde(rename(deserialize = "sv_gravity"))]
-    gravity: f32,
+    pub gravity: f32,
     #[serde(skip, default = "default_entity_gravity")]
-    entity_gravity: f32,
+    pub entity_gravity: f32,
     #[serde(rename(deserialize = "sv_maxvelocity"))]
-    max_entity_velocity: f32,
+    pub max_entity_velocity: f32,
     #[serde(rename(deserialize = "sv_stepheight"))]
-    max_step: f32,
+    pub max_step: f32,
 }
 
 #[derive(Copy, Clone, PartialEq, Deserialize)]
 pub struct PlayerVars {
     #[serde(rename(deserialize = "sv_maxspeed"))]
-    max_speed: f32,
+    pub max_speed: f32,
     #[serde(rename(deserialize = "sv_maxairspeed"))]
-    max_air_speed: f32,
+    pub max_air_speed: f32,
     #[serde(rename(deserialize = "sv_stopspeed"))]
-    stop_speed: f32,
+    pub stop_speed: f32,
     #[serde(rename(deserialize = "sv_accelerate"))]
-    accel: f32,
+    pub accel: f32,
     #[serde(rename(deserialize = "sv_friction"))]
-    ground_friction: f32,
+    pub ground_friction: f32,
     /// Multiplier for `ground_friction` when the player is about to walk off an edge.
     #[serde(rename(deserialize = "edgefriction"))]
-    edge_friction: f32,
+    pub edge_friction: f32,
 }
 
 /// Returns the factor to scale a player's velocity by after applying `friction` for `dt` seconds
@@ -573,7 +573,7 @@ pub struct PlayerVars {
 ///
 /// Below `stop_speed`, friction acts as if the player were moving at `stop_speed`, so that slow
 /// players come to a stop quickly.
-fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
+pub(crate) fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
     if speed <= 0. {
         return 1.;
     }
@@ -581,8 +581,6 @@ fn friction_scale(speed: f32, friction: f32, stop_speed: f32, dt: f32) -> f32 {
     let control = speed.max(stop_speed);
     (speed - dt * control * friction).max(0.) / speed
 }
-
-use seismon_utils::angle_mod;
 
 /// Formats a float in the format expected by QuakeC.
 ///
@@ -840,23 +838,32 @@ impl<'w> ServerCtx<'w> {
         end: Vec3,
         kind: CollideKind,
     ) -> Result<(Trace, Option<Entity>), ServerError> {
-        self.collision().trace_entity_move(self.world, entity, start, min, max, end, kind)
+        Ok(self.collision().trace_entity_move(
+            &world::ServerEnts,
+            self.world,
+            entity,
+            start,
+            min,
+            max,
+            end,
+            kind,
+        )?)
     }
 
     pub fn entity_is_stuck(&self, entity: Entity) -> Result<bool, ServerError> {
-        self.collision().entity_is_stuck(self.world, entity)
+        Ok(self.collision().entity_is_stuck(&world::ServerEnts, self.world, entity)?)
     }
 
     /// Links an entity into the area tree, without touching triggers.
     pub fn link_raw(&mut self, entity: Entity) -> Result<(), ServerError> {
         self.world.resource_scope(|world, mut collision: Mut<LevelCollision>| {
-            collision.link_entity(world, entity)
+            Ok(collision.link_entity(&world::ServerEnts, world, entity)?)
         })
     }
 
     pub fn unlink(&mut self, entity: Entity) -> Result<(), ServerError> {
         self.world.resource_scope(|world, mut collision: Mut<LevelCollision>| {
-            collision.unlink_entity(world, entity)
+            Ok(collision.unlink_entity(&world::ServerEnts, world, entity)?)
         })
     }
 
@@ -1458,9 +1465,11 @@ pub mod systems {
         world.insert_resource(LevelAttachment(attachment));
         world.insert_resource(ServerRng::new(seed));
         world.insert_resource(EdictTable::new(worldspawn, MAX_CLIENTS));
-        world
-            .entity_mut(worldspawn)
-            .insert((qc_entity_bundle(worldspawn, 0), QcGlobals::new(worldspawn)));
+        world.entity_mut(worldspawn).insert((
+            qc_entity_bundle(worldspawn, 0),
+            QcGlobals::new(worldspawn),
+            crate::common::qc::QcVm(vm.clone()),
+        ));
 
         let mut persist =
             pending.persist.take().unwrap_or_else(|| SessionPersistent::new(MAX_CLIENTS));
